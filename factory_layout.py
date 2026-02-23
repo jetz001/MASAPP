@@ -180,7 +180,6 @@ class FactoryLayoutPage(QWidget):
         
         self.current_map_id = None
         self.setup_mode = False
-        self.filter_abnormal_only = False
         
         self._build_ui()
         self.load_maps()
@@ -212,11 +211,6 @@ class FactoryLayoutPage(QWidget):
         top_row.addStretch()
 
         # Tools
-        self.btn_filter = QPushButton(" กรอง: ทั้งหมด ")
-        self.btn_filter.setObjectName("btn_secondary")
-        self.btn_filter.clicked.connect(self._toggle_filter)
-        top_row.addWidget(self.btn_filter)
-
         if self.current_user and self.current_user.role in [ROLE_ADMIN, ROLE_ENGINEER, ROLE_MANAGER]:
             self.btn_setup = QPushButton(" ⚙️ วางเครื่องจักร ")
             self.btn_setup.setObjectName("btn_secondary")
@@ -306,11 +300,6 @@ class FactoryLayoutPage(QWidget):
         machines = self.machine_service.get_all_machines()
         for m in machines:
             if m.map_id == self.current_map_id and m.map_x is not None and m.map_y is not None:
-                # Apply filter logic
-                raw_status = getattr(m, 'status', 'Running') or 'Running'
-                if self.filter_abnormal_only and raw_status == 'Running':
-                    continue
-                    
                 self.map_view.add_pin(m, m.map_x, m.map_y)
 
     def _toggle_setup_mode(self):
@@ -325,19 +314,6 @@ class FactoryLayoutPage(QWidget):
             self.btn_setup.setStyleSheet("")
             self.btn_setup.setObjectName("btn_secondary")
             self.btn_setup.setStyle(self.btn_setup.style())
-
-    def _toggle_filter(self):
-        from views import ThemeManager
-        self.filter_abnormal_only = not self.filter_abnormal_only
-        if self.filter_abnormal_only:
-            self.btn_filter.setText(" กรอง: เฉพาะที่มีปัญหา ")
-            self.btn_filter.setStyleSheet(f"background: {ThemeManager.c('RED')}; color: white; padding: 6px 16px; border-radius: 4px;")
-        else:
-            self.btn_filter.setText(" กรอง: ทั้งหมด ")
-            self.btn_filter.setStyleSheet("")
-            self.btn_filter.setObjectName("btn_secondary")
-            self.btn_filter.setStyle(self.btn_filter.style())
-        self._load_pins()
 
     def _upload_map(self):
         from PyQt6.QtWidgets import QInputDialog
