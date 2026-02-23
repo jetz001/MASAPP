@@ -155,14 +155,16 @@ class InteractiveMapView(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             item = self.itemAt(event.pos())
             if isinstance(item, MachinePinItem):
-                self.pin_clicked.emit(item.machine_id)
-                # Call base class so hover events properly reset if needed
-                super().mousePressEvent(event)
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self.pin_clicked.emit(item.machine_id))
+                event.accept()
                 return
             elif self.setup_mode and self.hasPhoto():
-                # Get scene coordinates
                 pos = self.mapToScene(event.pos())
-                self.map_clicked.emit(pos)
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self.map_clicked.emit(pos))
+                event.accept()
+                return
                 
         # Call base implementation to allow panning
         super().mousePressEvent(event)
