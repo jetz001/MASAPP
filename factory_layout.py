@@ -169,6 +169,9 @@ class FactoryLayoutPage(QWidget):
         self.current_user = current_user
         self.map_service = FactoryMapService()
         self.machine_service = MachineService()
+        if self.current_user:
+            self.map_service.set_current_user(self.current_user)
+            self.machine_service.set_current_user(self.current_user)
         
         self.current_map_id = None
         self.setup_mode = False
@@ -194,6 +197,12 @@ class FactoryLayoutPage(QWidget):
         top_row.addWidget(make_label("  ชั้น/อาคาร: ", 12))
         top_row.addWidget(self.map_selector)
         
+        # Legend
+        top_row.addSpacing(20)
+        top_row.addWidget(make_label("🟢 ปกติ ", 12))
+        top_row.addWidget(make_label("🟡 แจ้งเตือน ", 12))
+        top_row.addWidget(make_label("🔴 ขัดข้อง ", 12))
+        
         top_row.addStretch()
 
         # Tools
@@ -203,7 +212,7 @@ class FactoryLayoutPage(QWidget):
         top_row.addWidget(self.btn_filter)
 
         if self.current_user and self.current_user.role in [ROLE_ADMIN, ROLE_ENGINEER, ROLE_MANAGER]:
-            self.btn_setup = QPushButton(" ⚙️ โหมดตั้งค่า ")
+            self.btn_setup = QPushButton(" ⚙️ วางเครื่องจักร ")
             self.btn_setup.setObjectName("btn_secondary")
             self.btn_setup.clicked.connect(self._toggle_setup_mode)
             top_row.addWidget(self.btn_setup)
@@ -295,10 +304,10 @@ class FactoryLayoutPage(QWidget):
         self.setup_mode = not self.setup_mode
         self.map_view.setup_mode = self.setup_mode
         if self.setup_mode:
-            self.btn_setup.setText(" 🔒 ออกจากโหมดตั้งค่า ")
+            self.btn_setup.setText(" 🔒 ยกเลิกการวาง ")
             self.btn_setup.setStyleSheet(f"background: {ThemeManager.c('BLUE')}; color: white; padding: 6px 16px; border-radius: 4px;")
         else:
-            self.btn_setup.setText(" ⚙️ โหมดตั้งค่า ")
+            self.btn_setup.setText(" ⚙️ วางเครื่องจักร ")
             self.btn_setup.setStyleSheet("")
             self.btn_setup.setObjectName("btn_secondary")
             self.btn_setup.setStyle(self.btn_setup.style())
@@ -408,9 +417,9 @@ class FactoryLayoutPage(QWidget):
         print(f"Pin clicked for machine {machine_id}")
         # In actual implementation:
         from views import ViewMachineDialog
-        m = self.machine_service.get_machine_by_id(machine_id)
+        m = self.machine_service.get_machine(machine_id)
         if m:
-            dlg = ViewMachineDialog(self, m, self.current_user)
+            dlg = ViewMachineDialog(m, self)
             dlg.exec()
 
     def _reset_pins(self):
