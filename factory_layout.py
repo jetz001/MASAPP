@@ -23,6 +23,16 @@ class MachinePinItem(QGraphicsEllipseItem):
         self.machine_id = machine.id
         self.setPos(x, y)
         
+        from PyQt6.QtWidgets import QGraphicsTextItem
+        from PyQt6.QtGui import QFont
+
+        # Add text label for machine code
+        self.text_item = QGraphicsTextItem(machine.code, self)
+        font = QFont("Kanit", 10)
+        self.text_item.setFont(font)
+        # Position text to the right of the pin
+        self.text_item.setPos(size/2 + 2, -size/2 - 4)
+        
         from views import ThemeManager
         
         # Real status logic mapping
@@ -150,6 +160,11 @@ class InteractiveMapView(QGraphicsView):
             size = 20 / scale_factor
             pin.setRect(-size/2, -size/2, size, size)
             pin.setPen(QPen(QColor(ThemeManager.c('BG_CARD')), 2 / scale_factor))
+            
+            # Scale text reversely so it stays same visual size
+            if hasattr(pin, 'text_item'):
+                pin.text_item.setScale(1.0 / scale_factor)
+                pin.text_item.setPos(size/2 + (2/scale_factor), -size/2 - (4/scale_factor))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
