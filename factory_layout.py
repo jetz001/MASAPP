@@ -202,6 +202,13 @@ class FactoryLayoutPage(QWidget):
         top_row.addWidget(make_label("  ชั้น/อาคาร: ", 12))
         top_row.addWidget(self.map_selector)
         
+        if self.current_user and self.current_user.role in [ROLE_ADMIN, ROLE_ENGINEER, ROLE_MANAGER]:
+            self.btn_del_map = QPushButton("ลบ")
+            self.btn_del_map.setToolTip("ลบแปลนโรงงานนี้")
+            self.btn_del_map.setStyleSheet(f"background: {ThemeManager.c('RED')}; color: white; padding: 6px 10px; border-radius: 4px; font-weight: bold;")
+            self.btn_del_map.clicked.connect(self._delete_current_map)
+            top_row.addWidget(self.btn_del_map)
+        
         top_row.addStretch()
 
         # Tools
@@ -441,3 +448,18 @@ class FactoryLayoutPage(QWidget):
             self.machine_service.db.commit()
             self._load_pins()
             QMessageBox.information(self, "สำเร็จ", "รีเซ็ตพิกัดเรียบร้อยแล้ว")
+
+    def _delete_current_map(self):
+        if not self.current_map_id: return
+        map_name = self.map_selector.currentText()
+        reply = QMessageBox.question(
+            self, "ยืนยันการลบ", f"คุณต้องการลบแปลน '{map_name}' จริงหรือไม่?\n\n(หมุดเครื่องจักรทั้งหมดบนแผนผังนี้จะถูกรีเซ็ตพิกัดด้วย)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.map_service.delete_map(self.current_map_id)
+                QMessageBox.information(self, "สำเร็จ", "ลบแผนผังเรียบร้อยแล้ว")
+                self.load_maps()
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถลบแผนผังได้:\n{str(e)}")
