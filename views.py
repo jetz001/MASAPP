@@ -483,7 +483,7 @@ class AddMachineDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("เพิ่มเครื่องจักรใหม่")
         self.setMinimumWidth(440)
-        self.setStyleSheet(f"background: {BG_PANEL};")
+        self.setStyleSheet(f"QDialog {{ background: {BG_PANEL}; }}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -549,7 +549,7 @@ class ViewMachineDialog(QDialog):
         self.machine = machine
         self.setWindowTitle(f"ข้อมูลเครื่องจักร: {machine.code}")
         self.setMinimumWidth(550)
-        self.setStyleSheet(f"background: {BG_PANEL};")
+        self.setStyleSheet(f"QDialog {{ background: {BG_PANEL}; }}")
         
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -807,7 +807,7 @@ class IntakeFormDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("ใบรับเครื่องจักรใหม่" if not form else f"ใบรับ {form.form_number}")
         self.setMinimumSize(680, 600)
-        self.setStyleSheet(f"background: {BG_PANEL};")
+        self.setStyleSheet(f"QDialog {{ background: {BG_PANEL}; }}")
         self._form = form        # existing form for editing
         self._readonly = readonly
         self._manual_path    = form.manual_file_path   if form else None
@@ -1958,7 +1958,7 @@ class AddUserDialog(QDialog):
         title_txt = "แก้ไขผู้ใช้" if self._edit_mode else "เพิ่มผู้ใช้ใหม่"
         self.setWindowTitle(title_txt)
         self.setMinimumWidth(400)
-        self.setStyleSheet(f"background: {BG_PANEL};")
+        self.setStyleSheet(f"QDialog {{ background: {BG_PANEL}; }}")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
