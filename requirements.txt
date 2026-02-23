@@ -1,0 +1,7 @@
+PyQt6
+SQLAlchemy
+psycopg2-binary
+qrcode
+Pillow
+reportlab
+matplotlib

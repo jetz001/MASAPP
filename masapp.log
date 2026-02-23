@@ -1,0 +1,187 @@
+2026-02-21 10:17:15,186 - MASAPP - ERROR - Failed to initialize database engine: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-02-21 10:17:15,205 - MASAPP - INFO - Initializing database schema...
+2026-02-21 10:17:15,208 - MASAPP - ERROR - No database engine available. Check your config.ini connection string.
+2026-02-21 10:17:49,210 - MASAPP - INFO - Database connection initialized.
+2026-02-21 10:17:49,235 - MASAPP - INFO - Initializing database schema...
+2026-02-21 10:17:49,331 - MASAPP - INFO - Database schema created successfully.
+2026-02-21 10:19:27,511 - MASAPP - INFO - Database connection initialized.
+2026-02-21 10:19:27,642 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 10:23:15,865 - MASAPP - INFO - Database connection initialized.
+2026-02-21 10:23:15,930 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 10:33:47,849 - MASAPP - INFO - Database connection initialized.
+2026-02-21 10:33:47,932 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 10:43:21,083 - MASAPP - INFO - Database connection initialized.
+2026-02-21 10:43:21,158 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 11:26:18,070 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:26:18,091 - MASAPP - INFO - Initializing database schema...
+2026-02-21 11:26:18,099 - MASAPP - INFO - Database schema created successfully.
+2026-02-21 11:26:23,947 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:26:24,016 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 11:30:17,882 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:30:17,947 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 11:30:42,200 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 11:34:38,029 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:34:38,086 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 11:56:30,855 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:56:58,798 - MASAPP - INFO - Database connection initialized.
+2026-02-21 11:56:58,870 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 11:57:58,396 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 12:52:22,994 - MASAPP - INFO - Database connection initialized.
+2026-02-21 12:53:51,113 - MASAPP - INFO - Database connection initialized.
+2026-02-21 12:53:51,180 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 12:54:09,914 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:14:01,366 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:14:01,438 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:14:25,132 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:17:25,258 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:17:25,282 - MASAPP - INFO - Initializing database schema...
+2026-02-21 13:17:25,296 - MASAPP - INFO - Database schema created successfully.
+2026-02-21 13:17:54,144 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:17:54,213 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:18:31,075 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:26:00,293 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:26:00,374 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:26:11,692 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:27:27,125 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:27:27,193 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:27:40,454 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:28:05,218 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:28:05,289 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:28:12,836 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:29:21,365 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:29:21,436 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:29:28,993 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:39:29,650 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:39:29,725 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:39:45,169 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:50:31,825 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:50:31,899 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:50:46,765 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 13:53:29,085 - MASAPP - INFO - Database connection initialized.
+2026-02-21 13:53:29,161 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 13:53:43,312 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:02:04,425 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:02:04,496 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:02:14,742 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:04:11,206 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:04:11,285 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:04:54,410 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:05:59,021 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:05:59,117 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:06:53,830 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:06:53,902 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:07:07,886 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:08:54,867 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:08:54,942 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:08:58,748 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:11:32,649 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:11:32,723 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:11:36,112 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:14:01,924 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:14:01,999 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:14:06,075 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:19:39,498 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:19:39,575 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 14:19:45,430 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 14:59:56,685 - MASAPP - INFO - Database connection initialized.
+2026-02-21 14:59:56,775 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:00:03,178 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:02:49,821 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:02:49,900 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:02:55,596 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:06:49,224 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:06:49,302 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:06:54,935 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:08:43,226 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:08:43,298 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:08:46,789 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:22:05,885 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:22:05,960 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:22:11,576 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:24:16,342 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:24:16,422 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:24:21,865 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:28:20,786 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:28:20,861 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:28:26,410 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:29:59,801 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:29:59,874 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:30:03,722 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:42:46,144 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:42:46,222 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:42:51,779 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:46:02,016 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:46:02,089 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:46:06,289 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:47:27,484 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:47:27,558 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:47:31,033 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:50:37,741 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:50:37,818 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:50:46,912 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 15:54:41,852 - MASAPP - INFO - Database connection initialized.
+2026-02-21 15:54:41,931 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 15:54:51,306 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:00:42,962 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:00:43,038 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:00:46,481 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:22:42,835 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:22:42,926 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:22:46,381 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:27:37,196 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:27:37,272 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:27:44,750 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:30:31,286 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:30:31,365 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:30:37,135 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:34:06,060 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:34:06,134 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:34:12,104 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:41:26,129 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:41:26,209 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:41:32,163 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:47:34,035 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:47:34,146 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:47:39,315 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:53:58,159 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:53:58,239 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:54:03,159 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 16:56:35,591 - MASAPP - INFO - Database connection initialized.
+2026-02-21 16:56:35,668 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 16:56:39,094 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-21 17:00:00,937 - MASAPP - INFO - Database connection initialized.
+2026-02-21 17:00:01,011 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-21 17:00:04,912 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 09:06:01,772 - MASAPP - INFO - Database connection initialized.
+2026-02-23 09:06:01,991 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 09:07:32,784 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 09:23:26,307 - MASAPP - INFO - Database connection initialized.
+2026-02-23 09:32:23,667 - MASAPP - INFO - Database connection initialized.
+2026-02-23 09:32:23,771 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 09:32:40,591 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 09:33:47,960 - MASAPP - INFO - Database connection initialized.
+2026-02-23 09:35:46,848 - MASAPP - INFO - Database connection initialized.
+2026-02-23 09:41:32,428 - MASAPP - INFO - Database connection initialized.
+2026-02-23 12:01:03,785 - MASAPP - INFO - Database connection initialized.
+2026-02-23 12:01:03,884 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 12:01:12,727 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 12:53:41,117 - MASAPP - INFO - Database connection initialized.
+2026-02-23 12:53:41,199 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 12:53:48,274 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 12:58:39,937 - MASAPP - INFO - Database connection initialized.
+2026-02-23 12:58:40,020 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 12:58:47,072 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 13:05:40,707 - MASAPP - INFO - Database connection initialized.
+2026-02-23 13:05:40,790 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 13:05:48,905 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 13:07:00,048 - MASAPP - INFO - Database connection initialized.
+2026-02-23 13:07:00,129 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 13:07:06,079 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 13:10:58,771 - MASAPP - INFO - Database connection initialized.
+2026-02-23 13:10:58,836 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 13:11:05,136 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-23 13:14:50,157 - MASAPP - INFO - Database connection initialized.
+2026-02-23 13:14:50,235 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-23 13:14:55,477 - MASAPP - INFO - Login success: jetsada [Admin]
