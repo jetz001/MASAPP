@@ -25,15 +25,20 @@ class MachinePinItem(QGraphicsEllipseItem):
         
         from views import ThemeManager
         
-        # Determine Color based on status (assuming we'll have status, for now just green for all or based on active)
-        # Assuming you'll add logic to determine actual machine status; using placeholders:
-        # Green: Normal, Red: Down, Yellow: PM
-        self.status = "Normal" # Placeholder
-        color = ThemeManager.c('ACCENT') # Green
-        if machine.status if hasattr(machine, 'status') else "" == "Down":
+        # Real status logic mapping
+        raw_status = getattr(machine, 'status', 'Running') or 'Running'
+        if raw_status == 'Running':
+            color = ThemeManager.c('ACCENT_LIGHT')
+            self.status = "🟢 ปกติ"
+        elif raw_status == 'Warning':
+            color = ThemeManager.c('YELLOW')
+            self.status = "🟡 แจ้งเตือน"
+        elif raw_status == 'Breakdown':
             color = ThemeManager.c('RED')
-            self.status = "Down"
-        # etc.
+            self.status = "🔴 ขัดข้อง"
+        else:
+            color = ThemeManager.c('TEXT_MUTED')
+            self.status = raw_status
         
         self.setBrush(QBrush(QColor(color)))
         self.setPen(QPen(QColor(ThemeManager.c('BG_CARD')), 2 / scale_factor))
@@ -197,12 +202,6 @@ class FactoryLayoutPage(QWidget):
         top_row.addWidget(make_label("  ชั้น/อาคาร: ", 12))
         top_row.addWidget(self.map_selector)
         
-        # Legend
-        top_row.addSpacing(20)
-        top_row.addWidget(make_label("🟢 ปกติ ", 12))
-        top_row.addWidget(make_label("🟡 แจ้งเตือน ", 12))
-        top_row.addWidget(make_label("🔴 ขัดข้อง ", 12))
-        
         top_row.addStretch()
 
         # Tools
@@ -234,6 +233,18 @@ class FactoryLayoutPage(QWidget):
         self.map_view = InteractiveMapView()
         self.map_view.pin_clicked.connect(self._on_pin_clicked)
         self.map_view.map_clicked.connect(self._on_map_clicked)
+        
+        # Floating Legend overlaying the map view
+        legend_frame = QFrame(self.map_view)
+        legend_frame.setObjectName("card")
+        legend_frame.setStyleSheet(f"background: {ThemeManager.c('BG_CARD')}DD; border-radius: 6px; padding: 2px;")
+        ll = QHBoxLayout(legend_frame)
+        ll.setContentsMargins(12, 6, 12, 6)
+        ll.setSpacing(12)
+        ll.addWidget(make_label("🟢 ปกติ", 11, bold=True))
+        ll.addWidget(make_label("🟡 แจ้งเตือน", 11, bold=True))
+        ll.addWidget(make_label("🔴 ขัดข้อง", 11, bold=True))
+        legend_frame.move(16, 16)
         
         map_container = QFrame()
         map_container.setObjectName("card")
@@ -289,12 +300,8 @@ class FactoryLayoutPage(QWidget):
         for m in machines:
             if m.map_id == self.current_map_id and m.map_x is not None and m.map_y is not None:
                 # Apply filter logic
-                # (For now we don't have actual status, so filter just hides everything if enabled)
-                # Replace with real logic when status is implemented
-                status = "Normal"
-                if m.status if hasattr(m, 'status') else "" == "Down": status = "Down"
-
-                if self.filter_abnormal_only and status == "Normal":
+                raw_status = getattr(m, 'status', 'Running') or 'Running'
+                if self.filter_abnormal_only and raw_status == 'Running':
                     continue
                     
                 self.map_view.add_pin(m, m.map_x, m.map_y)
