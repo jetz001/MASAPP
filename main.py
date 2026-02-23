@@ -1,5 +1,6 @@
-import sys
+import sys, os
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtGui import QIcon
 from views import MainWindow, LoginDialog, ThemeManager
 from utils import setup_logging, logger
 from services import UserService
@@ -24,8 +25,21 @@ def _ensure_default_admin():
 
 def main():
     logger.info("Starting Maintenance Super App v3.3")
+
+    # ── Fix Windows taskbar icon (must be set BEFORE QApplication) ──
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("masapp.maintenance.v3")
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # Set app icon
+    _icon_path = os.path.join(os.path.dirname(__file__), "assets", "masapp_logo.png")
+    if os.path.exists(_icon_path):
+        app.setWindowIcon(QIcon(_icon_path))
     ThemeManager.set_app(app)
     ThemeManager._apply_globals()          # sync module globals to default theme
     app.setStyleSheet(ThemeManager.qss())  # apply theme QSS to application

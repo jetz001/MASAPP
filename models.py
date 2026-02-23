@@ -110,7 +110,7 @@ class MachineIntakeForm(Base):
 
     submitted_by    = relationship("User", foreign_keys=[submitted_by_id])
     approved_by     = relationship("User", foreign_keys=[approved_by_id])
-
+    machine         = relationship("Machine", back_populates="intake_form", uselist=False)
 
 # ─────────────────────────────────────────────────────────────
 #  Machine Registry  –  ทะเบียนเครื่องจักร (after approval)
@@ -144,11 +144,26 @@ class Machine(Base):
     training_done   = Column(Boolean, default=False)
 
     # Link back to the original intake form
-    intake_form_id  = Column(Integer, ForeignKey('machine_intake_forms.id'), nullable=True)
+    intake_form_id  = Column(Integer, ForeignKey('machine_intake_forms.id'))
 
-    attachments = relationship("MachineAttachment", back_populates="machine")
+    map_id          = Column(Integer, ForeignKey('factory_maps.id'), nullable=True)
+    map_x           = Column(Float, nullable=True)
+    map_y           = Column(Float, nullable=True)
+
+    intake_form = relationship("MachineIntakeForm", back_populates="machine")
     pm_plans    = relationship("PMPlan", back_populates="machine")
     work_orders = relationship("WorkOrder", back_populates="machine")
+    factory_map = relationship("FactoryMap", back_populates="machines")
+    attachments = relationship("MachineAttachment", back_populates="machine")
+
+class FactoryMap(Base):
+    __tablename__ = 'factory_maps'
+    id          = Column(Integer, primary_key=True, index=True)
+    name        = Column(String(150), nullable=False)
+    image_path  = Column(String(255), nullable=False)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now())
+    
+    machines    = relationship("Machine", back_populates="factory_map")
 
 class MachineAttachment(Base):
     __tablename__ = 'machine_attachments'

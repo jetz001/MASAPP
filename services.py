@@ -207,6 +207,55 @@ class UserService(BaseService):
         self.log_audit("DELETE", "users", user_id, f"ลบผู้ใช้ {username}")
         self.commit()
 
+# ─────────────────────────────────────────────────────────────
+#  Factory Map Service (Layouts)
+# ─────────────────────────────────────────────────────────────
+class FactoryMapService(BaseService):
+    def get_all_maps(self):
+        from models import FactoryMap
+        return self.db.query(FactoryMap).order_by(FactoryMap.id.asc()).all()
+    
+    def get_map_by_id(self, map_id: int):
+        from models import FactoryMap
+        return self.db.query(FactoryMap).filter(FactoryMap.id == map_id).first()
+        
+    def create_map(self, name: str, image_path: str):
+        self.require("machine", "create") # Using machine creation role
+        from models import FactoryMap
+        new_map = FactoryMap(
+            name=name,
+            image_path=image_path
+        )
+        self.db.add(new_map)
+        self.db.commit()
+        self.db.refresh(new_map)
+        self.log_audit("create", "factory_maps", new_map.id, f"Uploaded map: {name}")
+        return new_map
+        
+    def delete_map(self, map_id: int):
+        self.require("machine", "delete")
+        from models import FactoryMap, Machine
+        m = self.db.query(FactoryMap).filter(FactoryMap.id == map_id).first()
+        if not m:
+            raise ValueError("Map not found")
+            
+        # Clear pins linked to this map
+        machines = self.db.query(Machine).filter(Machine.map_id == map_id).all()
+        for mach in machines:
+            mach.map_id = None
+            mach.map_x = None
+            mach.map_y = None
+            
+        try:
+            if os.path.exists(m.image_path):
+                os.remove(m.image_path)
+        except:
+             pass
+             
+        self.db.delete(m)
+        self.log_audit("delete", "factory_maps", map_id, f"Deleted map: {m.name}")
+        self.commit()
+
 
 # ─────────────────────────────────────────────────────────────
 #  System Service (Backup)

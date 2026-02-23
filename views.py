@@ -13,10 +13,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QEasingCurve
 from PyQt6.QtCore import QPropertyAnimation, QRect
 from PyQt6.QtGui import QFont, QColor, QPalette
+import pprint
 
-from services import (MachineService, UserService, IntakeFormService,
-                      ROLE_META, can, ALL_ROLES, PERMISSIONS,
-                      ROLE_ADMIN, ROLE_MANAGER, ROLE_ENGINEER, ROLE_TECHNICIAN, ROLE_VIEWER)
+from services import (
+    UserService, MachineService, IntakeFormService, SettingsService, FactoryMapService,
+    can, PERMISSIONS, ROLE_ADMIN, ROLE_MANAGER, ROLE_ENGINEER, ROLE_TECHNICIAN, ROLE_VIEWER, ALL_ROLES, ROLE_META
+)
+from models import User, Machine, PMPlan, WorkOrder, SparePart, WorkOrderPart, WorkPermit, FactoryMap, MachineIntakeForm
+from factory_layout import FactoryLayoutPage
 
 
 # ─────────────────────────────────────────────────────────────
@@ -308,10 +312,17 @@ class LoginDialog(QDialog):
         bl = QVBoxLayout(banner)
         bl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bl.setSpacing(6)
-        ico = QLabel("⚙")
-        ico.setFont(QFont("Segoe UI", 28))
+        ico = QLabel()
+        _logo_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "masapp_logo.png")
+        if os.path.exists(_logo_p):
+            from PyQt6.QtGui import QPixmap
+            _pix = QPixmap(_logo_p).scaledToHeight(64, Qt.TransformationMode.SmoothTransformation)
+            ico.setPixmap(_pix)
+        else:
+            ico.setText("⚙")
+            ico.setFont(QFont("Segoe UI", 28))
         ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ico.setStyleSheet("background: transparent; color: white;")
+        ico.setStyleSheet("background: transparent;")
         title = QLabel("MASAPP")
         title.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2557,6 +2568,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1280, 720)
         self.resize(1360, 780)
         self.setStyleSheet(ThemeManager.qss())
+        # Set window icon (taskbar + title bar)
+        _logo_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "masapp_logo.png")
+        if os.path.exists(_logo_p):
+            from PyQt6.QtGui import QIcon
+            self.setWindowIcon(QIcon(_logo_p))
 
         self._nav_buttons = {}
         self._active_key  = "registry"
@@ -2589,18 +2605,37 @@ class MainWindow(QMainWindow):
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(0)
 
-        brand = QLabel("⚙  MASAPP")
+        # ── Brand: logo + text
+        brand_w = QWidget()
+        brand_w.setStyleSheet("background: transparent;")
+        brand_row = QHBoxLayout(brand_w)
+        brand_row.setContentsMargins(16, 16, 16, 4)
+        brand_row.setSpacing(8)
+        _logo_p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "masapp_logo.png")
+        logo_ico = QLabel()
+        if os.path.exists(_logo_p):
+            from PyQt6.QtGui import QPixmap
+            _pix = QPixmap(_logo_p).scaledToHeight(32, Qt.TransformationMode.SmoothTransformation)
+            logo_ico.setPixmap(_pix)
+        else:
+            logo_ico.setText("⚙")
+            logo_ico.setFont(QFont("Segoe UI", 20))
+        logo_ico.setStyleSheet("background: transparent;")
+        brand = QLabel("MASAPP")
         brand.setObjectName("sidebar_brand")
         brand.setStyleSheet(
             f"font-size: 16px; font-weight: 700; color: {ACCENT_LIGHT};"
-            f"padding: 20px 16px 6px 16px; background: transparent;"
+            f"background: transparent; letter-spacing: 2px;"
         )
+        brand_row.addWidget(logo_ico)
+        brand_row.addWidget(brand)
+        brand_row.addStretch()
         ver = QLabel("  Maintenance Super App  v3.3")
         ver.setStyleSheet(
             f"font-size: 10px; color: {TEXT_MUTED}; padding: 0 16px 16px 16px;"
             f"background: transparent;"
         )
-        sl.addWidget(brand)
+        sl.addWidget(brand_w)
         sl.addWidget(ver)
         sl.addWidget(make_separator())
         sl.addSpacing(6)
@@ -2711,7 +2746,7 @@ class MainWindow(QMainWindow):
         pages = {
             "dashboard": placeholder_page("📊", "Dashboard", "กราฟ KPI และสรุปภาพรวม — กำลังพัฒนา"),
             "registry":  MachineRegistryPage(current_user=self._current_user),
-            "layout":    placeholder_page("🗺️", "Factory Layout", "แผนที่ 2D โรงงาน — กำลังพัฒนา"),
+            "layout":    FactoryLayoutPage(current_user=self._current_user),
             "pm":        placeholder_page("📅", "PM Plans", "ปฏิทินแผนการบำรุงรักษา — กำลังพัฒนา"),
             "repair":    placeholder_page("🛠️", "Repair Orders", "งานแจ้งซ่อมและวิเคราะห์ 5 Whys — กำลังพัฒนา"),
             "inventory": placeholder_page("📦", "Spare Parts", "ระบบคลังอะไหล่ — กำลังพัฒนา"),
