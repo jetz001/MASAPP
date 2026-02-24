@@ -8,15 +8,18 @@ from PyQt6.QtWidgets import (
     QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget,
     QTabWidget, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QLineEdit, QFormLayout, QDialog, QMessageBox,
-    QFrame, QSizePolicy, QStackedWidget, QSpacerItem
+    QFrame, QSizePolicy, QStackedWidget, QSpacerItem, QCheckBox,
+    QScrollArea, QComboBox, QDateEdit, QFileDialog, QTextEdit
 )
-from PyQt6.QtCore import Qt, QSize, QEasingCurve
+from PyQt6.QtCore import Qt, QSize, QEasingCurve, QDate, QPoint, QLocale
 from PyQt6.QtCore import QPropertyAnimation, QRect
-from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap
 import pprint
+import models
+from datetime import datetime
 
 from services import (
-    UserService, MachineService, IntakeFormService, SettingsService, FactoryMapService,
+    UserService, MachineService, IntakeFormService, SettingsService, FactoryMapService, PMService, WorkOrderService, ReportingService,
     can, PERMISSIONS, ROLE_ADMIN, ROLE_MANAGER, ROLE_ENGINEER, ROLE_TECHNICIAN, ROLE_VIEWER, ALL_ROLES, ROLE_META
 )
 from models import User, Machine, PMPlan, WorkOrder, SparePart, WorkOrderPart, WorkPermit, FactoryMap, MachineIntakeForm
@@ -155,6 +158,28 @@ QLineEdit, QComboBox, QDateEdit, QTextEdit {{
 QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{
     border-color: {t['BLUE']};
 }}
+
+QCheckBox {{
+    spacing: 8px;
+    font-size: 13px;
+    color: {t['TEXT_PRIMARY']};
+    background: transparent;
+}}
+QCheckBox::indicator {{
+    width: 18px; height: 18px;
+    border: 1.5px solid {t['BORDER']};
+    border-radius: 4px;
+    background: {t['BG_CARD']};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {t['ACCENT']};
+}}
+QCheckBox::indicator:checked {{
+    background: {t['ACCENT']};
+    border-color: {t['ACCENT']};
+    image: url(assets/check.svg);
+}}
+
 QScrollBar:vertical {{
     background: {t['BG_PANEL']}; width: 8px; margin: 0;
 }}
@@ -175,9 +200,17 @@ QDialog {{
 }}
 QMessageBox {{ background: {t['BG_PANEL']}; }}
 QMessageBox QPushButton {{
-    background: {t['ACCENT']}; color: white;
-    border: none; border-radius: 4px;
-    padding: 6px 18px; min-width: 80px;
+    background-color: {t['BG_CARD']};
+    color: {t['TEXT_PRIMARY']} !important;
+    border: 1px solid {t['BORDER']};
+    border-radius: 6px;
+    padding: 6px 18px; 
+    min-width: 80px;
+    font-weight: 600;
+}}
+QMessageBox QPushButton:hover {{
+    border-color: {t['ACCENT']};
+    color: {t['ACCENT']};
 }}
 """
 
@@ -400,7 +433,7 @@ class LoginDialog(QDialog):
         # Remember Me
         from PyQt6.QtWidgets import QCheckBox
         self.remember_cb = QCheckBox("จดจำฉันไว้ (Remember Me)")
-        self.remember_cb.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
+        self.remember_cb.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         if saved_user and saved_pass:
             self.remember_cb.setChecked(True)
 
@@ -1388,6 +1421,9 @@ class MachineRegistryPage(QWidget):
         self.current_user = current_user
         self.svc  = MachineService()
         self.isvc = IntakeFormService()
+        if self.current_user:
+            self.svc.set_current_user(self.current_user)
+            self.isvc.set_current_user(self.current_user)
         self._build_ui()
         self.refresh()
 
@@ -1449,6 +1485,7 @@ class MachineRegistryPage(QWidget):
 
         # machine table
         self.reg_table = QTableWidget()
+        self.reg_table.verticalHeader().setDefaultSectionSize(40)
         self.reg_table.setColumnCount(8)
         self.reg_table.setHorizontalHeaderLabels(
             ["รหัส", "ชื่อเครื่องจักร", "รุ่น", "เฟส", "ซัพพลายเออร์", "โซน", "สถานะ", "จัดการ"])
@@ -1480,6 +1517,7 @@ class MachineRegistryPage(QWidget):
         lay.addLayout(top)
 
         self.pending_table = QTableWidget()
+        self.pending_table.verticalHeader().setDefaultSectionSize(40)
         self.pending_table.setColumnCount(6)
         self.pending_table.setHorizontalHeaderLabels(
             ["เลขที่ใบรับ", "รหัสเครื่อง", "ชื่อเครื่องจักร", "ผู้ส่ง", "วันที่ส่ง", "จัดการ"])
@@ -1525,7 +1563,7 @@ class MachineRegistryPage(QWidget):
         hdr3 = self.draft_table.horizontalHeader()
         hdr3.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         hdr3.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.draft_table.setColumnWidth(4, 180)
+        self.draft_table.setColumnWidth(4, 260)
         lay.addWidget(self.draft_table)
         return w
 
@@ -1645,7 +1683,7 @@ class MachineRegistryPage(QWidget):
         STATUS_ICON  = {"Draft": "📝", "Rejected": "❌"}
 
         for f in drafts:
-            row = t.rowCount(); t.insertRow(row); t.setRowHeight(row, 42)
+            row = t.rowCount(); t.insertRow(row); t.setRowHeight(row, 48)
             for col, val in enumerate([f.form_number, f.code, f.name]):
                 item = QTableWidgetItem(str(val))
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1673,6 +1711,12 @@ class MachineRegistryPage(QWidget):
                 sub_btn.setObjectName("btn_secondary"); sub_btn.setFixedHeight(26)
                 sub_btn.clicked.connect(lambda _, fid=f.id: self._submit_form(fid))
                 al.addWidget(sub_btn)
+                
+                del_btn = QPushButton("🗑 ลบ")
+                del_btn.setObjectName("btn_danger"); del_btn.setFixedHeight(26)
+                del_btn.clicked.connect(lambda _, fid=f.id: self._delete_draft_form(fid))
+                al.addWidget(del_btn)
+
             al.addStretch()
             t.setCellWidget(row, 4, aw)
 
@@ -1768,6 +1812,18 @@ class MachineRegistryPage(QWidget):
                 self.isvc.reject_form(form_id, self.current_user.id,
                                       self.current_user.role, reason)
                 QMessageBox.information(self, "ปฏิเสธแล้ว", "ปฏิเสธใบรับเรียบร้อยแล้ว")
+                self.refresh()
+            except Exception as e:
+                QMessageBox.critical(self, "เกิดข้อผิดพลาด", str(e))
+
+    def _delete_draft_form(self, form_id):
+        reply = QMessageBox.question(self, "ยืนยันการลบ",
+            "ต้องการลบใบรับฉบับร่างนี้ใช่หรือไม่?\n(ไม่สามารถกู้คืนได้)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.isvc.delete_form(form_id)
+                QMessageBox.information(self, "ลบสำเร็จ", "ลบใบรับเรียบร้อยแล้ว")
                 self.refresh()
             except Exception as e:
                 QMessageBox.critical(self, "เกิดข้อผิดพลาด", str(e))
@@ -2019,9 +2075,12 @@ class AddUserDialog(QDialog):
 
 # ─── User Management Page ──────────────────────────────────────
 class UserManagementPage(QWidget):
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
+        self.current_user = current_user
         self.service = UserService()
+        if self.current_user:
+            self.service.set_current_user(self.current_user)
         self._all_users = []
         self._build_ui()
         self.load_users()
@@ -2084,6 +2143,7 @@ class UserManagementPage(QWidget):
         ul.addLayout(search_row)
 
         self.user_table = QTableWidget()
+        self.user_table.verticalHeader().setDefaultSectionSize(40)
         self.user_table.setColumnCount(6)
         self.user_table.setHorizontalHeaderLabels(
             ["ชื่อเต็ม", "ชื่อผู้ใช้", "บทบาท", "สิทธิ์รวม", "สถานะ", "จัดการ"]
@@ -2469,8 +2529,9 @@ def placeholder_page(icon, title, subtitle):
 # Settings Page
 # =====================================================================
 class SettingsPage(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, current_user=None, parent=None):
         super().__init__(parent)
+        self.current_user = current_user
         self.setObjectName("page_bg")
         self._build_ui()
         self._load_data()
@@ -2545,10 +2606,823 @@ class SettingsPage(QWidget):
                 QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถบันทึกข้อมุลได้:\n{str(e)}")
 
 
+# ─── AM DASHBOARD PAGE (Operator View) ────────────────────────
+class AMDashboardPage(QWidget):
+    def __init__(self, current_user=None):
+        super().__init__()
+        self.current_user = current_user
+        from services import MachineService, PMService, WorkOrderService
+        self.machine_svc = MachineService()
+        self.pm_svc      = PMService()
+        self.wo_svc      = WorkOrderService()
+        if self.current_user:
+            self.machine_svc.set_current_user(self.current_user)
+            self.pm_svc.set_current_user(self.current_user)
+            self.wo_svc.set_current_user(self.current_user)
+        self._build_ui()
+        self.refresh()
+
+    def refresh(self):
+        # Load machines that have active AM plans or tasks
+        machines = self.machine_svc.get_all_machines()
+        self._render_machine_list(machines)
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 24, 24, 24)
+        root.setSpacing(20)
+
+        # Header
+        header = QHBoxLayout()
+        header.addWidget(make_label("⚡ AM DASHBOARD (Autonomous Maintenance)", 20, bold=True))
+        header.addStretch()
+        refresh_btn = QPushButton("🔄  รีเฟรช")
+        refresh_btn.clicked.connect(self.refresh)
+        header.addWidget(refresh_btn)
+        root.addLayout(header)
+
+        # Main Layout: Machine List (Left) | Task Detail (Right)
+        main_h = QHBoxLayout()
+        root.addLayout(main_h)
+
+        # Machine List (Cards)
+        self.list_scroll = QScrollArea()
+        self.list_scroll.setWidgetResizable(True)
+        self.list_scroll.setFixedWidth(350)
+        self.list_scroll.setStyleSheet(f"background: transparent; border: none;")
+        self.list_container = QWidget()
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.list_scroll.setWidget(self.list_container)
+        main_h.addWidget(self.list_scroll)
+
+        # Task Detail Area
+        self.detail_area = QFrame()
+        self.detail_area.setStyleSheet(f"background: {ThemeManager.c('BG_PANEL')}; border-radius: 12px; border: 1px solid {ThemeManager.c('BORDER')};")
+        self.detail_lay = QVBoxLayout(self.detail_area)
+        self.detail_lay.setContentsMargins(30, 30, 30, 30)
+        self.detail_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.no_selection_lbl = QLabel("🔔 กรุณาเลือกเครื่องจักรเพื่อเริ่มทำ AM")
+        self.no_selection_lbl.setStyleSheet(f"color: {ThemeManager.c('TEXT_MUTED')}; font-size: 14px;")
+        self.detail_lay.addWidget(self.no_selection_lbl)
+        
+        main_h.addWidget(self.detail_area, 1)
+
+    def _render_machine_list(self, machines):
+        # Clear existing
+        while self.list_layout.count():
+            it = self.list_layout.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+
+        for m in machines:
+            card = QFrame()
+            card.setObjectName("am_machine_card")
+            card.setStyleSheet(f"""
+                #am_machine_card {{ 
+                    background: {ThemeManager.c('BG_CARD')}; border-radius: 8px; border: 1px solid {ThemeManager.c('BORDER')}; 
+                    padding: 12px; 
+                }}
+                #am_machine_card:hover {{ border: 1.5px solid {ThemeManager.c('ACCENT')}; }}
+            """)
+            cl = QVBoxLayout(card)
+            cl.addWidget(make_label(m.code, 12, bold=True, color=ThemeManager.c('ACCENT_LIGHT')))
+            cl.addWidget(make_label(m.name, 14, bold=True))
+            
+            # Show if there is a pending AM Work Order
+            pending_am = self.wo_svc.db.query(models.WorkOrder).filter(
+                models.WorkOrder.machine_id == m.id,
+                models.WorkOrder.wo_type == "AM",
+                models.WorkOrder.status.in_(["Open", "Progress"])
+            ).first()
+
+            status_lay = QHBoxLayout()
+            if pending_am:
+                badge = QLabel("  มีงานค้าง  ")
+                badge.setStyleSheet(f"background: {ThemeManager.c('YELLOW')}; color: white; border-radius: 4px; font-size: 10px; font-weight: bold;")
+            else:
+                badge = QLabel("  ปกติ  ")
+                badge.setStyleSheet(f"background: {ThemeManager.c('ACCENT')}; color: white; border-radius: 4px; font-size: 10px;")
+            
+            status_lay.addWidget(badge)
+            status_lay.addStretch()
+            cl.addLayout(status_lay)
+
+            card.mousePressEvent = lambda e, mac=m: self._select_machine(mac)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.list_layout.addWidget(card)
+        
+        self.list_layout.addStretch()
+
+    def _select_machine(self, machine):
+        # Clear detail area
+        while self.detail_lay.count():
+            it = self.detail_lay.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+        
+        self.detail_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        # Header Info
+        header_lay = QHBoxLayout()
+        header_lay.addWidget(make_label(f"🛠️ {machine.name} ({machine.code})", 18, bold=True))
+        header_lay.addStretch()
+        self.detail_lay.addLayout(header_lay)
+        
+        self.detail_lay.addWidget(make_separator())
+        
+        # Check for open AM Work Order
+        wo = self.wo_svc.db.query(models.WorkOrder).filter(
+            models.WorkOrder.machine_id == machine.id,
+            models.WorkOrder.wo_type == "AM",
+            models.WorkOrder.status.in_(["Open", "Progress"])
+        ).first()
+
+        if not wo:
+            # Check if we should generate tasks first
+            self.pm_svc.generate_tasks_for_due_plans()
+            wo = self.wo_svc.db.query(models.WorkOrder).filter(
+                models.WorkOrder.machine_id == machine.id,
+                models.WorkOrder.wo_type == "AM",
+                models.WorkOrder.status.in_(["Open", "Progress"])
+            ).first()
+
+        if not wo:
+            msg = QLabel("🌴 ไม่มีรายการบำรุงรักษา (AM) ที่ต้องทำในตอนนี้")
+            msg.setStyleSheet(f"color: {ThemeManager.c('TEXT_MUTED')}; font-size: 15px; margin-top: 40px;")
+            self.detail_lay.addWidget(msg, 0, Qt.AlignmentFlag.AlignCenter)
+            
+            # Option to manually start an AM if needed? For now just show "Create Defect"
+            btn_defect = QPushButton("🚩 แจ้งพบความผิดปกติ (Defect Card)")
+            btn_defect.setObjectName("btn_secondary")
+            btn_defect.setFixedWidth(250)
+            self.detail_lay.addSpacing(20)
+            self.detail_lay.addWidget(btn_defect, 0, Qt.AlignmentFlag.AlignCenter)
+            return
+
+        # Render the checklist from the Work Order
+        self.detail_lay.addWidget(make_label(f"📋 รายการตรวจสอบ AM - เลขที่งาน: #{wo.id}", 14, bold=True))
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        scroll_content = QWidget()
+        scroll_lay = QVBoxLayout(scroll_content)
+        scroll_lay.setSpacing(10)
+        
+        results = wo.checklist_results
+        self._check_boxes = {} # Store for submission
+
+        for r in results:
+            row = QFrame()
+            row.setStyleSheet(f"background: {ThemeManager.c('BG_DARK')}; border-radius: 8px; padding: 12px;")
+            rl = QHBoxLayout(row)
+            
+            cb = QCheckBox()
+            cb.setChecked(r.is_checked)
+            rl.addWidget(cb)
+            
+            lbl = QLabel(r.task_name)
+            lbl.setWordWrap(True)
+            rl.addWidget(lbl, 1)
+            
+            # If it's a parameter reading
+            if r.checklist_item and r.checklist_item.is_parameter:
+                unit = r.checklist_item.parameter_unit or ""
+                val_input = QLineEdit()
+                val_input.setPlaceholderText(f"ระบุค่า ({unit})")
+                val_input.setFixedWidth(120)
+                val_input.setText(r.parameter_value or "")
+                rl.addWidget(val_input)
+                self._check_boxes[r.id] = (cb, val_input)
+            else:
+                self._check_boxes[r.id] = (cb, None)
+                
+            scroll_lay.addWidget(row)
+        
+        scroll_lay.addStretch()
+        scroll.setWidget(scroll_content)
+        self.detail_lay.addWidget(scroll)
+        
+        # Photo Evidence Area
+        self.detail_lay.addSpacing(10)
+        self.detail_lay.addWidget(make_label("📸 รูปถ่ายหลักฐาน (Photo Evidence)", 13, bold=True))
+        
+        self.photo_scroll = QScrollArea()
+        self.photo_scroll.setWidgetResizable(True)
+        self.photo_scroll.setFixedHeight(110)
+        self.photo_scroll.setStyleSheet("background: transparent; border: 1px dashed #30363D; border-radius: 8px;")
+        
+        self.photo_container = QWidget()
+        self.photo_lay = QHBoxLayout(self.photo_container)
+        self.photo_lay.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.photo_scroll.setWidget(self.photo_container)
+        self.detail_lay.addWidget(self.photo_scroll)
+        
+        self._refresh_photos(wo.id)
+        
+        # Footer Actions
+        self.detail_lay.addSpacing(10)
+        footer = QHBoxLayout()
+        
+        defect_btn = QPushButton("🚩 แจ้งพบความผิดปกติ")
+        defect_btn.setStyleSheet(f"background: {ThemeManager.c('RED')}; color: white; padding: 10px 20px; font-weight: bold;")
+        defect_btn.clicked.connect(lambda: self._report_defect(machine, wo))
+        footer.addWidget(defect_btn)
+
+        upload_btn = QPushButton("📷 แนบรูปภาพ")
+        upload_btn.setObjectName("btn_secondary")
+        upload_btn.setFixedHeight(40)
+        upload_btn.clicked.connect(lambda: self._upload_photo(wo.id))
+        footer.addWidget(upload_btn)
+        
+        footer.addStretch()
+        
+        save_btn = QPushButton("✅ บันทึกและปิดงาน")
+        save_btn.setStyleSheet(f"background: {ThemeManager.c('ACCENT')}; color: white; font-weight: bold; padding: 10px 25px; font-size: 14px;")
+        save_btn.clicked.connect(lambda: self._submit_am(wo))
+        footer.addWidget(save_btn)
+        
+        self.detail_lay.addLayout(footer)
+
+    def _submit_am(self, wo):
+        data_results = {}
+        for res_id, (cb, val_in) in self._check_boxes.items():
+            data_results[res_id] = {
+                "is_checked": cb.isChecked(),
+                "parameter_value": val_in.text() if val_in else None
+            }
+        
+        try:
+            # Mark WO as Closed
+            self.wo_svc.update_work_order(wo.id, {"status": "Closed"}, checklist_results=data_results)
+            QMessageBox.information(self, "แจ้งเตือน", "บันทึกผลการทำ AM เรียบร้อยแล้ว")
+            self.refresh()
+            # Clear details
+            self._select_machine(self.wo_svc.db.query(models.Machine).get(wo.machine_id))
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถบันทึกข้อมูลได้: {e}")
+
+    def _refresh_photos(self, wo_id):
+        while self.photo_lay.count():
+            it = self.photo_lay.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+        
+        atts = self.wo_svc.get_attachments(wo_id)
+        if not atts:
+            lbl = QLabel("ยังไม่มีรูปถ่าย")
+            lbl.setStyleSheet(f"color: {ThemeManager.c('TEXT_MUTED')}; font-size: 11px;")
+            self.photo_lay.addWidget(lbl)
+            return
+
+        for att in atts:
+            if os.path.exists(att.file_path):
+                img = QLabel()
+                pix = QPixmap(att.file_path).scaled(80, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                img.setPixmap(pix)
+                img.setToolTip("คลิกเพื่อดูรูปใหญ่")
+                img.setCursor(Qt.CursorShape.PointingHandCursor)
+                img.mousePressEvent = lambda e, p=att.file_path: self._view_large_photo(p)
+                self.photo_lay.addWidget(img)
+        self.photo_lay.addStretch()
+
+    def _upload_photo(self, wo_id):
+        path, _ = QFileDialog.getOpenFileName(self, "เลือกรูปถ่าย", "", "Images (*.png *.jpg *.jpeg *.bmp)")
+        if path:
+            try:
+                self.wo_svc.add_attachment(wo_id, path)
+                self._refresh_photos(wo_id)
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถแนบรูปได้: {e}")
+
+    def _view_large_photo(self, path):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("ดูรูปภาพหลักฐาน")
+        l = QVBoxLayout(dlg)
+        img = QLabel()
+        pix = QPixmap(path)
+        # Scale to fit screen but keep aspect ratio
+        screen_size = self.screen().size()
+        pix = pix.scaled(int(screen_size.width()*0.6), int(screen_size.height()*0.6), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        img.setPixmap(pix)
+        l.addWidget(img)
+        dlg.exec()
+
+    def _report_defect(self, machine, wo=None):
+        dlg = DefectCardDialog(machine, self)
+        if dlg.exec():
+            try:
+                data = dlg.get_data()
+                if wo:
+                    data["description"] = f"[จากใบสั่งงาน AM #{wo.id}] " + data["description"]
+                self.wo_svc.create_work_order(data)
+                QMessageBox.information(self, "สำเร็จ", "สร้างใบแจ้งซ่อม (Defect Card) เรียบร้อยแล้ว")
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", str(e))
+
+class DefectCardDialog(QDialog):
+    def __init__(self, machine, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("แจ้งพบความผิดปกติ (Defect Card)")
+        self.setFixedWidth(450)
+        self.machine = machine
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QFormLayout(self)
+        lay.addRow(make_label(f"🚨 แจ้งซ่อมเครื่องจักร: {self.machine.name}", 14, bold=True))
+        
+        self.desc_in = QLineEdit()
+        self.desc_in.setPlaceholderText("ระบุอาการเสีย / ความผิดปกติที่พบ...")
+        lay.addRow("รายละเอียด:", self.desc_in)
+        
+        self.priority_cb = QComboBox()
+        self.priority_cb.addItems(["Normal", "High", "Critical"])
+        lay.addRow("ความเร่งด่วน:", self.priority_cb)
+        
+        btns = QHBoxLayout()
+        save = QPushButton("ส่งแจ้งซ่อม")
+        save.setStyleSheet(f"background: {ThemeManager.c('RED')}; color: white; font-weight: bold;")
+        save.clicked.connect(self.accept)
+        
+        cancel = QPushButton("ยกเลิก")
+        cancel.clicked.connect(self.reject)
+        
+        btns.addWidget(save)
+        btns.addWidget(cancel)
+        lay.addRow(btns)
+
+    def get_data(self):
+        return {
+            "machine_id": self.machine.id,
+            "wo_type": "Repair",
+            "description": self.desc_in.text(),
+            "priority": self.priority_cb.currentText(),
+            "status": "Open"
+        }
+
+# ─── PM PLANS MANAGEMENT PAGE ──────────────────────────────────
+class PMPlansPage(QWidget):
+    def __init__(self, current_user=None):
+        super().__init__()
+        self.current_user = current_user
+        from services import PMService, MachineService, WorkOrderService
+        self.svc = PMService()
+        self.machine_svc = MachineService()
+        self.wo_svc = WorkOrderService()
+        self.report_svc = ReportingService()
+        if self.current_user:
+            self.svc.set_current_user(self.current_user)
+            self.machine_svc.set_current_user(self.current_user)
+            self.wo_svc.set_current_user(self.current_user)
+            self.report_svc.set_current_user(self.current_user)
+        self._build_ui()
+        self.refresh()
+
+    def refresh(self):
+        self._refresh_plans()
+        self._refresh_tasks()
+
+    def _refresh_plans(self):
+        plans = self.svc.get_all_plans()
+        
+        # Filter by Type
+        type_idx = self.type_filter.currentIndex()
+        if type_idx == 1: # AM
+            plans = [p for p in plans if p.plan_type == "AM"]
+        elif type_idx == 2: # PM
+            plans = [p for p in plans if p.plan_type == "PM"]
+            
+        # Filter by Search Text
+        search = self.search_in.text().lower().strip()
+        if search:
+            plans = [p for p in plans if (
+                search in (p.machine.name or "").lower() or 
+                search in (p.machine.code or "").lower() or
+                search in (p.title or "").lower()
+            )]
+            
+        self.table.setRowCount(len(plans))
+        
+        for i, p in enumerate(plans):
+            self.table.setItem(i, 0, QTableWidgetItem(p.plan_type))
+            self.table.setItem(i, 1, QTableWidgetItem(f"{p.machine.code} - {p.machine.name}" if p.machine else "-"))
+            self.table.setItem(i, 2, QTableWidgetItem(p.title))
+            self.table.setItem(i, 3, QTableWidgetItem(p.standard or "-"))
+            
+            sched_th = "รอบปฏิทิน" if p.schedule_type == "Calendar" else "ตามเงื่อนไข"
+            self.table.setItem(i, 4, QTableWidgetItem(sched_th if p.plan_type == "PM" else "-"))
+            
+            due_str = p.next_due_date.strftime("%d/%m/%Y") if p.next_due_date and p.plan_type == "PM" else "-"
+            self.table.setItem(i, 5, QTableWidgetItem(due_str))
+            
+            btn_box = self._make_plan_actions(p)
+            self.table.setCellWidget(i, 6, btn_box)
+
+    def _make_plan_actions(self, p):
+        btn_box = QWidget()
+        bl = QHBoxLayout(btn_box)
+        bl.setContentsMargins(4, 2, 4, 2)
+        
+        edit_btn = QPushButton("✏️")
+        edit_btn.setToolTip("แก้ไขแผน")
+        edit_btn.setFixedSize(30, 30)
+        edit_btn.clicked.connect(lambda _, plan=p: self._edit_plan(plan))
+        
+        list_btn = QPushButton("📋")
+        list_btn.setToolTip("จัดการรายละเอียดการตรวจสอบและมาตรฐาน")
+        list_btn.setFixedSize(30, 30)
+        list_btn.clicked.connect(lambda _, plan=p: self._manage_checklist(plan))
+        
+        print_btn = QPushButton("🖨️")
+        print_btn.setToolTip("พิมพ์ใบเช็คสลิสต์ (PDF)")
+        print_btn.setFixedSize(30, 30)
+        print_btn.clicked.connect(lambda _, plan_id=p.id: self._print_checksheet(plan_id))
+
+        del_btn = QPushButton("🗑️")
+        del_btn.setToolTip("ลบแผน")
+        del_btn.setFixedSize(30, 30)
+        del_btn.clicked.connect(lambda _, pid=p.id: self._delete_plan(pid))
+        
+        bl.addWidget(edit_btn)
+        bl.addWidget(list_btn)
+        bl.addWidget(print_btn)
+        bl.addWidget(del_btn)
+        return btn_box
+
+    def _edit_plan(self, plan):
+        from services import MachineService
+        machines = MachineService().get_all_machines()
+        dlg = AddPMPlanDialog(machines, self, plan=plan)
+        if dlg.exec():
+            try:
+                self.svc.update_plan(plan.id, dlg.get_data())
+                QMessageBox.information(self, "สำเร็จ", "อัปเดตแผนการบำรุงรักษาเรียบร้อยแล้ว")
+                self.refresh()
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", str(e))
+
+    def _refresh_tasks(self):
+        # Fetch PM work orders (AM is skipped per user request as operators have no computers)
+        pm_wos = [wo for wo in self.wo_svc.get_all_work_orders() if wo.wo_type == "PM" and wo.status != "Closed"]
+        self.task_table.setRowCount(len(pm_wos))
+        for i, wo in enumerate(pm_wos):
+            self.task_table.setItem(i, 0, QTableWidgetItem(wo.wo_type))
+            self.task_table.setItem(i, 1, QTableWidgetItem(wo.machine.name if wo.machine else "-"))
+            self.task_table.setItem(i, 2, QTableWidgetItem(wo.description))
+            self.task_table.setItem(i, 3, QTableWidgetItem(wo.status))
+            
+            created_str = wo.created_at.strftime("%d/%m/%Y %H:%M") if wo.created_at else "-"
+            self.task_table.setItem(i, 4, QTableWidgetItem(created_str))
+
+            # Actions
+            btn = QPushButton("✅ ปิดงาน (Close)")
+            btn.setObjectName("btn_accent")
+            btn.setFixedHeight(28)
+            btn.clicked.connect(lambda _, w=wo: self._close_task(w))
+            self.task_table.setCellWidget(i, 5, btn)
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._tab_plans(), "📅 แผนการบำรุงรักษา (Plans)")
+        self.tabs.addTab(self._tab_tasks(), "🛠️ รายการงานที่ต้องทำ (Work Orders)")
+        root.addWidget(self.tabs)
+
+    def _tab_plans(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(12, 12, 12, 12)
+
+        header = QHBoxLayout()
+        header.addWidget(make_label("📅 รายการแผนการบำรุงรักษา (AM/PM Plans)", 18, bold=True))
+        header.addStretch()
+        
+        add_btn = QPushButton("➕ สร้างแผนใหม่")
+        add_btn.setObjectName("btn_primary")
+        add_btn.clicked.connect(self._add_plan)
+        header.addWidget(add_btn)
+        lay.addLayout(header)
+
+        # Filter Bar
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(make_label("🔍 ตัวกรอง:", 14))
+        
+        self.type_filter = QComboBox()
+        self.type_filter.addItems(["ทั้งหมด (All)", "AM (พนักงาน)", "PM (ช่าง)"])
+        self.type_filter.currentIndexChanged.connect(self._refresh_plans)
+        filter_layout.addWidget(self.type_filter)
+        
+        self.search_in = QLineEdit()
+        self.search_in.setPlaceholderText("ระบุ ชื่อเครื่อง, รหัสเครื่อง หรือรายละเอียด...")
+        self.search_in.textChanged.connect(self._refresh_plans)
+        filter_layout.addWidget(self.search_in)
+        
+        lay.addLayout(filter_layout)
+
+        self.table = QTableWidget()
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels(["ประเภท", "เครื่องจักร", "รายละเอียดการตรวจสอบ", "มาตรฐานการตรวจ", "รูปแบบ", "กำหนดการถัดไป", "จัดการ"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(6, 160)
+        lay.addWidget(self.table)
+        return page
+
+    def _tab_tasks(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(12, 12, 12, 12)
+        
+        lay.addWidget(make_label("🛠️ รายการงานบำรุงรักษาที่ค้างอยู่ (Active PM/AM)", 18, bold=True))
+
+        self.task_table = QTableWidget()
+        self.task_table.verticalHeader().setDefaultSectionSize(40)
+        self.task_table.setColumnCount(6)
+        self.task_table.setHorizontalHeaderLabels(["ประเภท", "เครื่องจักร", "รายละเอียด", "สถานะ", "วันที่สั่งงาน", "จัดการ"])
+        self.task_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        lay.addWidget(self.task_table)
+        return page
+
+    def _add_plan(self):
+        from services import MachineService
+        machines = MachineService().get_all_machines()
+        dlg = AddPMPlanDialog(machines, self)
+        if dlg.exec():
+            try:
+                self.svc.create_plan(dlg.get_data())
+                QMessageBox.information(self, "สำเร็จ", "สร้างแผนการบำรุงรักษาเรียบร้อยแล้ว")
+                self.refresh()
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", str(e))
+
+    def _manage_checklist(self, plan):
+        dlg = ChecklistEditorDialog(plan, self)
+        dlg.exec()
+        self.refresh()
+
+    def _delete_plan(self, pid):
+        if QMessageBox.question(self, "ยืนยัน", "ต้องการลบแผนนี้ใช่หรือไม่?") == QMessageBox.StandardButton.Yes:
+            self.svc.delete_plan(pid)
+            self.refresh()
+
+    def _print_checksheet(self, plan_id):
+        try:
+            pdf_path = self.report_svc.generate_am_checksheet(plan_id)
+            if os.path.exists(pdf_path):
+                os.startfile(pdf_path) # Works on Windows
+                # QMessageBox.information(self, "สำเร็จ", f"สร้างไฟล์ PDF เรียบร้อยแล้ว:\n{pdf_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "ข้อผิดพลาด", f"ไม่สามารถสร้าง PDF ได้: {e}")
+
+    def _close_task(self, wo):
+        dlg = CloseWorkOrderDialog(wo, self)
+        if dlg.exec():
+            try:
+                self.wo_svc.update_work_order(wo.id, dlg.get_data())
+                # Update Plan next due date if it was a PM/AM from plan
+                if wo.pm_plan_id:
+                    self.svc.update_plan_after_task(wo.pm_plan_id)
+                
+                QMessageBox.information(self, "สำเร็จ", "ปิดงานเรียบร้อยแล้ว")
+                self.refresh()
+            except Exception as e:
+                QMessageBox.critical(self, "ข้อผิดพลาด", str(e))
+
+class CloseWorkOrderDialog(QDialog):
+    def __init__(self, wo, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"ปิดงาน: #{wo.id}")
+        self.setFixedWidth(400)
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QFormLayout(self)
+        self.minutes_in = QLineEdit()
+        self.minutes_in.setPlaceholderText("ระบุเวลาที่ใช้ (นาที)")
+        lay.addRow("เวลาที่ใช้ (นาที):", self.minutes_in)
+        
+        self.action_in = QLineEdit()
+        self.action_in.setPlaceholderText("สรุปการดำเนินการ...")
+        lay.addRow("สรุปงาน:", self.action_in)
+        
+        btns = QHBoxLayout()
+        save = QPushButton("บันทึกปิดงาน")
+        save.setObjectName("btn_accent")
+        save.clicked.connect(self.accept)
+        cancel = QPushButton("ยกเลิก")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(save)
+        btns.addWidget(cancel)
+        lay.addRow(btns)
+
+    def get_data(self):
+        return {
+            "status": "Closed",
+            "actual_minutes": int(self.minutes_in.text()) if self.minutes_in.text().isdigit() else 0,
+            "action_taken": self.action_in.text(),
+            "closed_at": datetime.now()
+        }
+
+class AddPMPlanDialog(QDialog):
+    def __init__(self, machines, parent=None, plan=None):
+        super().__init__(parent)
+        self.plan = plan
+        self.setWindowTitle("แก้ไขแผนการบำรุงรักษา" if plan else "สร้างแผนการบำรุงรักษา")
+        self.setFixedWidth(500)
+        self.machines = machines
+        self._build_ui()
+        if plan:
+            self._fill_data()
+
+    def _fill_data(self):
+        # Set Type
+        idx = 0 if self.plan.plan_type == "PM" else 1
+        self.type_cb.setCurrentIndex(idx)
+        
+        # Set Machine
+        for i in range(self.machine_cb.count()):
+            if self.machine_cb.itemData(i) == self.plan.machine_id:
+                self.machine_cb.setCurrentIndex(i)
+                break
+        
+        self.detail_in.setText(self.plan.title)
+        self.standard_in.setText(self.plan.standard or "")
+        self.note_in.setText(self.plan.description or "")
+        
+        # Frequency
+        for i in range(self.freq_cb.count()):
+            if self.freq_cb.itemData(i) == self.plan.frequency_days:
+                self.freq_cb.setCurrentIndex(i)
+                break
+
+    def _build_ui(self):
+        lay = QFormLayout(self)
+        
+        self.type_cb = QComboBox()
+        self.type_cb.addItems(["PM (ช่างบำรุงรักษา)", "AM (พนักงานฝ่ายผลิต)"])
+        lay.addRow("ประเภทงาน:", self.type_cb)
+        
+        self.machine_cb = QComboBox()
+        for m in self.machines:
+            self.machine_cb.addItem(f"{m.code} - {m.name}", m.id)
+        lay.addRow("เครื่องจักร:", self.machine_cb)
+
+        self.detail_in = QLineEdit()
+        self.detail_in.setPlaceholderText("เช่น ตรวจเช็คสายพาน, ทาจาระบี")
+        lay.addRow("รายละเอียดการตรวจสอบ:", self.detail_in)
+
+        self.standard_in = QLineEdit()
+        self.standard_in.setPlaceholderText("เช่น ไม่หย่อน, มีจาระบีหล่อลื่น")
+        lay.addRow("มาตรฐานการตรวจ:", self.standard_in)
+
+        self.freq_cb = QComboBox()
+        # Add labels with day values as data
+        self.freq_cb.addItem("รายวัน (Daily)", 1)
+        self.freq_cb.addItem("รายสัปดาห์ (Weekly)", 7)
+        self.freq_cb.addItem("รายปักษ์ (15 วัน)", 15)
+        self.freq_cb.addItem("รายเดือน (Monthly)", 30)
+        self.freq_cb.addItem("ทุก 3 เดือน", 90)
+        self.freq_cb.addItem("ทุก 6 เดือน (1/2 Year)", 180)
+        self.freq_cb.addItem("รายปี (Yearly)", 365)
+        lay.addRow("ความถี่:", self.freq_cb)
+
+        self.note_in = QLineEdit()
+        self.note_in.setPlaceholderText("ระบุหมายเหตุเพิ่มเติม (ถ้ามี)...")
+        lay.addRow("หมายเหตุ:", self.note_in)
+        
+        btns = QHBoxLayout()
+        save = QPushButton("บันทึก")
+        save.setObjectName("btn_primary")
+        save.clicked.connect(self.accept)
+        cancel = QPushButton("ยกเลิก")
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(save)
+        btns.addWidget(cancel)
+        lay.addRow(btns)
+
+    def get_data(self):
+        return {
+            "plan_type": "PM" if "PM" in self.type_cb.currentText() else "AM",
+            "machine_id": self.machine_cb.currentData(),
+            "detail": self.detail_in.text(),
+            "standard": self.standard_in.text(),
+            "frequency_days": self.freq_cb.currentData(),
+            "notes": self.note_in.text(),
+            "next_due_date": QDate.currentDate().toPyDate() # Default to today
+        }
+
+class ChecklistEditorDialog(QDialog):
+    def __init__(self, plan, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"จัดการ Checklist: {plan.title}")
+        self.setMinimumSize(600, 400)
+        self.plan = plan
+        from services import PMService
+        self.svc = PMService()
+        self._build_ui()
+        self.refresh()
+
+    def refresh(self):
+        # Update UI with current items
+        while self.items_lay.count():
+            it = self.items_lay.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
+            
+        items = self.svc.db.query(models.PMChecklistItem).filter(models.PMChecklistItem.pm_plan_id == self.plan.id).order_by(models.PMChecklistItem.sequence).all()
+        for i in items:
+            row = QFrame()
+            row.setStyleSheet(f"background: {ThemeManager.c('BG_CARD')}; border-radius: 4px; padding: 5px;")
+            rl = QHBoxLayout(row)
+            rl.addWidget(QLabel(f"{i.sequence}. {i.task_name}"))
+            if i.standard:
+                rl.addWidget(QLabel(f"(Std: {i.standard})"))
+            if i.responsible_role:
+                rl.addWidget(QLabel(f"[{i.responsible_role}]"))
+            if i.is_parameter:
+                rl.addWidget(QLabel(f"(Input: {i.parameter_unit})"))
+            rl.addStretch()
+            del_b = QPushButton("ลบ")
+            del_b.setFixedSize(50, 25)
+            del_b.clicked.connect(lambda _, item_id=i.id: self._remove_item(item_id))
+            rl.addWidget(del_b)
+            self.items_lay.addWidget(row)
+
+    def _build_ui(self):
+        main = QVBoxLayout(self)
+        
+        # Add Entry
+        entry = QHBoxLayout()
+        self.task_in = QLineEdit()
+        self.task_in.setPlaceholderText("ระบุชื่องาน (เช่น ตรวจสอบสายพาน)")
+        entry.addWidget(self.task_in, 2)
+        
+        self.std_in = QLineEdit()
+        self.std_in.setPlaceholderText("มาตรฐาน (เช่น ไม่หย่อน)")
+        entry.addWidget(self.std_in, 1)
+
+        self.resp_in = QComboBox()
+        self.resp_in.addItems(["พนักงาน", "หัวหน้า", "ช่างเทคนิค"])
+        self.resp_in.setEditable(True)
+        entry.addWidget(self.resp_in, 1)
+        
+        self.is_param = QCheckBox()
+        self.is_param.setToolTip("เป็นค่าตัวเลข (Parameter)")
+        entry.addWidget(self.is_param)
+        
+        self.unit_in = QLineEdit()
+        self.unit_in.setPlaceholderText("หน่วย...")
+        self.unit_in.setFixedWidth(80)
+        entry.addWidget(self.unit_in)
+        
+        add_b = QPushButton("➕ เพิ่ม")
+        add_b.setObjectName("btn_accent")
+        add_b.clicked.connect(self._add_item)
+        entry.addWidget(add_b)
+        main.addLayout(entry)
+        
+        # List Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        container = QWidget()
+        self.items_lay = QVBoxLayout(container)
+        self.items_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(container)
+        main.addWidget(scroll)
+
+    def _add_item(self):
+        if not self.task_in.text(): return
+        data = {
+            "pm_plan_id": self.plan.id,
+            "task_name": self.task_in.text(),
+            "standard": self.std_in.text(),
+            "responsible_role": self.resp_in.currentText(),
+            "is_parameter": self.is_param.isChecked(),
+            "parameter_unit": self.unit_in.text(),
+            "sequence": self.svc.db.query(models.PMChecklistItem).filter(models.PMChecklistItem.pm_plan_id == self.plan.id).count() + 1
+        }
+        item = models.PMChecklistItem(**data)
+        self.svc.db.add(item)
+        self.svc.commit()
+        self.task_in.clear()
+        self.std_in.clear()
+        self.unit_in.clear()
+        self.is_param.setChecked(False)
+        self.refresh()
+
+    def _remove_item(self, iid):
+        item = self.svc.db.query(models.PMChecklistItem).get(iid)
+        if item:
+            self.svc.db.delete(item)
+            self.svc.commit()
+            self.refresh()
+
 # ─── Main Window ────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     NAV_ITEMS = [
         ("🏠", "หน้าหลัก (Dashboard)",    "dashboard"),
+        ("⚡", "งานบำรุงรักษา (AM)",      "am_dashboard"),
         ("🔧", "ทะเบียนเครื่องจักร",       "registry"),
         ("🗺️", "เลย์เอาท์โรงงาน",         "layout"),
         ("📅", "แผนการบำรุงรักษา (PM)",   "pm"),
@@ -2744,16 +3618,17 @@ class MainWindow(QMainWindow):
     # ── Pages ──────────────────────────────────────────────────
     def _add_pages(self):
         pages = {
-            "dashboard": placeholder_page("📊", "Dashboard", "กราฟ KPI และสรุปภาพรวม — กำลังพัฒนา"),
-            "registry":  MachineRegistryPage(current_user=self._current_user),
+            "dashboard":    placeholder_page("📊", "Dashboard", "กราฟ KPI และสรุปภาพรวม — กำลังพัฒนา"),
+            "am_dashboard": AMDashboardPage(current_user=self._current_user),
+            "registry":     MachineRegistryPage(current_user=self._current_user),
             "layout":    FactoryLayoutPage(current_user=self._current_user),
-            "pm":        placeholder_page("📅", "PM Plans", "ปฏิทินแผนการบำรุงรักษา — กำลังพัฒนา"),
+            "pm":        PMPlansPage(current_user=self._current_user),
             "repair":    placeholder_page("🛠️", "Repair Orders", "งานแจ้งซ่อมและวิเคราะห์ 5 Whys — กำลังพัฒนา"),
             "inventory": placeholder_page("📦", "Spare Parts", "ระบบคลังอะไหล่ — กำลังพัฒนา"),
             "analytics": placeholder_page("📈", "Analytics", "MTBF / MTTR / OEE / Pareto — กำลังพัฒนา"),
             "permit":    placeholder_page("🛡️", "E-Work Permit", "ระบบขออนุมัติงานซ่อมอันตราย — กำลังพัฒนา"),
-            "users":     UserManagementPage(),
-            "settings":  SettingsPage(),
+            "users":     UserManagementPage(current_user=self._current_user),
+            "settings":  SettingsPage(current_user=self._current_user),
             "about":     AboutPage(),
         }
         for key, widget in pages.items():

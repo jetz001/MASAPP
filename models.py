@@ -7,9 +7,15 @@ import datetime
 db_url = config.get('Database', 'url', fallback='sqlite:///masapp_fallback.db')
 
 try:
-    engine = create_engine(db_url, pool_size=10, max_overflow=20)
+    if db_url.startswith('postgresql'):
+        # PostgreSQL specific pool settings
+        engine = create_engine(db_url, pool_size=20, max_overflow=30, pool_pre_ping=True)
+    else:
+        # SQLite pool settings
+        engine = create_engine(db_url)
+        
     with engine.connect() as conn:
-        logger.info("Database connection initialized.")
+        logger.info(f"Database connection initialized: {db_url.split('@')[-1] if '@' in db_url else db_url}")
 except Exception as e:
     logger.error(f"Failed to initialize database engine: {e}")
     engine = None
@@ -143,6 +149,10 @@ class Machine(Base):
     manual_file_path= Column(String(500))
     training_done   = Column(Boolean, default=False)
 
+    # ── Operating Conditions (For Condition-Based PM) ──
+    current_running_hours = Column(Float, default=0.0)
+    current_cycle_count   = Column(Integer, default=0)
+
     # Link back to the original intake form
     intake_form_id  = Column(Integer, ForeignKey('machine_intake_forms.id'))
 
@@ -180,23 +190,53 @@ class PMPlan(Base):
     id              = Column(Integer, primary_key=True, index=True)
     machine_id      = Column(Integer, ForeignKey('machines.id'), nullable=False)
     title           = Column(String(150), nullable=False)
+    standard        = Column(String(200)) # มาตรฐานการตรวจ
     description     = Column(Text)
-    frequency_days  = Column(Integer, nullable=False)
+    
+    plan_type       = Column(String(20), default="PM") # "PM" or "AM"
+    schedule_type   = Column(String(50), default="Calendar") # "Calendar" or "Condition"
+    schedule_subtype= Column(String(50), default="Interval") # "Interval", "Weekly", "Monthly", etc.
+    frequency_days  = Column(Integer, nullable=True) # Used if Interval
+    schedule_day    = Column(Integer, nullable=True) # E.g., Day of week (0-6), or Day of month (-1 for end)
+    trigger_value   = Column(Float, nullable=True)   # Next target running hours or cycle count
+    
     last_done_date  = Column(DateTime)
-    next_due_date   = Column(DateTime, nullable=False)
+    next_due_date   = Column(DateTime, nullable=True)
     is_calibration  = Column(Boolean, default=False)
 
-    machine = relationship("Machine", back_populates="pm_plans")
+    machine     = relationship("Machine", back_populates="pm_plans")
+    checklists  = relationship("PMChecklistItem", back_populates="pm_plan", cascade="all, delete-orphan")
+    work_orders = relationship("WorkOrder", back_populates="pm_plan")
+
+class PMChecklistItem(Base):
+    __tablename__ = 'pm_checklist_items'
+    id          = Column(Integer, primary_key=True, index=True)
+    pm_plan_id  = Column(Integer, ForeignKey('pm_plans.id'), nullable=False)
+    task_name   = Column(String(200), nullable=False)
+    task_type   = Column(String(20)) # e.g., 'C', 'I', 'L', 'T' or 'General'
+    standard    = Column(String(200)) # มาตรฐานการตรวจ
+    responsible_role = Column(String(100)) # ผู้รับผิดชอบ (พนักงาน, หัวหน้า)
+    is_parameter = Column(Boolean, default=False)
+    parameter_unit = Column(String(20))
+    sequence    = Column(Integer, default=0)
+
+    pm_plan     = relationship("PMPlan", back_populates="checklists")
 
 class WorkOrder(Base):
     __tablename__ = 'work_orders'
     id              = Column(Integer, primary_key=True, index=True)
     machine_id      = Column(Integer, ForeignKey('machines.id'), nullable=False)
+    pm_plan_id      = Column(Integer, ForeignKey('pm_plans.id'), nullable=True)
+    
+    wo_type         = Column(String(20), default='Repair')  # Repair, PM, AM
     reported_by_id  = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to_id  = Column(Integer, ForeignKey('users.id'), nullable=True)
     description     = Column(Text, nullable=False)
-    status          = Column(String(20), default='Open')    # Open, Progress, Closed
+    status          = Column(String(20), default='Open')    # Open, Progress, Closed, WaitHandover
     priority        = Column(String(20), default='Normal')  # Normal, High, Critical
+    
+    actual_minutes  = Column(Integer, default=0)            # For Cost Tracking
+    
     root_cause_why1 = Column(Text)
     root_cause_why2 = Column(Text)
     root_cause_why3 = Column(Text)
@@ -206,9 +246,38 @@ class WorkOrder(Base):
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     closed_at       = Column(DateTime(timezone=True))
 
-    machine     = relationship("Machine", back_populates="work_orders")
-    parts_used  = relationship("WorkOrderPart", back_populates="work_order")
-    permits     = relationship("WorkPermit", back_populates="work_order")
+    machine           = relationship("Machine", back_populates="work_orders")
+    pm_plan           = relationship("PMPlan", back_populates="work_orders")
+    parts_used        = relationship("WorkOrderPart", back_populates="work_order")
+    permits           = relationship("WorkPermit", back_populates="work_order")
+    attachments       = relationship("WorkOrderAttachment", back_populates="work_order", cascade="all, delete-orphan")
+    checklist_results = relationship("WorkOrderChecklistResult", back_populates="work_order", cascade="all, delete-orphan")
+
+class WorkOrderAttachment(Base):
+    __tablename__ = 'work_order_attachments'
+    id              = Column(Integer, primary_key=True, index=True)
+    work_order_id   = Column(Integer, ForeignKey('work_orders.id'), nullable=False)
+    file_path       = Column(String(255), nullable=False)
+    file_type       = Column(String(50))  # e.g., 'PhotoEvidence'
+    upload_date     = Column(DateTime(timezone=True), server_default=func.now())
+
+    work_order      = relationship("WorkOrder", back_populates="attachments")
+
+class WorkOrderChecklistResult(Base):
+    __tablename__ = 'wo_checklist_results'
+    id              = Column(Integer, primary_key=True, index=True)
+    work_order_id   = Column(Integer, ForeignKey('work_orders.id'), nullable=False)
+    checklist_item_id = Column(Integer, ForeignKey('pm_checklist_items.id'), nullable=True)
+    task_name       = Column(String(200))
+    standard        = Column(String(200))
+    responsible_role = Column(String(100))
+    is_checked      = Column(Boolean, default=False)
+    parameter_value = Column(String(50))
+    defect_noted    = Column(Boolean, default=False)
+    defect_details  = Column(Text)
+
+    work_order      = relationship("WorkOrder", back_populates="checklist_results")
+    checklist_item  = relationship("PMChecklistItem")
 
 class WorkPermit(Base):
     __tablename__ = 'work_permits'
