@@ -4,6 +4,7 @@
 # ============================================================
 
 import os
+import sys
 from PyQt6.QtWidgets import (
     QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget,
     QTabWidget, QPushButton, QTableWidget, QTableWidgetItem,
@@ -3006,17 +3007,15 @@ class PMPlansPage(QWidget):
         for i, p in enumerate(plans):
             self.table.setItem(i, 0, QTableWidgetItem(p.plan_type))
             self.table.setItem(i, 1, QTableWidgetItem(f"{p.machine.code} - {p.machine.name}" if p.machine else "-"))
-            self.table.setItem(i, 2, QTableWidgetItem(p.title))
-            self.table.setItem(i, 3, QTableWidgetItem(p.standard or "-"))
             
             sched_th = "รอบปฏิทิน" if p.schedule_type == "Calendar" else "ตามเงื่อนไข"
-            self.table.setItem(i, 4, QTableWidgetItem(sched_th if p.plan_type == "PM" else "-"))
+            self.table.setItem(i, 2, QTableWidgetItem(sched_th if p.plan_type == "PM" else "-"))
             
             due_str = p.next_due_date.strftime("%d/%m/%Y") if p.next_due_date and p.plan_type == "PM" else "-"
-            self.table.setItem(i, 5, QTableWidgetItem(due_str))
+            self.table.setItem(i, 3, QTableWidgetItem(due_str))
             
             btn_box = self._make_plan_actions(p)
-            self.table.setCellWidget(i, 6, btn_box)
+            self.table.setCellWidget(i, 4, btn_box)
 
     def _make_plan_actions(self, p):
         btn_box = QWidget()
@@ -3123,10 +3122,10 @@ class PMPlansPage(QWidget):
 
         self.table = QTableWidget()
         self.table.verticalHeader().setDefaultSectionSize(40)
-        self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels(["ประเภท", "เครื่องจักร", "รายละเอียดการตรวจสอบ", "มาตรฐานการตรวจ", "รูปแบบ", "กำหนดการถัดไป", "จัดการ"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(["ประเภท", "เครื่องจักร", "รูปแบบ", "กำหนดการถัดไป", "จัดการ"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.table.setColumnWidth(6, 160)
+        self.table.setColumnWidth(4, 160)
         lay.addWidget(self.table)
         return page
 
