@@ -318,3 +318,7 @@ class WorkOrderPart(Base):
     quantity_used   = Column(Integer, nullable=False)
 
     work_order = relationship("WorkOrder", back_populates="parts_used")
+
+# Create tables automatically if they don't exist
+if engine:
+    Base.metadata.create_all(bind=engine)
