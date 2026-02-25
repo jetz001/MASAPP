@@ -724,6 +724,26 @@ class PMService(BaseService):
         if not plan: 
             logger.warning(f"PMService: [404 Not Found] Deletion failed - Plan ID {plan_id} not found")
             raise ValueError("ไม่พบแผนบำรุงรักษา")
+        
+        # ── Fix: IntegrityError prevention ────────────────────
+        # Before deleting the plan and its items, we must nullify references in WorkOrder data
+        # so we don't violate FK constraints in wo_checklist_results
+        
+        item_ids = [it.id for it in plan.checklists]
+        if item_ids:
+            # Nullify references in results
+            self.db.query(WorkOrderChecklistResult).filter(
+                WorkOrderChecklistResult.checklist_item_id.in_(item_ids)
+            ).update({"checklist_item_id": None}, synchronize_session=False)
+            logger.debug(f"PMService: Nullified {len(item_ids)} checklist item references in WO results")
+
+        # Nullify references in WorkOrders themselves
+        self.db.query(WorkOrder).filter(
+            WorkOrder.pm_plan_id == plan_id
+        ).update({"pm_plan_id": None}, synchronize_session=False)
+        logger.debug(f"PMService: Nullified plan references in WorkOrders for plan ID {plan_id}")
+        # ────────────────────────────────────────────────────────
+
         title = plan.title
         self.db.delete(plan)
         self.log_audit("DELETE", "pm_plans", plan_id, f"ลบแผน: {title}")
@@ -966,8 +986,10 @@ class ReportingService(BaseService):
         
         # Draw Header Grid
         c.setLineWidth(0.5)
-        # Main Border
-        c.rect(30, h - 80, w - 60, 50) # Logo & Title row
+        # Draw Header Grid
+        c.setLineWidth(0.5)
+        # Main Header row
+        c.rect(30, h - 80, w - 60, 50)
         
         # Logo Box
         logo_path = "assets/masapp_logo.png"
@@ -977,97 +999,79 @@ class ReportingService(BaseService):
             c.setFont(thai_font_name, 14)
             c.drawString(40, h - 60, "LOGO")
 
-        # Header Vertical Lines
-        c.line(140, h - 30, 140, h - 80) # Logo separator
-        c.line(250, h - 30, 250, h - 80) # Doc info separator
-        
-        # Header Horizontal Middle Line (Doc info area)
-        c.line(140, h - 55, 250, h - 55)
-
-        c.setFont(thai_font_name, 8)
-        c.drawCentredString(195, h - 45, "ระดับเอกสาร")
-        c.drawCentredString(195, h - 70, "ฟอร์มเอกสาร")
-        
+        # Header Title
         c.setFont(thai_font_name, 12)
-        c.drawCentredString(531, h - 50, "เอกสารตรวจเช็คบำรุงรักษาเครื่องจักร")
+        c.drawCentredString(w/2, h - 50, "เอกสารตรวจเช็คบำรุงรักษาเครื่องจักร")
         c.setFont(thai_font_name, 8)
-        c.drawCentredString(531, h - 70, "( AM Monthly Checklist )")
+        c.drawCentredString(w/2, h - 70, "( AM Monthly Checklist )")
 
         # Machine Info Row
         c.rect(30, h - 110, w - 60, 30)
         c.setFont(thai_font_name, 9)
         c.drawString(40, h - 95, f"M/C NO: {plan.machine.code if plan.machine else '-'}")
-        c.drawString(140, h - 95, f"ชื่อเครื่องจักร: {plan.machine.name if plan.machine else '-'}")
-        
-        # If the plan has a global standard, show it here
-        if plan.standard:
-            c.drawString(400, h - 95, f"มาตรฐานหลัก: {plan.standard}")
-
-        c.drawString(700, h - 95, f"ความถี่การตรวจ: {plan.schedule_type or 'Daily'}")
+        c.drawString(160, h - 95, f"ชื่อเครื่องจักร: {plan.machine.name if plan.machine else '-'}")
+        c.drawString(400, h - 95, f"รุ่น: {plan.machine.model if plan.machine else '-'}")
+        c.drawString(650, h - 95, f"โซน: {plan.machine.zone if plan.machine else '-'}")
 
         # Table Column Headers
-        col_tasks_w = 170
-        col_std_w = 170
-        col_freq_w = 70
-        day_w = (w - 60 - col_tasks_w - col_std_w - col_freq_w) / 31
+        col_task_w = 180
+        col_std_w  = 120
+        col_meta_w = col_task_w + col_std_w
+        day_w = (w - 60 - col_meta_w) / 31
         
         y_header = h - 145
         c.rect(30, y_header, w - 60, 35) # Header row
-        c.line(30 + col_tasks_w, y_header, 30 + col_tasks_w, y_header + 35)
-        c.line(30 + col_tasks_w + col_std_w, y_header, 30 + col_tasks_w + col_std_w, y_header + 35)
-        c.line(30 + col_tasks_w + col_std_w + col_freq_w, y_header, 30 + col_tasks_w + col_std_w + col_freq_w, y_header + 35)
+        c.line(30 + col_task_w, y_header, 30 + col_task_w, y_header + 35)
+        c.line(30 + col_meta_w, y_header, 30 + col_meta_w, y_header + 35)
         
         c.setFont(thai_font_name, 9)
-        c.drawCentredString(30 + col_tasks_w/2, y_header + 15, "รายละเอียดการตรวจสอบ")
-        c.drawCentredString(30 + col_tasks_w + col_std_w/2, y_header + 15, "มาตรฐานการตรวจ (ปกติ)")
-        c.drawCentredString(30 + col_tasks_w + col_std_w + col_freq_w/2, y_header + 15, "ความถี่")
+        c.drawCentredString(30 + col_task_w/2, y_header + 12, "รายการตรวจสอบ (Task)")
+        c.drawCentredString(30 + col_task_w + col_std_w/2, y_header + 12, "มาตรฐาน (Standard)")
         
-        # Day Headers
+        # Unified "วันที่" Header
+        c.setFont(thai_font_name, 8)
+        c.drawCentredString(30 + col_meta_w + (w-60-col_meta_w)/2, y_header + 22, "วันที่ (Date)")
+        c.line(30 + col_meta_w, y_header + 18, w - 30, y_header + 18)
+
+        # Day Numbers
         for day in range(1, 32):
-            dx = 30 + col_tasks_w + col_std_w + col_freq_w + (day-1)*day_w
-            c.line(dx, y_header, dx, y_header + 35)
-            c.setFont(thai_font_name, 6)
-            c.drawCentredString(dx + day_w/2, y_header + 25, "วันที่")
+            dx = 30 + col_meta_w + (day-1)*day_w
+            if day > 1:
+                c.line(dx, y_header, dx, y_header + 18)
             c.setFont(thai_font_name, 7)
-            c.drawCentredString(dx + day_w/2, y_header + 10, str(day))
+            c.drawCentredString(dx + day_w/2, y_header + 5, str(day))
 
         # Data Rows
-        y = y_header - 30
-        # Combine global standard as first row if no specific checklists, or just show all checklists
+        y = y_header - 25
         items = plan.checklists
         
         if not items and plan.standard:
-            # Create a dummy item to show the plan's title and standard if no checklist items are defined
             items = [type('obj', (object,), {'task_name': plan.title, 'standard': plan.standard})]
 
         for item in items:
-            row_h = 30
-            if y < 50: # Page break logic
+            row_h = 25 # Tighter row height
+            if y < 50:
                 c.showPage()
-                y = h - 50 # Reset y for new page
-                # Redraw basic header or just continue
+                y = h - 50
             
             c.rect(30, y, w - 60, row_h)
-            c.line(30 + col_tasks_w, y, 30 + col_tasks_w, y + row_h)
-            c.line(30 + col_tasks_w + col_std_w, y, 30 + col_tasks_w + col_std_w, y + row_h)
-            c.line(30 + col_tasks_w + col_std_w + col_freq_w, y, 30 + col_tasks_w + col_std_w + col_freq_w, y + row_h)
+            c.line(30 + col_task_w, y, 30 + col_task_w, y + row_h)
+            c.line(30 + col_meta_w, y, 30 + col_meta_w, y + row_h)
             
             c.setFont(thai_font_name, 8)
-            # Fetch names
             tname = getattr(item, 'task_name', '-')
             sname = getattr(item, 'standard', '-')
             
-            # Draw text with registered font
-            c.drawString(35, y + 12, tname[:40] if len(tname) > 40 else tname)
-            c.drawString(30 + col_tasks_w + 5, y + 12, sname[:40] if len(sname) > 40 else sname)
-            c.drawCentredString(30 + col_tasks_w + col_std_w + col_freq_w/2, y + 12, "รายวัน")
+            # Task name column
+            c.drawString(35, y + 8, tname[:45] if len(tname) > 45 else tname)
+            # Standard column
+            c.drawString(35 + col_task_w, y + 8, sname[:30] if len(sname) > 30 else sname)
             
             # Grid for days
             for day in range(1, 32):
-                dx = 30 + col_tasks_w + col_std_w + col_freq_w + (day-1)*day_w
+                dx = 30 + col_meta_w + (day-1)*day_w
                 c.line(dx, y, dx, y + row_h)
                 
-            y -= row_h
             y -= row_h
 
         c.save()

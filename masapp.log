@@ -242,3 +242,177 @@
 2026-02-23 16:42:59,093 - MASAPP - INFO - Database connection initialized.
 2026-02-23 16:42:59,181 - MASAPP - INFO - Starting Maintenance Super App v3.3
 2026-02-23 16:43:03,698 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 08:43:33,385 - MASAPP - INFO - Database connection initialized.
+2026-02-24 08:43:33,545 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 08:48:24,137 - MASAPP - INFO - Database connection initialized.
+2026-02-24 08:48:24,222 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 08:48:31,322 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 08:53:20,305 - MASAPP - INFO - Database connection initialized.
+2026-02-24 08:53:20,385 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 08:53:24,228 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 08:55:00,358 - MASAPP - INFO - Database connection initialized.
+2026-02-24 08:55:00,441 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 08:55:05,759 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 08:59:24,550 - MASAPP - INFO - Database connection initialized.
+2026-02-24 08:59:24,629 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 08:59:32,565 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 09:35:19,612 - MASAPP - INFO - Database connection initialized.
+2026-02-24 09:35:19,746 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 09:37:21,117 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 09:54:01,786 - MASAPP - INFO - Database connection initialized.
+2026-02-24 09:54:01,861 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 09:54:08,531 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 09:59:32,650 - MASAPP - INFO - Database connection initialized.
+2026-02-24 09:59:32,727 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 09:59:40,299 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 10:50:21,222 - MASAPP - INFO - Database connection initialized.
+2026-02-24 10:50:21,296 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 10:50:30,339 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 10:50:48,542 - MASAPP - INFO - Database connection initialized.
+2026-02-24 10:50:48,630 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 10:50:57,434 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 11:09:56,460 - MASAPP - INFO - Database connection initialized.
+2026-02-24 11:10:06,677 - MASAPP - INFO - Database connection initialized.
+2026-02-24 11:11:31,835 - MASAPP - INFO - Database connection initialized.
+2026-02-24 11:22:50,568 - MASAPP - INFO - Database connection initialized.
+2026-02-24 11:22:50,663 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 11:23:26,768 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 12:53:47,445 - MASAPP - INFO - Database connection initialized.
+2026-02-24 12:53:47,558 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 12:53:56,513 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 12:57:27,160 - MASAPP - ERROR - Failed to initialize database engine: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-02-24 13:03:44,459 - MASAPP - ERROR - Failed to initialize database engine: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-02-24 13:04:51,134 - MASAPP - ERROR - Failed to initialize database engine: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "postgres"
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-02-24 13:05:02,269 - MASAPP - ERROR - Failed to initialize database engine: (psycopg2.OperationalError) connection to server at "127.0.0.1", port 5432 failed: FATAL:  database "masapp_db" does not exist
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2026-02-24 13:06:50,764 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:07:01,655 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:14:39,352 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:14:39,485 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 13:14:47,971 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 13:15:27,275 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:15:27,360 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 13:15:36,100 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 13:19:58,532 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:19:58,616 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 13:20:03,886 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 13:57:10,827 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 13:57:10,913 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 13:57:17,151 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 14:00:11,845 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 14:00:11,923 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 14:00:16,555 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 14:22:33,351 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 14:22:33,430 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 14:22:40,487 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:10:35,380 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 15:10:35,509 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 15:10:42,454 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:17:33,235 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 15:17:33,337 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 15:17:41,212 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:28:14,033 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 15:28:14,161 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 15:28:27,263 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:35:44,302 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 15:35:44,412 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 15:35:50,542 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:57:21,289 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 15:57:21,391 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 15:57:35,985 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 15:57:49,253 - MASAPP - INFO - PMService: [REQ] Updating plan ID 2
+2026-02-24 15:57:49,264 - MASAPP - INFO - PMService: [200 OK] Plan ID 2 updated successfully
+2026-02-24 15:57:54,819 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-24 15:57:54.819558)
+2026-02-24 15:57:54,876 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-24 15:57:54,880 - MASAPP - INFO - PMService: Generating automated task for plan ID 2 (การทำความสะอาด)
+2026-02-24 15:57:54,907 - MASAPP - INFO - PMService: [200 OK] Successfully generated 1 automated tasks
+2026-02-24 16:00:41,026 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:00:41,107 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:00:49,714 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:20:07,471 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:20:07,554 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:20:12,429 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:27:27,917 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:27:28,024 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:27:48,583 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:27:52,086 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:27:52,164 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:27:55,829 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:28:11,862 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:28:11,942 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:28:15,244 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:28:50,135 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:29:39,530 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:29:39,613 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:29:43,171 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:30:03,254 - MASAPP - INFO - PMService: [REQ] Updating plan ID=2
+2026-02-24 16:30:03,270 - MASAPP - INFO - PMService: [200 OK] Plan updated successfully ID=2
+2026-02-24 16:35:05,535 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:35:05,706 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:35:12,925 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:35:32,396 - MASAPP - INFO - PMService: [REQ] Updating plan ID=2
+2026-02-24 16:35:32,409 - MASAPP - INFO - PMService: [200 OK] Plan updated successfully ID=2
+2026-02-24 16:46:27,182 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-24 16:46:27,266 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-24 16:46:32,899 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-24 16:47:07,266 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from assets/fonts/Padauk-Regular.ttf
+2026-02-25 11:29:16,924 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 11:29:17,100 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 11:29:27,350 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 11:30:47,369 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 11:47:02,109 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 11:47:02,221 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 11:47:12,417 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 11:47:50,926 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 11:58:01,893 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 11:58:01,975 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 11:58:07,434 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 11:58:50,652 - MASAPP - INFO - PMService: [REQ] Requesting deletion of plan ID=2
+2026-02-25 12:58:54,990 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 12:58:55,092 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 12:58:58,785 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 12:59:07,174 - MASAPP - INFO - PMService: [REQ] Requesting deletion of plan ID=2
+2026-02-25 12:59:07,202 - MASAPP - INFO - PMService: [200 OK] Plan deleted successfully ID=2
+2026-02-25 12:59:15,208 - MASAPP - INFO - PMService: [REQ] Creating new plan 'AM - ST-01'
+2026-02-25 12:59:15,228 - MASAPP - INFO - PMService: [200 OK] Plan created successfully ID=3, Title='AM - ST-01'
+2026-02-25 13:00:36,717 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 14:40:59,244 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 14:40:59,341 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 14:41:06,637 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 15:22:13,053 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 15:22:13,132 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 15:22:21,599 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 15:30:18,631 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 15:30:18,759 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 15:30:24,964 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 15:30:36,922 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:30:36.922077)
+2026-02-25 15:30:36,934 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:30:37,673 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:30:37.673344)
+2026-02-25 15:30:37,674 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:30:38,488 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:30:38.488087)
+2026-02-25 15:30:38,489 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:31:34,059 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 15:32:11,794 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 15:40:13,402 - MASAPP - INFO - Database connection initialized: 127.0.0.1:5432/masapp_db
+2026-02-25 15:40:13,508 - MASAPP - INFO - Starting Maintenance Super App v3.3
+2026-02-25 15:40:20,650 - MASAPP - INFO - Login success: jetsada [Admin]
+2026-02-25 15:40:26,424 - MASAPP - INFO - ReportingService: Registered 'ThaiFont' from C:\Windows\Fonts\leelawad.ttf
+2026-02-25 15:40:52,284 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:40:52.284388)
+2026-02-25 15:40:52,344 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:40:52,471 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:40:52.471609)
+2026-02-25 15:40:52,473 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:40:59,617 - MASAPP - INFO - WorkOrderService: [REQ] Updating work order ID=1
+2026-02-25 15:40:59,635 - MASAPP - INFO - WorkOrderService: [200 OK] Work order updated successfully ID=1
+2026-02-25 15:41:00,936 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:41:00.936750)
+2026-02-25 15:41:00,938 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:41:02,738 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:41:02.738173)
+2026-02-25 15:41:02,739 - MASAPP - INFO - PMService: Found 1 due calendar plans
+2026-02-25 15:41:03,223 - MASAPP - INFO - PMService: [REQ] Running automated task generation (Now: 2026-02-25 15:41:03.223701)
+2026-02-25 15:41:03,225 - MASAPP - INFO - PMService: Found 1 due calendar plans
