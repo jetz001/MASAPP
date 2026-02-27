@@ -2627,7 +2627,7 @@ class AMDashboardPage(QWidget):
             self.wo_svc.set_current_user(self.current_user)
         
         # Default type
-        self.current_type = "AM"
+        self.current_type = "PM"
             
         self._build_ui()
         self.refresh()
@@ -2667,14 +2667,12 @@ class AMDashboardPage(QWidget):
         header.addWidget(self.header_title)
         header.addStretch()
 
-        # Type Switcher (Always show)
-        header.addWidget(make_label("🛠️ ดูรายการงาน:", 14))
+        # Type Switcher (Hidden as requested: PM Only)
         self.type_cb = QComboBox()
         self.type_cb.addItems(["AM (พนักงาน)", "PM (ช่าง)"])
-        self.type_cb.setFixedWidth(150)
+        self.type_cb.setCurrentIndex(1) # Force PM
+        self.type_cb.setVisible(False)
         self.type_cb.currentIndexChanged.connect(self._on_type_changed)
-        header.addWidget(self.type_cb)
-        header.addSpacing(20)
 
         refresh_btn = QPushButton("🔄  รีเฟรช")
         refresh_btn.clicked.connect(self.refresh)
@@ -3144,7 +3142,7 @@ class PMPlansPage(QWidget):
         filter_layout.addWidget(make_label("🔍 ตัวกรอง:", 14))
         
         self.type_filter = QComboBox()
-        self.type_filter.addItems(["ทั้งหมด (All)", "AM (พนักงาน)", "PM (ช่าง)"])
+        self.type_filter.addItems(["ทั้งหมด (All)", "PM (ช่าง)"])
             
         self.type_filter.currentIndexChanged.connect(self._refresh_plans)
         filter_layout.addWidget(self.type_filter)
@@ -3288,7 +3286,7 @@ class AddPMPlanDialog(QDialog):
         lay = QFormLayout(self)
         
         self.type_cb = QComboBox()
-        self.type_cb.addItems(["PM (ช่างบำรุงรักษา)", "AM (พนักงานฝ่ายผลิต)"])
+        self.type_cb.addItems(["PM (ช่างบำรุงรักษา)"])
         lay.addRow("ประเภทงาน:", self.type_cb)
         
         self.machine_cb = QComboBox()
