@@ -3611,13 +3611,14 @@ class MainWindow(QMainWindow):
 
     # ── Pages ──────────────────────────────────────────────────
     def _add_pages(self):
+        from views_repair import RepairManagementPage
         pages = {
             "dashboard":    placeholder_page("📊", "Dashboard", "กราฟ KPI และสรุปภาพรวม — กำลังพัฒนา"),
             "am_dashboard": AMDashboardPage(current_user=self._current_user),
             "registry":     MachineRegistryPage(current_user=self._current_user),
             "layout":    FactoryLayoutPage(current_user=self._current_user),
             "pm":        PMPlansPage(current_user=self._current_user),
-            "repair":    placeholder_page("🛠️", "Repair Orders", "งานแจ้งซ่อมและวิเคราะห์ 5 Whys — กำลังพัฒนา"),
+            "repair":    RepairManagementPage(current_user=self._current_user),
             "inventory": placeholder_page("📦", "Spare Parts", "ระบบคลังอะไหล่ — กำลังพัฒนา"),
             "analytics": placeholder_page("📈", "Analytics", "MTBF / MTTR / OEE / Pareto — กำลังพัฒนา"),
             "permit":    placeholder_page("🛡️", "E-Work Permit", "ระบบขออนุมัติงานซ่อมอันตราย — กำลังพัฒนา"),

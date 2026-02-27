@@ -1,7 +1,7 @@
 from models import SessionLocal, User, AuditLog, WorkOrder, WorkOrderChecklistResult, WorkOrderAttachment, PMPlan, PMChecklistItem
 import hashlib
 import shutil, os
-from datetime import datetime
+from datetime import datetime, timedelta
 from utils import config, logger
 
 # ─────────────────────────────────────────────────────────────
@@ -859,6 +859,25 @@ class WorkOrderService(BaseService):
         if "reported_by_id" not in data and user_id:
             data["reported_by_id"] = user_id
             
+        # ── SLA Logic ──
+        if "sla_deadline" not in data:
+            urgency = data.get('priority', 'Normal')
+            now = datetime.now()
+            if urgency == 'Critical':
+                data['sla_deadline'] = now + timedelta(hours=2)
+            elif urgency == 'High':
+                data['sla_deadline'] = now + timedelta(hours=24)
+            elif urgency == 'Low':
+                data['sla_deadline'] = now + timedelta(days=7)
+            else: # Normal
+                data['sla_deadline'] = now + timedelta(days=3)
+                
+        # ── Approval Workflow Defaults ──
+        if data.get('wo_type') in ['Fabrication', 'Modification']:
+            data['is_approved'] = False
+        else:
+            data['is_approved'] = True # Breakdowns etc don't strictly require upfront system approval in this flow
+            
         wo = WorkOrder(**{k: v for k, v in data.items() if hasattr(WorkOrder, k)})
         self.db.add(wo)
         self.db.flush()
@@ -890,6 +909,33 @@ class WorkOrderService(BaseService):
             if hasattr(wo, k):
                 setattr(wo, k, v)
                 
+        new_status = wo.status
+        old_status = self.db.query(WorkOrder.status).filter(WorkOrder.id == wo_id).scalar()
+        
+        # ── Status Validation ──
+        if new_status == 'Done' and old_status != 'Done':
+            if wo.wo_type == 'Breakdown' and wo.priority in ['Critical', 'High']:
+                if not wo.root_cause_why1 or not wo.root_cause_why1.strip():
+                    raise ValueError("ต้องทำ Root Cause Analysis (5 Whys) ให้เสร็จก่อนส่งงานสำหรับ Breakdown ระดับ High/Critical")
+                    
+        if new_status == 'Closed' and old_status != 'Closed':
+            from models import Machine
+            # Calculate total cost
+            total_parts_cost = sum([p.quantity_used * (p.part.unit_price if p.part else 0) for p in wo.parts_used]) if hasattr(wo, 'parts_used') else 0
+            total_labor_cost = sum([(l.actual_minutes/60.0) * l.hourly_rate for l in wo.labors]) if hasattr(wo, 'labors') else 0
+            vendor_cost = sum([v.service_cost for v in wo.vendors]) if hasattr(wo, 'vendors') else 0
+            
+            wo.vendor_cost = vendor_cost
+            wo.total_cost = total_parts_cost + total_labor_cost + vendor_cost
+            
+            # Opportunity Cost
+            machine = self.db.query(Machine).filter(Machine.id == wo.machine_id).first() if wo.machine_id else None
+            rate = machine.hourly_productive_rate if machine else 0
+            wo.opportunity_cost = (wo.machine_downtime_minutes / 60.0) * rate
+            wo.closed_at = datetime.now()
+            
+            # Check RCA for all closed Breakdowns ideally, but strictly enforced above at 'Done'.
+                
         if checklist_results:
             logger.debug(f"WorkOrderService: Updating {len(checklist_results)} checklist results for WO ID {wo_id}")
             for res_id, res_data in checklist_results.items():
@@ -908,10 +954,35 @@ class WorkOrderService(BaseService):
     def delete_work_order(self, wo_id: int):
         self.require("work_order", "delete")
         wo = self.db.query(WorkOrder).filter(WorkOrder.id == wo_id).first()
-        if not wo: raise ValueError("ไม่พบใบแจ้งงาน")
-        self.db.delete(wo)
-        self.log_audit("DELETE", "work_orders", wo_id, f"ลบใบแจ้งงาน")
-        self.commit()
+        if wo:
+            self.db.delete(wo)
+            self.log_audit("DELETE", "work_orders", wo_id, f"ลบใบแจ้งงาน {wo.wo_type}")
+            self.commit()
+
+    def get_spare_part_suggestions(self, machine_id: int, failure_code: str = None):
+        from models import WorkOrderPart, SparePart
+        from sqlalchemy import func
+        
+        query = self.db.query(
+            SparePart, 
+            func.sum(WorkOrderPart.quantity_used).label('total_used')
+        ).join(
+            WorkOrderPart, SparePart.id == WorkOrderPart.part_id
+        ).join(
+            WorkOrder, WorkOrder.id == WorkOrderPart.work_order_id
+        ).filter(
+            WorkOrder.machine_id == machine_id,
+            WorkOrder.status == 'Closed'
+        )
+        
+        if failure_code:
+            query = query.filter(WorkOrder.failure_code == failure_code)
+            
+        suggestions = query.group_by(SparePart.id).order_by(
+            func.sum(WorkOrderPart.quantity_used).desc()
+        ).limit(5).all()
+        
+        return [s[0] for s in suggestions]
 
     def add_attachment(self, wo_id: int, file_path: str, file_type: str = "PhotoEvidence"):
         """Save an attachment record for a work order."""
@@ -1087,11 +1158,12 @@ class ReportingService(BaseService):
         wo = self.db.query(WorkOrder).get(wo_id)
         if not wo: raise ValueError("ไม่พบใบสั่งงานที่ระบุ")
 
-        # Try to register Thai/Burmese font
+        # Config Font
         font_paths = [
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+            "C:\\Windows\\Fonts\\leelawad.ttf",
             "assets/fonts/Padauk-Regular.ttf",
-            "C:\\Windows\\Fonts\\leelawad.ttf", 
-            "C:\\Windows\\Fonts\\tahoma.ttf"
+            "C:\\Windows\\Fonts\\arial.ttf"
         ]
         thai_font_name = "ThaiFont"
         font_registered = False
@@ -1115,39 +1187,80 @@ class ReportingService(BaseService):
         
         # Header
         c.setFont(thai_font_name, 18)
-        c.drawString(50, height - 50, f"ใบสั่งงานบำรุงรักษา (Maintenance Work Order)")
+        c.drawString(50, height - 50, f"ใบสั่งงาน (Work Order)")
         
         c.setFont(thai_font_name, 12)
-        c.drawString(50, height - 80, f"เลขที่งาน: #{wo.id}")
-        c.drawString(200, height - 80, f"ประเภท: {wo.wo_type}")
-        c.drawString(400, height - 80, f"ลำดับความสำคัญ: {wo.priority or 'Normal'}")
+        c.drawString(50, height - 80, f"เลขที่งาน: #{wo.id:04d}   สถานะ: {wo.status}")
+        c.drawString(250, height - 80, f"ประเภท: {wo.wo_type}")
+        c.drawString(400, height - 80, f"ความเร่งด่วน: {wo.priority or 'Normal'}")
         
         c.line(50, height - 90, 550, height - 90)
-        c.drawString(50, height - 105, f"เครื่องจักร: {wo.machine.code if wo.machine else '-'} - {wo.machine.name if wo.machine else '-'}")
-        c.drawString(50, height - 120, f"รายละเอียด: {wo.description}")
+        c.drawString(50, height - 105, f"เครื่องจักร: {wo.machine.code if wo.machine else '-'} - {wo.machine.name if wo.machine else 'ทั่วไป (General)'}")
+        c.drawString(300, height - 105, f"รหัสอาการเสีย: {wo.failure_code or '-'}")
+        
+        desc = getattr(wo, 'description', '')
+        c.drawString(50, height - 120, f"รายละเอียดปัญหา: {desc[:80] + '...' if len(desc) > 80 else desc}")
         c.line(50, height - 130, 550, height - 130)
 
-        # Checklist Section
-        c.setFont(thai_font_name, 14)
-        c.drawString(50, height - 150, "รายการตรวจสอบ (Checklist):")
-        y = height - 170
-        for i, res in enumerate(wo.checklist_results):
+        y = height - 150
+        c.setFont(thai_font_name, 11)
+        
+        # Labor
+        c.drawString(50, y, "■ ผู้ดำเนินงาน (Labor):")
+        y -= 20
+        c.setFont(thai_font_name, 10)
+        if hasattr(wo, 'labors') and wo.labors:
+            for l in wo.labors:
+                c.drawString(70, y, f"- {l.user.username if l.user else '?'} : {l.actual_minutes} นาที ({(l.actual_minutes/60.0)*l.hourly_rate:,.2f} บาท)")
+                y -= 15
+        else:
+            c.drawString(70, y, "- ไม่มีข้อมูล")
+            y -= 15
+            
+        # RCA
+        if wo.wo_type == 'Breakdown' and any([wo.root_cause_why1, wo.root_cause_why2]):
+            y -= 10
             c.setFont(thai_font_name, 11)
-            c.drawString(60, y, f"{i+1}. {res.task_name}")
-            c.rect(480, y - 5, 12, 12)
-            c.drawString(500, y, "Confirmed")
-            y -= 25
-            if y < 100:
-                c.showPage()
-                y = height - 50
+            c.drawString(50, y, "■ การวิเคราะห์สาเหตุ (RCA 5-Whys):")
+            y -= 20
+            c.setFont(thai_font_name, 10)
+            for i in range(1, 6):
+                why = getattr(wo, f'root_cause_why{i}')
+                if why:
+                    c.drawString(70, y, f"W{i}: {why}")
+                    y -= 15
+            y -= 5
+            c.drawString(70, y, f"Action: {wo.action_taken or '-'}")
+            y -= 15
+            
+        # Cost Summary
+        y -= 20
+        c.line(50, y, 550, y)
+        y -= 15
+        c.setFont(thai_font_name, 11)
+        c.drawString(50, y, "■ สรุปค่าใช้จ่ายทั้งหมด (Total Cost):")
+        y -= 20
+        c.setFont(thai_font_name, 10)
+        c.drawString(70, y, f"ค่าอะไหล่ (Parts): {wo.total_cost - wo.vendor_cost - (sum([(l.actual_minutes/60.0)*l.hourly_rate for l in getattr(wo, 'labors', [])]) if hasattr(wo, 'labors') else 0):,.2f} บาท")
+        c.drawString(250, y, f"ค่าแรง (Labor): {sum([(l.actual_minutes/60.0)*l.hourly_rate for l in getattr(wo, 'labors', [])]) if hasattr(wo, 'labors') else 0:,.2f} บาท")
+        c.drawString(430, y, f"ผู้รับเหมา (Vendor): {wo.vendor_cost:,.2f} บาท")
+        y -= 15
+        c.drawString(70, y, f"ค่าเสียโอกาสเครื่องจักร (Opportunity Cost): {wo.opportunity_cost:,.2f} บาท")
+        y -= 15
+        c.setFont(thai_font_name, 11)
+        c.drawString(70, y, f"รวมค่าซ่อมแซมทั้งหมด: {wo.total_cost:,.2f} บาท")
 
         # Footer Signatures
         c.line(50, 100, 550, 100)
         c.setFont(thai_font_name, 10)
-        c.drawString(50, 80, f"ผู้แจ้งงาน: ..............................")
+        req = wo.reported_by.username if getattr(wo, 'reported_by') else ".........."
+        c.drawString(50, 80, f"ผู้แจ้งงาน: {req}")
+        
+        score = wo.requester_satisfaction_score if getattr(wo, 'requester_satisfaction_score') else "-"
+        c.drawString(50, 60, f"คะแนนความพึงพอใจ: {score}/5")
+        
         c.drawString(350, 80, f"ผู้อนุมัติ: ..............................")
-        c.drawString(50, 40, f"ผู้ปฏิบัติงาน: ..............................")
-        c.drawString(350, 40, f"วันที่แล้วเสร็จ: ....../....../......")
+        c.drawString(350, 60, f"วันที่แล้วเสร็จ: {wo.closed_at.strftime('%Y-%m-%d') if wo.closed_at else '.../.../...'}")
         
         c.save()
         return pdf_path

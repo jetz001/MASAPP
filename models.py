@@ -153,9 +153,10 @@ class Machine(Base):
     current_running_hours = Column(Float, default=0.0)
     current_cycle_count   = Column(Integer, default=0)
 
-    # Link back to the original intake form
-    intake_form_id  = Column(Integer, ForeignKey('machine_intake_forms.id'))
+    # ── Financial / KPI Data ──
+    hourly_productive_rate = Column(Float, default=0.0) # For Opportunity Cost calculation
 
+    intake_form_id  = Column(Integer, ForeignKey('machine_intake_forms.id'))
     map_id          = Column(Integer, ForeignKey('factory_maps.id'), nullable=True)
     map_x           = Column(Float, nullable=True)
     map_y           = Column(Float, nullable=True)
@@ -225,33 +226,81 @@ class PMChecklistItem(Base):
 class WorkOrder(Base):
     __tablename__ = 'work_orders'
     id              = Column(Integer, primary_key=True, index=True)
-    machine_id      = Column(Integer, ForeignKey('machines.id'), nullable=False)
+    machine_id      = Column(Integer, ForeignKey('machines.id'), nullable=True) # Now optional for General/Fabrication
     pm_plan_id      = Column(Integer, ForeignKey('pm_plans.id'), nullable=True)
     
-    wo_type         = Column(String(20), default='Repair')  # Repair, PM, AM
+    wo_type         = Column(String(50), default='Breakdown')  # Breakdown, Fabrication, Modification, General, PM, AM
+    origin          = Column(String(50), default='Manual')     # Manual, AM_Defect, PM_Failed
     reported_by_id  = Column(Integer, ForeignKey('users.id'), nullable=True)
     assigned_to_id  = Column(Integer, ForeignKey('users.id'), nullable=True)
     description     = Column(Text, nullable=False)
-    status          = Column(String(20), default='Open')    # Open, Progress, Closed, WaitHandover
-    priority        = Column(String(20), default='Normal')  # Normal, High, Critical
+    status          = Column(String(20), default='New')        # New, Approved, In Progress, Hold, Done, Closed
+    priority        = Column(String(20), default='Normal')     # Alias for Urgency: Low, Normal, High, Critical
     
-    actual_minutes  = Column(Integer, default=0)            # For Cost Tracking
+    # ── SLA & Approvals ──
+    is_approved     = Column(Boolean, default=False)
+    sla_deadline    = Column(DateTime(timezone=True), nullable=True)
+    sla_elevated    = Column(Boolean, default=False)
     
-    root_cause_why1 = Column(Text)
-    root_cause_why2 = Column(Text)
-    root_cause_why3 = Column(Text)
-    root_cause_why4 = Column(Text)
-    root_cause_why5 = Column(Text)
-    action_taken    = Column(Text)
+    # ── Tracking & Hold Reasons ──
+    hold_reason     = Column(Text, nullable=True)
+    failure_code    = Column(String(50), nullable=True)
+    
+    # ── Cost & Downtime ──
+    machine_downtime_minutes = Column(Integer, default=0)
+    vendor_cost     = Column(Float, default=0.0)
+    total_cost      = Column(Float, default=0.0)
+    opportunity_cost= Column(Float, default=0.0)
+    actual_minutes  = Column(Integer, default=0)            # Keeping for legacy/simple tracking
+    
+    # ── Root Cause (5 Whys) ──
+    root_cause_why1 = Column(Text, nullable=True)
+    root_cause_why2 = Column(Text, nullable=True)
+    root_cause_why3 = Column(Text, nullable=True)
+    root_cause_why4 = Column(Text, nullable=True)
+    root_cause_why5 = Column(Text, nullable=True)
+    action_taken    = Column(Text, nullable=True)
+    
+    # ── Acceptance ──
+    requester_satisfaction_score = Column(Integer, nullable=True) # 1-5 rating
+    requester_acceptance_note    = Column(Text, nullable=True)
+
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     closed_at       = Column(DateTime(timezone=True))
 
     machine           = relationship("Machine", back_populates="work_orders")
     pm_plan           = relationship("PMPlan", back_populates="work_orders")
-    parts_used        = relationship("WorkOrderPart", back_populates="work_order")
+    parts_used        = relationship("WorkOrderPart", back_populates="work_order", cascade="all, delete-orphan")
     permits           = relationship("WorkPermit", back_populates="work_order")
     attachments       = relationship("WorkOrderAttachment", back_populates="work_order", cascade="all, delete-orphan")
     checklist_results = relationship("WorkOrderChecklistResult", back_populates="work_order", cascade="all, delete-orphan")
+    
+    labors            = relationship("WorkOrderLabor", back_populates="work_order", cascade="all, delete-orphan")
+    vendors           = relationship("WorkOrderVendor", back_populates="work_order", cascade="all, delete-orphan")
+    reported_by       = relationship("User", foreign_keys=[reported_by_id])
+    assigned_to       = relationship("User", foreign_keys=[assigned_to_id])
+
+class WorkOrderLabor(Base):
+    __tablename__ = 'work_order_labors'
+    id              = Column(Integer, primary_key=True, index=True)
+    work_order_id   = Column(Integer, ForeignKey('work_orders.id'), nullable=False)
+    user_id         = Column(Integer, ForeignKey('users.id'), nullable=False)
+    actual_minutes  = Column(Integer, default=0)
+    hourly_rate     = Column(Float, default=0.0) # Captured rate at time of execution
+
+    work_order      = relationship("WorkOrder", back_populates="labors")
+    user            = relationship("User")
+
+class WorkOrderVendor(Base):
+    __tablename__ = 'work_order_vendors'
+    id              = Column(Integer, primary_key=True, index=True)
+    work_order_id   = Column(Integer, ForeignKey('work_orders.id'), nullable=False)
+    vendor_name     = Column(String(150), nullable=False)
+    service_cost    = Column(Float, default=0.0)
+    quote_file_path = Column(String(255), nullable=True)
+    report_file_path= Column(String(255), nullable=True)
+
+    work_order      = relationship("WorkOrder", back_populates="vendors")
 
 class WorkOrderAttachment(Base):
     __tablename__ = 'work_order_attachments'
@@ -318,6 +367,7 @@ class WorkOrderPart(Base):
     quantity_used   = Column(Integer, nullable=False)
 
     work_order = relationship("WorkOrder", back_populates="parts_used")
+    part       = relationship("SparePart")
 
 # Create tables automatically if they don't exist
 if engine:
