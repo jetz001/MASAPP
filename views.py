@@ -3063,11 +3063,6 @@ class PMPlansPage(QWidget):
         bl = QHBoxLayout(btn_box)
         bl.setContentsMargins(4, 2, 4, 2)
         
-        edit_btn = QPushButton("✏️")
-        edit_btn.setToolTip("แก้ไขแผน")
-        edit_btn.setFixedSize(30, 30)
-        edit_btn.clicked.connect(lambda _, plan=p: self._edit_plan(plan))
-        
         list_btn = QPushButton("📋")
         list_btn.setToolTip("จัดการรายละเอียดการตรวจสอบและมาตรฐาน")
         list_btn.setFixedSize(30, 30)
@@ -3083,7 +3078,6 @@ class PMPlansPage(QWidget):
         del_btn.setFixedSize(30, 30)
         del_btn.clicked.connect(lambda _, pid=p.id: self._delete_plan(pid))
         
-        bl.addWidget(edit_btn)
         bl.addWidget(list_btn)
         bl.addWidget(print_btn)
         bl.addWidget(del_btn)
@@ -3358,10 +3352,6 @@ class ChecklistEditorDialog(QDialog):
             rl.addWidget(QLabel(f"{i.sequence}. {i.task_name}"))
             if i.standard:
                 rl.addWidget(QLabel(f"(Std: {i.standard})"))
-            if i.responsible_role:
-                rl.addWidget(QLabel(f"[{i.responsible_role}]"))
-            if i.is_parameter:
-                rl.addWidget(QLabel(f"(Input: {i.parameter_unit})"))
             rl.addStretch()
             del_b = QPushButton("ลบ")
             del_b.setFixedSize(50, 25)
@@ -3381,20 +3371,6 @@ class ChecklistEditorDialog(QDialog):
         self.std_in = QLineEdit()
         self.std_in.setPlaceholderText("มาตรฐาน (เช่น ไม่หย่อน)")
         entry.addWidget(self.std_in, 1)
-
-        self.resp_in = QComboBox()
-        self.resp_in.addItems(["พนักงาน", "หัวหน้า", "ช่างเทคนิค"])
-        self.resp_in.setEditable(True)
-        entry.addWidget(self.resp_in, 1)
-        
-        self.is_param = QCheckBox()
-        self.is_param.setToolTip("เป็นค่าตัวเลข (Parameter)")
-        entry.addWidget(self.is_param)
-        
-        self.unit_in = QLineEdit()
-        self.unit_in.setPlaceholderText("หน่วย...")
-        self.unit_in.setFixedWidth(80)
-        entry.addWidget(self.unit_in)
         
         add_b = QPushButton("➕ เพิ่ม")
         add_b.setObjectName("btn_accent")
@@ -3417,9 +3393,9 @@ class ChecklistEditorDialog(QDialog):
             "pm_plan_id": self.plan.id,
             "task_name": self.task_in.text(),
             "standard": self.std_in.text(),
-            "responsible_role": self.resp_in.currentText(),
-            "is_parameter": self.is_param.isChecked(),
-            "parameter_unit": self.unit_in.text(),
+            "responsible_role": None,
+            "is_parameter": False,
+            "parameter_unit": None,
             "sequence": self.svc.db.query(models.PMChecklistItem).filter(models.PMChecklistItem.pm_plan_id == self.plan.id).count() + 1
         }
         item = models.PMChecklistItem(**data)
