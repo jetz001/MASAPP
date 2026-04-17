@@ -1,0 +1,36 @@
+# Flutter related
+build/
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+pubspec.lock
+
+# Android related
+**/android/**/gen/
+**/android/**/generated/
+**/android/app/src/main/res/values/strings.xml
+.gradle/
+local.properties
+*.keystore
+*.jks
+
+# iOS related
+**/ios/.generated/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Pods/
+
+# Web related
+**/build/**
+
+# IDE related
+.idea/
+.vscode/
+*.iml
+
+# Local database
+*.db
+*.db-journal
+*.sqlite
+/windows/
