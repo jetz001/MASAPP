@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/utils/crypto_utils.dart';
 import 'machine_models.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ class MachineRepository {
     if (searchQuery != null && searchQuery.isNotEmpty) {
       where.add("""(
         LOWER(m.machine_no) LIKE @q OR
+        LOWER(m.machine_name) LIKE @q OR
         LOWER(m.brand) LIKE @q OR
         LOWER(m.model) LIKE @q OR
         LOWER(m.serial_no) LIKE @q OR
@@ -40,7 +42,7 @@ class MachineRepository {
 
     final sql = '''
       SELECT
-        m.machine_id, m.machine_no, m.asset_no, m.brand, m.model, m.serial_no,
+        m.machine_id, m.machine_no, m.machine_name, m.asset_no, m.brand, m.model, m.serial_no,
         m.status, m.location, m.installation_date, m.purchase_cost,
         m.handover_completed, m.is_active, m.notes, m.created_at,
         mc.name AS category_name,
@@ -124,11 +126,11 @@ class MachineRepository {
         tx,
         '''
           INSERT INTO machines (
-            machine_id, machine_no, asset_no, brand, model, serial_no,
+            machine_id, machine_no, machine_name, asset_no, brand, model, serial_no,
             category_id, dept_id, location, installation_date,
             warranty_expiry, purchase_cost, supplier_id, notes, created_by
           ) VALUES (
-            @id, @machine_no, @asset_no, @brand, @model, @serial_no,
+            @id, @machine_no, @machine_name, @asset_no, @brand, @model, @serial_no,
             @category_id, @dept_id, @location, @installation_date,
             @warranty_expiry, @purchase_cost, @supplier_id, @notes, @created_by
           )
@@ -170,23 +172,71 @@ class MachineRepository {
     });
   }
 
-  /// Update machine basic info
-  Future<void> updateMachine(
-      String machineId, Map<String, dynamic> data) async {
-    await DbHelper.execute(
-      '''
-      UPDATE machines SET
-        machine_no = @machine_no, asset_no = @asset_no,
-        brand = @brand, model = @model, serial_no = @serial_no,
-        category_id = @category_id, dept_id = @dept_id,
-        location = @location, installation_date = @installation_date,
-        warranty_expiry = @warranty_expiry, purchase_cost = @purchase_cost,
-        supplier_id = @supplier_id, notes = @notes,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = @id
-      ''',
-      params: data..['id'] = machineId,
-    );
+  /// Update machine info and specs in a transaction
+  Future<void> updateMachine({
+    required String machineId,
+    required Map<String, dynamic> machineData,
+    Map<String, dynamic>? specsData,
+  }) async {
+    await DbHelper.transaction((tx) async {
+      // Update basic info
+      await DbHelper.txExecute(
+        tx,
+        '''
+        UPDATE machines SET
+          machine_no = @machine_no, machine_name = @machine_name, asset_no = @asset_no,
+          brand = @brand, model = @model, serial_no = @serial_no,
+          category_id = @category_id, dept_id = @dept_id,
+          location = @location, installation_date = @installation_date,
+          warranty_expiry = @warranty_expiry, purchase_cost = @purchase_cost,
+          supplier_id = @supplier_id, notes = @notes,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE machine_id = @id
+        ''',
+        params: machineData..['id'] = machineId,
+      );
+
+      // Update or Insert specs
+      if (specsData != null && specsData.isNotEmpty) {
+        final existing = await DbHelper.txQuery(
+          tx, 'SELECT spec_id FROM machine_specs WHERE machine_id = @id',
+          params: {'id': machineId},
+        );
+
+        if (existing.isNotEmpty) {
+          await DbHelper.txExecute(
+            tx,
+            '''
+            UPDATE machine_specs SET
+              power_kw = @power_kw, voltage_v = @voltage_v, current_a = @current_a,
+              frequency_hz = @frequency_hz, capacity = @capacity,
+              capacity_unit = @capacity_unit, weight_kg = @weight_kg,
+              dim_length_mm = @dim_length_mm, dim_width_mm = @dim_width_mm,
+              dim_height_mm = @dim_height_mm, rpm = @rpm
+            WHERE machine_id = @machine_id
+            ''',
+            params: specsData..['machine_id'] = machineId,
+          );
+        } else {
+          await DbHelper.txExecute(
+            tx,
+            '''
+            INSERT INTO machine_specs (
+              spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
+              capacity, capacity_unit, weight_kg, dim_length_mm,
+              dim_width_mm, dim_height_mm, rpm
+            ) VALUES (
+              @sid, @machine_id, @power_kw, @voltage_v, @current_a, @frequency_hz,
+              @capacity, @capacity_unit, @weight_kg, @dim_length_mm,
+              @dim_width_mm, @dim_height_mm, @rpm
+            )
+            ''',
+            params: specsData..addAll({'machine_id': machineId, 'sid': const Uuid().v4()}),
+          );
+        }
+      }
+      return null;
+    });
   }
 
   /// Soft-delete a machine (admin only)
@@ -194,6 +244,59 @@ class MachineRepository {
     await DbHelper.execute(
       'UPDATE machines SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE machine_id = @id',
       params: {'id': machineId},
+    );
+  }
+
+  /// Verify user PIN for approval, or set it if null
+  Future<bool> verifyApprovalPin(String userId, String pin) async {
+    final row = await DbHelper.queryOne(
+      'SELECT approval_pin_hash FROM users WHERE user_id = @uid',
+      params: {'uid': userId},
+    );
+    if (row == null) return false;
+
+    final hash = row['approval_pin_hash']?.toString();
+    if (hash == null || hash.isEmpty) {
+      // First time setting PIN
+      final newHash = CryptoUtils.hashPassword(pin);
+      await DbHelper.execute(
+        'UPDATE users SET approval_pin_hash = @hash WHERE user_id = @uid',
+        params: {'uid': userId, 'hash': newHash},
+      );
+      return true;
+    }
+
+    return CryptoUtils.verifyPassword(pin, hash);
+  }
+
+  /// Change current user PIN
+  Future<String?> changeUserPin(String userId, String oldPin, String newPin) async {
+    final row = await DbHelper.queryOne(
+      'SELECT approval_pin_hash FROM users WHERE user_id = @uid',
+      params: {'uid': userId},
+    );
+    if (row == null) return 'ไม่พบข้อมูลผู้ใช้';
+
+    final hash = row['approval_pin_hash']?.toString();
+    if (hash != null && hash.isNotEmpty) {
+      if (!CryptoUtils.verifyPassword(oldPin, hash)) {
+        return 'รหัส PIN เดิมไม่ถูกต้อง';
+      }
+    }
+
+    final newHash = CryptoUtils.hashPassword(newPin);
+    await DbHelper.execute(
+      'UPDATE users SET approval_pin_hash = @hash WHERE user_id = @uid',
+      params: {'uid': userId, 'hash': newHash},
+    );
+    return null;
+  }
+
+  /// Reset a user's PIN (Admin only)
+  Future<void> resetUserPin(String targetUserId) async {
+    await DbHelper.execute(
+      'UPDATE users SET approval_pin_hash = NULL WHERE user_id = @uid',
+      params: {'uid': targetUserId},
     );
   }
 
@@ -205,21 +308,34 @@ class MachineRepository {
     required String performedBy,
     String? notes,
   }) async {
+    final isApproval = status == HandoverStatus.approved;
+    final sql = isApproval 
+      ? '''
+        UPDATE machine_handover SET
+          status = @status,
+          approved_by = @user,
+          approved_at = CURRENT_TIMESTAMP,
+          notes = @notes,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE machine_id = @mid AND stage = @stage
+        '''
+      : '''
+        UPDATE machine_handover SET
+          status = @status,
+          performed_by = @user,
+          performed_at = CURRENT_TIMESTAMP,
+          notes = @notes,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE machine_id = @mid AND stage = @stage
+        ''';
+
     await DbHelper.execute(
-      '''
-      UPDATE machine_handover SET
-        status = @status,
-        performed_by = @performed_by,
-        performed_at = CURRENT_TIMESTAMP,
-        notes = @notes,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE machine_id = @mid AND stage = @stage
-      ''',
+      sql,
       params: {
         'mid': machineId,
         'stage': stage.dbValue,
         'status': status.name.replaceAll('InProgress', '_in_progress').toLowerCase().replaceAll('inprogress', 'in_progress'),
-        'performed_by': performedBy,
+        'user': performedBy,
         'notes': notes,
       },
     );
@@ -229,14 +345,28 @@ class MachineRepository {
       "SELECT status FROM machine_handover WHERE machine_id = @mid",
       params: {'mid': machineId},
     );
-    final allApproved = stages.every(
-        (s) => s['status'] == 'approved' || s['status'] == 'passed');
+    final allApproved = stages.every((s) => s['status'] == 'approved');
     if (allApproved) {
       await DbHelper.execute(
         'UPDATE machines SET handover_completed = 1, updated_at = CURRENT_TIMESTAMP WHERE machine_id = @mid',
         params: {'mid': machineId},
       );
     }
+  }
+
+  /// Fetch checklist results for a specific handover stage
+  Future<List<ChecklistResult>> fetchHandoverResults(String handoverId) async {
+    final rows = await DbHelper.query(
+      'SELECT * FROM handover_checklist_results WHERE handover_id = @hid',
+      params: {'hid': handoverId},
+    );
+    return rows.map((r) => ChecklistResult(
+      resultId: r['result_id'].toString(),
+      itemName: r['item_name'].toString(),
+      result: r['result']?.toString(),
+      actualValue: r['actual_value']?.toString(),
+      remarks: r['remarks']?.toString(),
+    )).toList();
   }
 
   /// Save checklist results for a handover stage
@@ -349,6 +479,7 @@ extension MachineModelCopy on MachineModel {
     return MachineModel(
       machineId: machineId,
       machineNo: machineNo,
+      machineName: machineName,
       assetNo: assetNo,
       brand: brand,
       model: model,

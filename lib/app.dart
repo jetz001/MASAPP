@@ -5,6 +5,10 @@ import 'core/config/app_config.dart';
 import 'core/database/db_connection.dart';
 import 'core/navigation/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'core/theme/theme_provider.dart';
+import 'package:circular_theme_reveal/circular_theme_reveal.dart';
+
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 class MasApp extends ConsumerStatefulWidget {
   const MasApp({super.key});
@@ -23,15 +27,11 @@ class _MasAppState extends ConsumerState<MasApp> {
   }
 
   Future<void> _initialize() async {
-    // Try to load saved DB config and connect silently
     final config = await AppConfigService.load();
     if (config != null) {
       try {
         await DbConnection.instance.connect(config);
-      } catch (_) {
-        // Connection failed — user will see error on login
-        // They can fix it via Settings → Database Connection
-      }
+      } catch (_) {}
     }
     if (mounted) setState(() => _initialized = true);
   }
@@ -46,19 +46,35 @@ class _MasAppState extends ConsumerState<MasApp> {
       );
     }
 
-    // Always go to router (Login is the default unauthenticated route)
     final router = ref.watch(routerProvider);
-    return MaterialApp.router(
+    final themeMode = ref.watch(themeModeProvider);
+
+    return ShadApp.router(
       title: 'MASAPP',
-      theme: AppTheme.dark,
+      theme: ShadThemeData(
+        brightness: Brightness.light,
+        colorScheme: const ShadSlateColorScheme.light(),
+      ),
+      darkTheme: ShadThemeData(
+        brightness: Brightness.dark,
+        colorScheme: const ShadSlateColorScheme.dark(),
+      ),
+      themeMode: themeMode,
       debugShowCheckedModeBanner: false,
       routerConfig: router,
+      materialThemeBuilder: (context, theme) => 
+          themeMode == ThemeMode.light ? AppTheme.light : AppTheme.dark,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('th', 'TH'), Locale('en', 'US')],
+      builder: (context, child) => ScaffoldMessenger(
+        child: CircularThemeRevealOverlay(
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 }

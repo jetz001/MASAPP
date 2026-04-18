@@ -56,6 +56,7 @@ extension HandoverStageLabel on HandoverStage {
 class MachineModel {
   final String? machineId;
   final String machineNo;
+  final String? machineName;
   final String? assetNo;
   final String? brand;
   final String? model;
@@ -90,6 +91,7 @@ class MachineModel {
   const MachineModel({
     this.machineId,
     required this.machineNo,
+    this.machineName,
     this.assetNo,
     this.brand,
     this.model,
@@ -120,6 +122,7 @@ class MachineModel {
     return MachineModel(
       machineId: m['machine_id']?.toString(),
       machineNo: m['machine_no']?.toString() ?? '',
+      machineName: m['machine_name']?.toString(),
       assetNo: m['asset_no']?.toString(),
       brand: m['brand']?.toString(),
       model: m['model']?.toString(),
@@ -196,6 +199,7 @@ class MachineModel {
     return MachineModel(
       machineId: machineId,
       machineNo: machineNo,
+      machineName: machineName,
       assetNo: assetNo,
       brand: brand,
       model: model,

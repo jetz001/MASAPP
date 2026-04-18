@@ -6,9 +6,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../features/auth/auth_provider.dart';
+import '../auth/auth_provider.dart';
+import 'machine_models.dart';
 import 'machine_provider.dart';
+import 'utils/machine_form_utils.dart';
 import 'utils/asset_tag_utils.dart';
+import 'widgets/approval_dialog.dart';
 
 /// 3-stage machine intake stepper form
 class MachineIntakeFormScreen extends ConsumerStatefulWidget {
@@ -29,6 +32,7 @@ class _MachineIntakeFormScreenState
 
   // Step 0 — Basic Info controllers
   final _machineNoCtrl = TextEditingController();
+  final _machineNameCtrl = TextEditingController();
   final _assetNoCtrl = TextEditingController();
   final _brandCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
@@ -48,7 +52,7 @@ class _MachineIntakeFormScreenState
   final _currentCtrl = TextEditingController();
   final _freqCtrl = TextEditingController();
   final _capacityCtrl = TextEditingController();
-  final _capacityUnitCtrl = TextEditingController(text: 'Units/hr');
+  final _capacityUnitCtrl = TextEditingController(text: 'หน่วย/ชม.');
   final _weightCtrl = TextEditingController();
   final _lenCtrl = TextEditingController();
   final _widCtrl = TextEditingController();
@@ -77,7 +81,7 @@ class _MachineIntakeFormScreenState
   @override
   void dispose() {
     for (final c in [
-      _machineNoCtrl, _assetNoCtrl, _brandCtrl, _modelCtrl, _serialNoCtrl,
+      _machineNoCtrl, _machineNameCtrl, _assetNoCtrl, _brandCtrl, _modelCtrl, _serialNoCtrl,
       _locationCtrl, _costCtrl, _notesCtrl, _powerCtrl, _voltCtrl, _currentCtrl,
       _freqCtrl, _capacityCtrl, _capacityUnitCtrl, _weightCtrl, _lenCtrl,
       _widCtrl, _htCtrl, _rpmCtrl, _stage1NotesCtrl, _stage2NotesCtrl,
@@ -94,6 +98,7 @@ class _MachineIntakeFormScreenState
     if (machine != null && mounted) {
       setState(() {
         _machineNoCtrl.text = machine.machineNo;
+        _machineNameCtrl.text = machine.machineName ?? '';
         _assetNoCtrl.text = machine.assetNo ?? '';
         _brandCtrl.text = machine.brand ?? '';
         _modelCtrl.text = machine.model ?? '';
@@ -114,12 +119,71 @@ class _MachineIntakeFormScreenState
           _currentCtrl.text = machine.specs!.currentA?.toString() ?? '';
           _freqCtrl.text = machine.specs!.frequencyHz?.toString() ?? '';
           _capacityCtrl.text = machine.specs!.capacity?.toString() ?? '';
-          _capacityUnitCtrl.text = machine.specs!.capacityUnit ?? 'Units/hr';
+          _capacityUnitCtrl.text = machine.specs!.capacityUnit ?? 'หน่วย/ชม.';
           _weightCtrl.text = machine.specs!.weightKg?.toString() ?? '';
           _lenCtrl.text = machine.specs!.dimLengthMm?.toString() ?? '';
           _widCtrl.text = machine.specs!.dimWidthMm?.toString() ?? '';
           _htCtrl.text = machine.specs!.dimHeightMm?.toString() ?? '';
           _rpmCtrl.text = machine.specs!.rpm?.toString() ?? '';
+        }
+
+        // Fetch attachments
+        _loadingAttachments(machine);
+
+        // Fetch Checklist Results
+        _loadHandoverResults(machine);
+      });
+    }
+  }
+
+  Future<void> _loadHandoverResults(MachineModel machine) async {
+    final repo = ref.read(machineRepositoryProvider);
+    
+    // Load for each stage if handoverId exists
+    if (machine.stage1?.handoverId != null) {
+      final results = await repo.fetchHandoverResults(machine.stage1!.handoverId!);
+      _updateLocalChecklist(_stage1Items, results);
+      _stage1NotesCtrl.text = machine.stage1?.notes ?? '';
+    }
+    if (machine.stage2?.handoverId != null) {
+      final results = await repo.fetchHandoverResults(machine.stage2!.handoverId!);
+      _updateLocalChecklist(_stage2Items, results);
+      _stage2NotesCtrl.text = machine.stage2?.notes ?? '';
+    }
+    if (machine.stage3?.handoverId != null) {
+      final results = await repo.fetchHandoverResults(machine.stage3!.handoverId!);
+      _updateLocalChecklist(_stage3Items, results);
+      _stage3NotesCtrl.text = machine.stage3?.notes ?? '';
+    }
+    
+    if (mounted) setState(() {});
+  }
+
+  void _updateLocalChecklist(List<_ChecklistItem> localItems, List<ChecklistResult> dbResults) {
+    for (final dbResult in dbResults) {
+      // Find matching item in local checklist template by name
+      final index = localItems.indexWhere((item) => item.title == dbResult.itemName);
+      if (index != -1) {
+        final status = dbResult.result == 'pass' ? 1 : (dbResult.result == 'fail' ? 2 : (dbResult.result == 'na' ? 3 : 0));
+        localItems[index].status = status;
+        localItems[index].comment = dbResult.remarks;
+      }
+    }
+  }
+
+  Future<void> _loadingAttachments(MachineModel machine) async {
+    final docs = await ref.read(machineRepositoryProvider).fetchAttachments(machine.machineId!);
+    if (mounted) {
+      setState(() {
+        _attachments.clear();
+        for (final doc in docs) {
+          _attachments.add({
+            'attachment_id': doc['attachment_id'],
+            'name': doc['file_name'],
+            'path': doc['file_path'],
+            'size': doc['file_size'],
+            'type': doc['mime_type'],
+          });
         }
       });
     }
@@ -135,6 +199,7 @@ class _MachineIntakeFormScreenState
 
       final machineData = {
         'machine_no': _machineNoCtrl.text,
+        'machine_name': _machineNameCtrl.text,
         'asset_no': _assetNoCtrl.text,
         'brand': _brandCtrl.text,
         'model': _modelCtrl.text,
@@ -163,11 +228,23 @@ class _MachineIntakeFormScreenState
         'rpm': double.tryParse(_rpmCtrl.text),
       };
 
-      final id = await repo.createMachine(
-        machineData: machineData,
-        specsData: specsData,
-        createdBy: user?.userId ?? 'system',
-      );
+      String id;
+      if (_savedMachineId != null) {
+        // UPDATE Mode
+        id = _savedMachineId!;
+        await repo.updateMachine(
+          machineId: id,
+          machineData: machineData,
+          specsData: specsData,
+        );
+      } else {
+        // CREATE Mode
+        id = await repo.createMachine(
+          machineData: machineData,
+          specsData: specsData,
+          createdBy: user?.userId ?? 'system',
+        );
+      }
 
       await _saveAttachments(id);
 
@@ -204,22 +281,109 @@ class _MachineIntakeFormScreenState
     }
   }
 
-  void _removeFile(int index) {
+  void _removeFile(int index) async {
+    final file = _attachments[index];
+    if (file['attachment_id'] != null) {
+      // If it exists in DB, delete it
+      await ref.read(machineRepositoryProvider).deleteAttachment(file['attachment_id']);
+    }
     setState(() => _attachments.removeAt(index));
   }
 
   Future<void> _saveAttachments(String machineId) async {
     final repo = ref.read(machineRepositoryProvider);
     final user = ref.read(authProvider);
+    
+    // We link attachments to Stage 1 (Installation) by default in this intake flow
+    final machine = await repo.fetchById(machineId);
+    final handoverId = machine?.stage1?.handoverId;
+    
+    if (handoverId == null) return;
+
     for (final file in _attachments) {
-      await repo.saveAttachment(
-        handoverId: machineId,
-        fileName: file['name'] ?? 'unknown',
-        filePath: file['path'] ?? '',
-        fileSize: file['size'] ?? 0,
-        mimeType: file['type'] ?? 'application/octet-stream',
-        userId: user?.userId ?? 'system',
+      // Only save if it's new (no attachment_id yet)
+      if (file['attachment_id'] == null) {
+        await repo.saveAttachment(
+          handoverId: handoverId,
+          fileName: file['name'] ?? 'unknown',
+          filePath: file['path'] ?? '',
+          fileSize: file['size'] ?? 0,
+          mimeType: file['type'] ?? 'application/octet-stream',
+          userId: user?.userId ?? 'system',
+        );
+      }
+    }
+  }
+
+  Future<void> _saveStage(int currentStep) async {
+    if (_savedMachineId == null) return;
+    
+    setState(() => _saving = true);
+    try {
+      final repo = ref.read(machineRepositoryProvider);
+      final user = ref.read(authProvider);
+      final machine = await repo.fetchById(_savedMachineId!);
+      
+      HandoverInfo? stageInfo;
+      List<_ChecklistItem>? items;
+      TextEditingController? notes;
+      HandoverStage stageEnum;
+      
+      if (currentStep == 2) {
+        stageInfo = machine?.stage1;
+        items = _stage1Items;
+        notes = _stage1NotesCtrl;
+        stageEnum = HandoverStage.stage1;
+      } else if (currentStep == 3) {
+        stageInfo = machine?.stage2;
+        items = _stage2Items;
+        notes = _stage2NotesCtrl;
+        stageEnum = HandoverStage.stage2;
+      } else {
+        stageInfo = machine?.stage3;
+        items = _stage3Items;
+        notes = _stage3NotesCtrl;
+        stageEnum = HandoverStage.stage3;
+      }
+      
+      if (stageInfo?.handoverId == null) return;
+
+      // 1. Save results
+      final results = items.map((item) => {
+        'item_name': item.title,
+        'result': item.status == 1 ? 'pass' : (item.status == 2 ? 'fail' : (item.status == 3 ? 'na' : 'none')),
+        'actual_value': '',
+        'remarks': item.comment ?? '',
+      }).toList();
+      
+      await repo.saveChecklistResults(
+        handoverId: stageInfo!.handoverId!,
+        results: results,
       );
+      
+      // 2. Update stage status
+      final allPassed = items.every((item) => item.status == 1 || item.status == 3);
+      await repo.updateHandoverStage(
+        machineId: _savedMachineId!,
+        stage: stageEnum,
+        status: allPassed ? HandoverStatus.passed : HandoverStatus.failed,
+        performedBy: user?.userId ?? 'system',
+        notes: notes.text,
+      );
+      
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _currentStep++;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('บันทึกผิดพลาด: $e')),
+        );
+      }
     }
   }
 
@@ -233,10 +397,32 @@ class _MachineIntakeFormScreenState
     }
   }
 
+  Future<void> _printManualForm() async {
+    // Create a temporary model from current form state
+    final tempMachine = MachineModel(
+      machineNo: _machineNoCtrl.text,
+      machineName: _machineNameCtrl.text,
+      assetNo: _assetNoCtrl.text,
+      brand: _brandCtrl.text,
+      model: _modelCtrl.text,
+      serialNo: _serialNoCtrl.text,
+      location: _locationCtrl.text,
+      installationDate: _installDate,
+      specs: MachineSpecs(
+        powerKw: double.tryParse(_powerCtrl.text),
+        voltageV: double.tryParse(_voltCtrl.text),
+        capacity: double.tryParse(_capacityCtrl.text),
+        capacityUnit: _capacityUnitCtrl.text,
+      ),
+    );
+
+    await MachineFormUtils.generateManualChecklist(tempMachine);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgBase,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Column(
         children: [
           _buildHeader(),
@@ -256,9 +442,9 @@ class _MachineIntakeFormScreenState
     return Container(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.md),
-      decoration: const BoxDecoration(
-        color: AppColors.bgSurface,
-        border: Border(bottom: BorderSide(color: AppColors.divider)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
       ),
       child: Row(
         children: [
@@ -275,12 +461,23 @@ class _MachineIntakeFormScreenState
                 style: AppTextStyles.displayMedium,
               ),
               Text(
-                'Digital Machine Handover Process',
-                style: AppTextStyles.secondary,
+                'กระบวนการรับมอบเครื่องจักรดิจิทัล',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
           const Spacer(),
+          OutlinedButton.icon(
+            onPressed: _printManualForm,
+            icon: const Icon(Icons.print_outlined, size: 18),
+            label: const Text('พิมพ์ฟอร์ม Manual'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
           if (_saving)
             const CircularProgressIndicator()
           else
@@ -300,11 +497,11 @@ class _MachineIntakeFormScreenState
       case 1:
         return _buildDocumentsStep();
       case 2:
-        return _buildChecklistStep('Stage 1: Install & Set-up', _stage1Items, _stage1NotesCtrl, (val) => setState(() => _stage1Items = val));
+        return _buildChecklistStep('ระยะที่ 1: การติดตั้งและเตรียมเครื่อง', _stage1Items, _stage1NotesCtrl, (val) => setState(() => _stage1Items = val));
       case 3:
-        return _buildChecklistStep('Stage 2: Machine Test Run', _stage2Items, _stage2NotesCtrl, (val) => setState(() => _stage2Items = val));
+        return _buildChecklistStep('ระยะที่ 2: การทดสอบเดินเครื่อง', _stage2Items, _stage2NotesCtrl, (val) => setState(() => _stage2Items = val));
       case 4:
-        return _buildChecklistStep('Stage 3: Final Acceptance', _stage3Items, _stage3NotesCtrl, (val) => setState(() => _stage3Items = val));
+        return _buildChecklistStep('ระยะที่ 3: การตรวจรับขั้นตอนสุดท้าย', _stage3Items, _stage3NotesCtrl, (val) => setState(() => _stage3Items = val));
       case 5:
         return _buildCompletionStep();
       default:
@@ -320,14 +517,16 @@ class _MachineIntakeFormScreenState
         children: [
           _buildSectionHeader(Icons.info_outline, 'ข้อมูลทั่วไป'),
           const SizedBox(height: AppSpacing.md),
+          _buildTextField(_machineNameCtrl, 'ชื่อเครื่องจักร *', Icons.precision_manufacturing),
+          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
               Expanded(
-                child: _buildTextField(_machineNoCtrl, 'Machine No. *', Icons.tag),
+                child: _buildTextField(_machineNoCtrl, 'รหัสเครื่องจักร *', Icons.tag),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: _buildTextField(_assetNoCtrl, 'Asset Tag No.', Icons.qr_code),
+                child: _buildTextField(_assetNoCtrl, 'รหัสทรัพย์สิน', Icons.qr_code),
               ),
             ],
           ),
@@ -335,32 +534,32 @@ class _MachineIntakeFormScreenState
           Row(
             children: [
               Expanded(
-                child: _buildTextField(_brandCtrl, 'Brand *', Icons.business),
+                child: _buildTextField(_brandCtrl, 'ยี่ห้อ *', Icons.business),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
-                child: _buildTextField(_modelCtrl, 'Model *', Icons.settings),
+                child: _buildTextField(_modelCtrl, 'รุ่น *', Icons.settings),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
-          _buildTextField(_locationCtrl, 'Location / Line *', Icons.location_on),
+          _buildTextField(_locationCtrl, 'สถานที่ติดตั้ง / ไลน์ผลิต *', Icons.location_on),
           const SizedBox(height: AppSpacing.lg),
-          _buildSectionHeader(Icons.settings_input_component, 'Technical Specifications'),
+          _buildSectionHeader(Icons.settings_input_component, 'ข้อมูลทางเทคนิค'),
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(child: _buildTextField(_powerCtrl, 'Power (kW)', Icons.bolt)),
+              Expanded(child: _buildTextField(_powerCtrl, 'กำลังไฟฟ้า (kW)', Icons.bolt)),
               const SizedBox(width: AppSpacing.md),
-              Expanded(child: _buildTextField(_voltCtrl, 'Voltage (V)', Icons.electrical_services)),
+              Expanded(child: _buildTextField(_voltCtrl, 'แรงดันไฟฟ้า (V)', Icons.electrical_services)),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(child: _buildTextField(_capacityCtrl, 'Capacity', Icons.speed)),
+              Expanded(child: _buildTextField(_capacityCtrl, 'ความสามารถในการผลิต', Icons.speed)),
               const SizedBox(width: AppSpacing.md),
-              Expanded(child: _buildTextField(_capacityUnitCtrl, 'Unit (e.g. pcs/min)', null)),
+              Expanded(child: _buildTextField(_capacityUnitCtrl, 'หน่วย (เช่น ชิ้น/นาที)', null)),
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -397,10 +596,10 @@ class _MachineIntakeFormScreenState
           child: Container(
             padding: const EdgeInsets.all(AppSpacing.xl),
             decoration: BoxDecoration(
-              color: AppColors.bgSurface,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(AppRadius.md),
               border: Border.all(
-                color: AppColors.divider,
+                color: Theme.of(context).dividerColor,
                 style: BorderStyle.solid,
               ),
             ),
@@ -409,7 +608,10 @@ class _MachineIntakeFormScreenState
                 const Icon(Icons.cloud_upload_outlined, size: 48, color: AppColors.primary),
                 const SizedBox(height: AppSpacing.md),
                 Text('เลือกไฟล์ หรือ ลากมาที่นี่', style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
-                Text('PDF, Files, Images (Max 10MB)', style: AppTextStyles.labelMedium),
+                Text('PDF, ไฟล์เอกสาร, รูปภาพ (สูงสุด 10MB)',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        )),
               ],
             ),
           ),
@@ -428,20 +630,24 @@ class _MachineIntakeFormScreenState
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                 decoration: BoxDecoration(
-                  color: AppColors.bgSurface,
+                  color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
-                  border: Border.all(color: AppColors.divider),
+                  border: Border.all(color: Theme.of(context).dividerColor),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.description_outlined, color: AppColors.textSecondary),
+                    Icon(Icons.description_outlined,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(file['name'] ?? '', style: AppTextStyles.headlineSmall),
-                          Text('${(file['size'] / 1024 / 1024).toStringAsFixed(2)} MB', style: AppTextStyles.labelMedium),
+                          Text('${(file['size'] / 1024 / 1024).toStringAsFixed(2)} MB',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  )),
                         ],
                       ),
                     ),
@@ -465,8 +671,21 @@ class _MachineIntakeFormScreenState
             ),
             const SizedBox(width: AppSpacing.md),
             ElevatedButton(
-              onPressed: () => setState(() => _currentStep = 2),
-              child: const Text('ถัดไป — เริ่มตรวจสอบ'),
+              onPressed: _saving ? null : () async {
+                setState(() => _saving = true);
+                if (_savedMachineId != null) {
+                  await _saveAttachments(_savedMachineId!);
+                }
+                if (mounted) {
+                  setState(() {
+                    _saving = false;
+                    _currentStep = 2;
+                  });
+                }
+              },
+              child: _saving 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('ถัดไป — เริ่มตรวจสอบ'),
             ),
           ],
         ),
@@ -509,13 +728,41 @@ class _MachineIntakeFormScreenState
             ),
             const SizedBox(width: AppSpacing.md),
             ElevatedButton(
-              onPressed: () => setState(() => _currentStep++),
-              child: const Text('ถัดไป'),
+              onPressed: _saving ? null : () {
+                if (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true) {
+                  _showApprovalDialog();
+                } else {
+                  _saveStage(_currentStep);
+                }
+              },
+              child: _saving 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : Text(_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true ? 'ดำเนินการอนุมัติ' : 'ถัดไป'),
             ),
           ],
         ),
       ],
     );
+  }
+
+  void _showApprovalDialog() async {
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => ApprovalDialog(
+        machineId: _savedMachineId!,
+        title: 'การอนุมัติขั้นตอนสุดท้าย (Stage 3)',
+      ),
+    );
+    if (success == true) {
+      if (mounted) {
+        setState(() {
+          _currentStep = 5; // Move to completion
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('อนุมัติเรียบร้อยแล้ว')),
+        );
+      }
+    }
   }
 
   Widget _buildCompletionStep() {
@@ -527,7 +774,10 @@ class _MachineIntakeFormScreenState
           const SizedBox(height: AppSpacing.lg),
           Text('ดำเนินการเสร็จสิ้น!', style: AppTextStyles.displayMedium),
           const SizedBox(height: AppSpacing.sm),
-          Text('ข้อมูลเครื่องจักรถูกบันทึกเข้าระบบเรียบร้อยแล้ว', style: AppTextStyles.secondary),
+          Text('ข้อมูลเครื่องจักรถูกบันทึกเข้าระบบเรียบร้อยแล้ว',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  )),
           const SizedBox(height: AppSpacing.xl),
           Row(
             mainAxisSize: MainAxisSize.min,
@@ -600,9 +850,9 @@ class _ChecklistRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.bgSurface,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border.all(color: AppColors.divider),
+        border: Border.all(color: Theme.of(context).dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -612,7 +862,7 @@ class _ChecklistRow extends StatelessWidget {
               Container(
                 width: 28, height: 28,
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Center(child: Text('${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.textPrimary))),
@@ -624,7 +874,10 @@ class _ChecklistRow extends StatelessWidget {
                   children: [
                     Text(item.title, style: AppTextStyles.headlineSmall),
                     if (item.description.isNotEmpty)
-                      Text(item.description, style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
+                      Text(item.description,
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              )),
                   ],
                 ),
               ),
@@ -692,9 +945,15 @@ class _ResultButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: isSelected ? color : Colors.transparent,
           borderRadius: BorderRadius.circular(AppRadius.full),
-          border: Border.all(color: isSelected ? color : AppColors.divider),
+          border: Border.all(color: isSelected ? color : Theme.of(context).dividerColor),
         ),
-        child: Text(label, style: TextStyle(color: isSelected ? Colors.white : AppColors.textSecondary, fontSize: 12, fontWeight: FontWeight.bold)),
+        child: Text(label,
+            style: TextStyle(
+                color: isSelected
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -708,7 +967,7 @@ class _StepIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final steps = ['ข้อมูล', 'เอกสาร', 'ติดตั้ง', 'ทดสอบ', 'ผ่านรับ', 'เสร็จสิ้น'];
     return Container(
-      color: AppColors.bgSurface,
+      color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -721,18 +980,33 @@ class _StepIndicator extends StatelessWidget {
               Container(
                 width: 32, height: 32,
                 decoration: BoxDecoration(
-                  color: isCurrent ? AppColors.primary : (isDone ? AppColors.success : AppColors.bgSurface),
+                  color: isCurrent
+                      ? AppColors.primary
+                      : (isDone
+                          ? AppColors.success
+                          : Theme.of(context).colorScheme.surfaceContainerHighest),
                   shape: BoxShape.circle,
-                  border: isCurrent ? null : Border.all(color: AppColors.divider),
+                  border: isCurrent ? null : Border.all(color: Theme.of(context).dividerColor),
                 ),
                 child: Center(
                   child: isDone
                       ? const Icon(Icons.check, size: 16, color: Colors.white)
-                      : Text('${i + 1}', style: TextStyle(color: isCurrent ? Colors.white : AppColors.textSecondary, fontWeight: FontWeight.bold)),
+                      : Text('${i + 1}',
+                          style: TextStyle(
+                              color: isCurrent
+                                  ? Colors.white
+                                  : Theme.of(context).colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.bold)),
                 ),
               ),
               const SizedBox(height: 4),
-              Text(steps[i], style: AppTextStyles.labelMedium.copyWith(color: isCurrent ? AppColors.primary : AppColors.textSecondary)),
+              Text(steps[i],
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: isCurrent
+                            ? AppColors.primary
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 10,
+                      )),
             ],
           );
         }),

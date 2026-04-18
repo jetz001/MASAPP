@@ -171,39 +171,45 @@ class WorkOrder {
   });
 
   factory WorkOrder.fromMap(Map<String, dynamic> map) {
+    final reportedAtStr =
+        (map['reported_at'] ?? map['created_at']) as String?;
+    final createdAtStr = map['created_at'] as String?;
+    final updatedAtStr = map['updated_at'] as String?;
+    final now = DateTime.now().toIso8601String();
+
     return WorkOrder(
       woId: map['wo_id'] as String,
       woNo: map['wo_no'] as String,
       machineId: map['machine_id'] as String,
-      machineNo: map['machine_no'] as String,
+      machineNo: (map['machine_no'] ?? '') as String,
       machineBrand: map['machine_brand'] as String?,
       machineModel: map['machine_model'] as String?,
       zone: map['zone'] as String?,
-      description: map['description'] as String?,
+      description: (map['title'] ?? map['description']) as String?,
       failureSymptom: map['failure_symptom'] as String?,
-      reportedBy: map['reported_by'] as String?,
+      reportedBy: (map['reported_by'] ?? map['created_by']) as String?,
       reportedByName: map['reported_by_name'] as String?,
-      reportedAt: DateTime.parse(map['reported_at'] as String),
+      reportedAt: DateTime.parse(reportedAtStr ?? now),
       status: WorkOrderStatusExt.fromDb(map['status'] as String?),
       priority: WorkOrderPriorityExt.fromDb(map['priority'] as String?),
       approvedBy: map['approved_by'] as String?,
       approvedAt: map['approved_at'] != null
-          ? DateTime.parse(map['approved_at'] as String)
+          ? DateTime.tryParse(map['approved_at'] as String)
           : null,
       assignedTo: map['assigned_to'] as String?,
       assignedToName: map['assigned_to_name'] as String?,
       startedAt: map['started_at'] != null
-          ? DateTime.parse(map['started_at'] as String)
+          ? DateTime.tryParse(map['started_at'] as String)
           : null,
       completedAt: map['completed_at'] != null
-          ? DateTime.parse(map['completed_at'] as String)
+          ? DateTime.tryParse(map['completed_at'] as String)
           : null,
       estimatedHours: (map['estimated_hours'] as num?)?.toDouble(),
       actualHours: (map['actual_hours'] as num?)?.toDouble(),
       notes: map['notes'] as String?,
       closureNotes: map['closure_notes'] as String?,
-      createdAt: DateTime.parse(map['created_at'] as String),
-      updatedAt: DateTime.parse(map['updated_at'] as String),
+      createdAt: DateTime.parse(createdAtStr ?? now),
+      updatedAt: DateTime.parse(updatedAtStr ?? now),
     );
   }
 

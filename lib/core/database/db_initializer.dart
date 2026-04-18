@@ -38,7 +38,34 @@ class DbInitializer {
         await _seedInitialData(db);
         _log.i('Database schema and seed data created/updated successfully');
       } else {
-        _log.i('Database schema is up to date. Skipping initialization.');
+        // --- ADDED MIGRATION CHECKS FOR DEV PARITY ---
+        
+        final userTableInfo = await db.rawQuery('PRAGMA table_info(users)');
+        final hasThemeCol = userTableInfo.any((col) => col['name'] == 'theme_preference');
+        final hasPinCol = userTableInfo.any((col) => col['name'] == 'approval_pin_hash');
+        
+        // 2. Check for machine_positions (renamed from layout_machines)
+        final posTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'machine_positions'],
+        );
+
+        if (!hasThemeCol || !hasPinCol || posTable.isEmpty) {
+          _log.i('Migration: Outdated schema detected. Forcing full initialization...');
+          await _createSchema(db);
+          await _seedInitialData(db);
+        }
+
+        // 3. Check for machine_name column in machines table (Added 2026-04-18)
+        final machineTableInfo = await db.rawQuery('PRAGMA table_info(machines)');
+        final hasMachineName = machineTableInfo.any((col) => col['name'] == 'machine_name');
+        if (!hasMachineName) {
+          _log.i('Migration: Adding machine_name column to machines table...');
+          await db.execute('ALTER TABLE machines ADD COLUMN machine_name TEXT');
+        }
+
+        _log.i('Database schema is up to date (or migrated). Skipping full initialization.');
       }
 
       return true;

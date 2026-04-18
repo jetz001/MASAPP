@@ -61,7 +61,9 @@ CREATE TABLE users (
   phone         TEXT,
   role          TEXT NOT NULL DEFAULT 'operator', -- operator, viewer, technician, safety, engineer, executive, admin
   dept_id       TEXT REFERENCES departments(dept_id),
-  password_hash TEXT NOT NULL,           -- SHA-256 hex
+  password_hash TEXT NOT NULL,           -- bcrypt hash
+  approval_pin_hash TEXT,                -- numeric PIN hash for sign-offs
+  theme_preference TEXT NOT NULL DEFAULT 'dark', -- light, dark
   is_active     INTEGER NOT NULL DEFAULT 1,
   last_login_at DATETIME,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -124,6 +126,7 @@ CREATE TABLE machine_categories (
 CREATE TABLE machines (
   machine_id      TEXT PRIMARY KEY,
   machine_no      TEXT UNIQUE NOT NULL,
+  machine_name    TEXT,
   asset_no        TEXT UNIQUE,
   brand           TEXT,
   model           TEXT,

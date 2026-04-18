@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hugeicons/hugeicons.dart';
+import 'package:empty_view/empty_view.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
@@ -8,6 +10,7 @@ import '../../core/utils/app_utils.dart';
 import '../../features/auth/auth_provider.dart';
 import 'machine_models.dart';
 import 'machine_provider.dart';
+import 'widgets/approval_dialog.dart';
 
 class MachineIntakeListScreen extends ConsumerStatefulWidget {
   const MachineIntakeListScreen({super.key});
@@ -45,7 +48,7 @@ class _MachineIntakeListScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Page header
-        _PageHeader(user: user, onNew: () => context.go('/machine-intake/new')),
+        _PageHeader(user: user, onNew: () => context.go('/machine-registry/new')),
 
         // Toolbar
         Padding(
@@ -63,9 +66,12 @@ class _MachineIntakeListScreenState
                 child: TextField(
                   controller: _searchCtrl,
                   style: AppTextStyles.bodyMedium,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'ค้นหาเครื่องจักร...',
-                    prefixIcon: Icon(Icons.search_rounded, size: 18),
+                    prefixIcon: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
                     contentPadding: EdgeInsets.symmetric(
                       vertical: 10,
                       horizontal: 12,
@@ -117,10 +123,10 @@ class _MachineIntakeListScreenState
               const Spacer(),
               // Refresh
               IconButton(
-                icon: const Icon(
-                  Icons.refresh_rounded,
+                icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedRefresh,
                   size: 18,
-                  color: AppColors.textSecondary,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
                 onPressed: () => ref.invalidate(machineListProvider(_filter)),
                 tooltip: 'รีเฟรช',
@@ -128,7 +134,9 @@ class _MachineIntakeListScreenState
               Text(
                 machineAsync.whenOrNull(data: (l) => '${l.length} รายการ') ??
                     '',
-                style: AppTextStyles.secondary,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
@@ -154,7 +162,7 @@ class _MachineIntakeListScreenState
                   : _MachineTable(
                       machines: machines,
                       user: user,
-                      onEdit: (id) => context.go('/machine-intake/$id'),
+                      onEdit: (id) => context.go('/machine-registry/$id'),
                       onDelete: (id) => _confirmDelete(context, id),
                     ),
             ),
@@ -216,18 +224,20 @@ class _PageHeader extends StatelessWidget {
               Row(
                 children: [
                   const Icon(
-                    Icons.add_business_rounded,
+                    Icons.library_books_rounded,
                     color: AppColors.primary,
                     size: 24,
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Text('การรับเครื่องจักร', style: AppTextStyles.headlineLarge),
+                  Text('ทะเบียนเครื่องจักร', style: AppTextStyles.headlineLarge),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
-                'Digital Handover — ทะเบียนรับเครื่องจักรใหม่',
-                style: AppTextStyles.secondary,
+                'Machine Registry — ข้อมูลหลักเครื่องจักรทั้งหมดและการรับมอบ',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
@@ -235,8 +245,8 @@ class _PageHeader extends StatelessWidget {
           if (user?.canWrite('machine_intake') ?? false)
             ElevatedButton.icon(
               onPressed: onNew,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('รับเครื่องจักรใหม่'),
+              icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18, color: Colors.white),
+              label: const Text('เพิ่มเครื่องจักรใหม่'),
             ),
         ],
       ),
@@ -269,10 +279,12 @@ class _FilterChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? (color ?? AppColors.primary).withValues(alpha: 0.2)
-              : AppColors.bgElevated,
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(AppRadius.full),
           border: Border.all(
-            color: selected ? (color ?? AppColors.primary) : AppColors.border,
+            color: selected
+                ? (color ?? AppColors.primary)
+                : Theme.of(context).dividerColor,
           ),
         ),
         child: Row(
@@ -291,7 +303,7 @@ class _FilterChip extends StatelessWidget {
               style: AppTextStyles.labelMedium.copyWith(
                 color: selected
                     ? (color ?? AppColors.primary)
-                    : AppColors.textSecondary,
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -327,9 +339,9 @@ class _MachineTable extends StatelessWidget {
               horizontal: AppSpacing.lg,
               vertical: AppSpacing.md,
             ),
-            decoration: const BoxDecoration(
-              color: AppColors.bgElevated,
-              borderRadius: BorderRadius.only(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(AppRadius.lg),
                 topRight: Radius.circular(AppRadius.lg),
               ),
@@ -338,7 +350,7 @@ class _MachineTable extends StatelessWidget {
               children: [
                 _HeaderCell('รหัสเครื่อง', flex: 2),
                 _HeaderCell('ยี่ห้อ / รุ่น', flex: 3),
-                _HeaderCell('Serial No.', flex: 2),
+                _HeaderCell('หมายเลข Serial', flex: 2),
                 _HeaderCell('ตำแหน่ง', flex: 2),
                 _HeaderCell('สถานะ', flex: 2),
                 _HeaderCell('Handover', flex: 2),
@@ -385,15 +397,16 @@ class _HeaderCell extends StatelessWidget {
       flex: flex,
       child: Text(
         label,
-        style: AppTextStyles.labelMedium.copyWith(
-          color: AppColors.textSecondary,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
 }
 
-class _MachineRow extends StatelessWidget {
+class _MachineRow extends ConsumerWidget {
   final MachineModel machine;
   final UserSession? user;
   final VoidCallback onEdit;
@@ -407,7 +420,7 @@ class _MachineRow extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -439,7 +452,9 @@ class _MachineRow extends StatelessWidget {
                     if (machine.model != null)
                       Text(
                         machine.model!,
-                        style: AppTextStyles.secondary,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
                         overflow: TextOverflow.ellipsis,
                       ),
                   ],
@@ -450,7 +465,9 @@ class _MachineRow extends StatelessWidget {
                 flex: 2,
                 child: Text(
                   machine.serialNo ?? '-',
-                  style: AppTextStyles.secondary,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ),
               // Location
@@ -508,7 +525,9 @@ class _MachineRow extends StatelessWidget {
                 flex: 2,
                 child: Text(
                   DateFormatters.formatDate(machine.installationDate),
-                  style: AppTextStyles.secondary,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ),
               // Running Hours
@@ -521,7 +540,9 @@ class _MachineRow extends StatelessWidget {
                           decimals: 0,
                         )
                       : '-',
-                  style: AppTextStyles.secondary,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                 ),
               ),
               // Actions
@@ -531,22 +552,37 @@ class _MachineRow extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
                       onPressed: onEdit,
                       tooltip: 'แก้ไข',
-                      color: AppColors.textSecondary,
-                      padding: const EdgeInsets.all(4),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
+                    if (user?.isEngineerOrAbove == true && !machine.handoverCompleted)
+                      IconButton(
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedStamp01,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                        onPressed: () => _showQuickApproval(context, ref),
+                        tooltip: 'อนุมัติ (บันทึก PIN)',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                     if (user?.isAdmin ?? false)
                       IconButton(
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedDelete02,
                           size: 16,
+                          color: AppColors.error,
                         ),
                         onPressed: onDelete,
                         tooltip: 'ลบ',
                         color: AppColors.error,
-                        padding: const EdgeInsets.all(4),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
                       ),
                   ],
                 ),
@@ -556,6 +592,24 @@ class _MachineRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void _showQuickApproval(BuildContext context, WidgetRef ref) async {
+    final success = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => ApprovalDialog(
+        machineId: machine.machineId!,
+        title: 'การอนุมัติด่วน (Quick Approve)',
+      ),
+    );
+    if (success == true) {
+      ref.invalidate(machineListProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('อนุมัติเครื่องจักรเรียบร้อยแล้ว')),
+        );
+      }
+    }
   }
 }
 
@@ -635,29 +689,10 @@ class _EmptyState extends StatelessWidget {
   const _EmptyState();
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.precision_manufacturing_outlined,
-            size: 64,
-            color: AppColors.textDisabled,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            'ยังไม่มีเครื่องจักรในระบบ',
-            style: AppTextStyles.headlineSmall.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'กดปุ่ม "รับเครื่องจักรใหม่" เพื่อเริ่มต้น',
-            style: AppTextStyles.secondary,
-          ),
-        ],
-      ),
+    return EmptyView(
+      title: 'ยังไม่มีเครื่องจักรในระบบ',
+      description: 'กดปุ่ม "รับเครื่องจักรใหม่" เพื่อเริ่มต้น',
+      onButtonTap: () {}, // Optional: refresh action
     );
   }
 }
@@ -685,7 +720,9 @@ class _ErrorState extends StatelessWidget {
             width: 400,
             child: Text(
               error,
-              style: AppTextStyles.secondary,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
               softWrap: true,
               overflow: TextOverflow.ellipsis,
               maxLines: 5,

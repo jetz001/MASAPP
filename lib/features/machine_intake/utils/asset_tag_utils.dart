@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -8,7 +11,16 @@ import '../machine_models.dart';
 class AssetTagUtils {
   /// Generate a PDF for the machine asset tag
   static Future<void> generateAndPrintTag(MachineModel machine) async {
-    final pdf = pw.Document();
+    // Load Thai font
+    final fontRegular = await PdfGoogleFonts.sarabunRegular();
+    final fontBold = await PdfGoogleFonts.sarabunBold();
+
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: fontRegular,
+        bold: fontBold,
+      ),
+    );
 
     // Generate QR code as an image
     final qrValidationResult = QrValidator.validate(
@@ -61,7 +73,7 @@ class AssetTagUtils {
                   mainAxisAlignment: pw.MainAxisAlignment.center,
                   children: [
                     pw.Text(
-                      'MASAPP ASSET TAG',
+                      'MASAPP ป้ายรหัสเครื่องจักร',
                       style: pw.TextStyle(
                         fontSize: 8,
                         fontWeight: pw.FontWeight.bold,
@@ -77,21 +89,21 @@ class AssetTagUtils {
                       ),
                     ),
                     pw.Text(
-                      machine.categoryName ?? 'Uncategorized',
+                      machine.categoryName ?? 'ไม่ระบุประเภท',
                       style: const pw.TextStyle(fontSize: 8),
                     ),
                     pw.SizedBox(height: 2 * PdfPageFormat.mm),
                     pw.Text(
-                      'Brand: ${machine.brand ?? "-"}',
+                      'ยี่ห้อ: ${machine.brand ?? "-"}',
                       style: const pw.TextStyle(fontSize: 7),
                     ),
                     pw.Text(
-                      'Model: ${machine.model ?? "-"}',
+                      'รุ่น: ${machine.model ?? "-"}',
                       style: const pw.TextStyle(fontSize: 7),
                     ),
                     pw.SizedBox(height: 2 * PdfPageFormat.mm),
                     pw.Text(
-                      'ID: ${machine.machineId?.substring(0, 13)}...',
+                      'รหัส: ${machine.machineId?.substring(0, 13)}...',
                       style: const pw.TextStyle(fontSize: 6, color: PdfColors.grey),
                     ),
                   ],
@@ -103,9 +115,12 @@ class AssetTagUtils {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'AssetTag_${machine.machineNo}.pdf',
-    );
+    // Save as PDF and open
+    final tempDir = await getTemporaryDirectory();
+    final fileName = 'AssetTag_${machine.machineNo.replaceAll("/", "_")}.pdf';
+    final file = File('${tempDir.path}/$fileName');
+    
+    await file.writeAsBytes(await pdf.save());
+    await OpenFilex.open(file.path);
   }
 }

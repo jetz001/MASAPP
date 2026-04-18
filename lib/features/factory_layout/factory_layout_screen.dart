@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hugeicons/hugeicons.dart';
 import 'layout_models.dart';
 import 'layout_painter.dart';
 import 'layout_provider.dart';
@@ -13,6 +15,25 @@ class FactoryLayoutScreen extends ConsumerStatefulWidget {
 }
 
 class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh machine status every 15 seconds
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (mounted) {
+        ref.invalidate(currentLayoutProvider);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final layoutAsync = ref.watch(currentLayoutProvider);
@@ -33,7 +54,7 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.zoom_out),
+                      icon: const Icon(Icons.zoom_out_rounded, color: Colors.white, size: 20),
                       onPressed: () {
                         ref.read(zoomLevelProvider.notifier).state =
                             (zoomLevel * 0.8).clamp(0.5, 3.0);
@@ -45,7 +66,7 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                       style: const TextStyle(fontSize: 12),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.zoom_in),
+                      icon: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 20),
                       onPressed: () {
                         ref.read(zoomLevelProvider.notifier).state =
                             (zoomLevel * 1.2).clamp(0.5, 3.0);
@@ -59,7 +80,7 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
           ),
           // Reset view button
           IconButton(
-            icon: const Icon(Icons.center_focus_strong),
+            icon: const Icon(Icons.center_focus_strong_rounded, color: Colors.white, size: 20),
             onPressed: () {
               ref.read(zoomLevelProvider.notifier).state = 1.0;
               ref.read(panOffsetProvider.notifier).state = Offset.zero;
@@ -180,11 +201,10 @@ class _MachineDetailPanel extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // Action buttons
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.info_outline, size: 18),
+              icon: const Icon(Icons.info_outline_rounded, size: 18, color: Colors.white),
               label: const Text('View Full Details'),
               onPressed: () {
                 // Navigate to machine detail screen
@@ -195,7 +215,7 @@ class _MachineDetailPanel extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              icon: const Icon(Icons.history, size: 18),
+              icon: const HugeIcon(icon: HugeIcons.strokeRoundedDocumentCode, size: 18, color: Colors.white70),
               label: const Text('View History'),
               onPressed: () {
                 // Show machine history/maintenance records

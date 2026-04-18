@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'app_colors.dart';
 
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get _base => GoogleFonts.inter(color: AppColors.textPrimary);
+  static TextStyle get _base => GoogleFonts.inter();
 
   // Display
   static TextStyle get displayLarge => _base.copyWith(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5);
@@ -34,9 +33,9 @@ class AppTextStyles {
 
   // Mono
   static TextStyle get mono => GoogleFonts.jetBrainsMono(
-      color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w400);
+      fontSize: 13, fontWeight: FontWeight.w400);
 
-  // Secondary text helpers
-  static TextStyle get secondary => bodyMedium.copyWith(color: AppColors.textSecondary);
-  static TextStyle get disabled => bodyMedium.copyWith(color: AppColors.textDisabled);
+  // Secondary text helpers (requires context or custom color in widget)
+  static TextStyle get secondary => bodySmall;
+  static TextStyle get disabled => bodySmall;
 }

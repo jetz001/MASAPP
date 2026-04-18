@@ -6,6 +6,16 @@ import '../../features/auth/login_screen.dart';
 import '../../features/auth/db_setup_screen.dart';
 import '../../features/machine_intake/machine_intake_list_screen.dart';
 import '../../features/machine_intake/machine_intake_form_screen.dart';
+import '../../features/dashboard/dashboard_screen.dart';
+import '../../features/work_orders/work_order_list_screen.dart';
+import '../../features/spare_parts/spare_parts_screen.dart';
+import '../../features/pm_am/pm_am_screen.dart';
+import '../../features/work_permit/work_permit_screen.dart';
+import '../../features/workforce/workforce_screen.dart';
+import '../../features/admin/admin_screen.dart';
+import '../../features/factory_layout/factory_layout_screen.dart';
+import '../../features/analytics/analytics_dashboard_screen.dart';
+import '../../features/settings/settings_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -50,12 +60,15 @@ final routerProvider = Provider<GoRouter>((ref) {
           child: child,
         ),
         routes: [
+          // Dashboard
           GoRoute(
             path: '/dashboard',
-            builder: (context, state) => const DashboardPlaceholder(),
+            builder: (context, state) => const DashboardScreen(),
           ),
+
+          // Machine Registry
           GoRoute(
-            path: '/machine-intake',
+            path: '/machine-registry',
             builder: (context, state) => const MachineIntakeListScreen(),
             routes: [
               GoRoute(
@@ -70,41 +83,59 @@ final routerProvider = Provider<GoRouter>((ref) {
               ),
             ],
           ),
+
+          // Factory Layout
           GoRoute(
             path: '/factory-layout',
-            builder: (context, state) => const PlaceholderScreen(title: 'แผนที่โรงงาน', module: 'factory_layout'),
+            builder: (context, state) => const FactoryLayoutScreen(),
           ),
-          GoRoute(
-            path: '/machine-registry',
-            builder: (context, state) => const PlaceholderScreen(title: 'ทะเบียนเครื่องจักร', module: 'machine_registry'),
-          ),
+
+          // PM / AM
           GoRoute(
             path: '/pm-am',
-            builder: (context, state) => const PlaceholderScreen(title: 'PM / AM', module: 'pm_am'),
+            builder: (context, state) => const PmAmListScreen(),
           ),
+
+          // Work Orders
           GoRoute(
             path: '/work-orders',
-            builder: (context, state) => const PlaceholderScreen(title: 'ใบสั่งงานซ่อมบำรุง', module: 'work_orders'),
+            builder: (context, state) => const WorkOrderListScreen(),
           ),
+
+          // Work Permit
           GoRoute(
             path: '/work-permit',
-            builder: (context, state) => const PlaceholderScreen(title: 'ใบอนุญาตทำงาน', module: 'work_permit'),
+            builder: (context, state) => const WorkPermitScreen(),
           ),
+
+          // Spare Parts
           GoRoute(
             path: '/spare-parts',
-            builder: (context, state) => const PlaceholderScreen(title: 'คลังอะไหล่', module: 'spare_parts'),
+            builder: (context, state) => const SparePartsListScreen(),
           ),
+
+          // Analytics (placeholder)
           GoRoute(
             path: '/analytics',
-            builder: (context, state) => const PlaceholderScreen(title: 'วิเคราะห์ & AI', module: 'analytics'),
+            builder: (context, state) => const AnalyticsDashboardScreen(),
           ),
+
+          // Workforce
           GoRoute(
             path: '/workforce',
-            builder: (context, state) => const PlaceholderScreen(title: 'ทีมช่าง', module: 'workforce'),
+            builder: (context, state) => const WorkforceScreen(),
           ),
+
+          // Admin
           GoRoute(
             path: '/admin',
-            builder: (context, state) => const PlaceholderScreen(title: 'จัดการผู้ใช้งาน', module: 'admin'),
+            builder: (context, state) => const AdminScreen(),
+          ),
+
+          // Settings
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) => const SettingsScreen(),
           ),
         ],
       ),
@@ -113,12 +144,14 @@ final routerProvider = Provider<GoRouter>((ref) {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Placeholder screens for unbuilt modules
+// Placeholder (for modules not yet fully implemented)
 // ─────────────────────────────────────────────────────────────────────────────
+
 class PlaceholderScreen extends StatelessWidget {
   final String title;
   final String module;
-  const PlaceholderScreen({super.key, required this.title, required this.module});
+  const PlaceholderScreen(
+      {super.key, required this.title, required this.module});
 
   @override
   Widget build(BuildContext context) {
@@ -126,47 +159,31 @@ class PlaceholderScreen extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.construction_rounded, size: 64,
-              color: Colors.white.withValues(alpha: 0.15)),
+          Icon(Icons.construction_rounded,
+              size: 64,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.15)),
           const SizedBox(height: 16),
           Text(title,
-              style: Theme.of(context).textTheme.headlineMedium
-                  ?.copyWith(color: Colors.white70)),
+              style: Theme.of(context)
+                  .textTheme
+                  .headlineMedium
+                  ?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.7))),
           const SizedBox(height: 8),
-          Text('กำลังพัฒนา — Phase 2+',
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: Colors.white38)),
+          Text('กำลังพัฒนา',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.4))),
         ],
       ),
-    );
-  }
-}
-
-class DashboardPlaceholder extends ConsumerWidget {
-  const DashboardPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(authProvider);
-    return Center(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.dashboard_rounded, size: 64,
-            color: Color(0xFF2563EB)),
-        const SizedBox(height: 16),
-        Text('ยินดีต้อนรับ, ${user?.fullName ?? ''}',
-            style: Theme.of(context).textTheme.headlineMedium
-                ?.copyWith(color: Colors.white)),
-        const SizedBox(height: 8),
-        Text('MASAPP — Maintenance Super App',
-            style: Theme.of(context).textTheme.bodyLarge
-                ?.copyWith(color: Colors.white54)),
-        const SizedBox(height: 24),
-        ElevatedButton.icon(
-          onPressed: () => context.go('/machine-intake'),
-          icon: const Icon(Icons.add_business_rounded),
-          label: const Text('เริ่มต้นด้วย การรับเครื่องจักร'),
-        ),
-      ]),
     );
   }
 }

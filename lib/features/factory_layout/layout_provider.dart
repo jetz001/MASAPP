@@ -28,10 +28,10 @@ class LayoutRepository {
             zoneId: zoneRow['zone_id'] as String,
             name: zoneRow['zone_name'] as String,
             bounds: Rect.fromLTWH(
-              (zoneRow['x'] as num).toDouble(),
-              (zoneRow['y'] as num).toDouble(),
-              (zoneRow['width'] as num).toDouble(),
-              (zoneRow['height'] as num).toDouble(),
+              (zoneRow['x_start'] as num).toDouble(),
+              (zoneRow['y_start'] as num).toDouble(),
+              ((zoneRow['x_end'] as num) - (zoneRow['x_start'] as num)).toDouble(),
+              ((zoneRow['y_end'] as num) - (zoneRow['y_start'] as num)).toDouble(),
             ),
             description: zoneRow['description'] as String?,
           ),
@@ -40,11 +40,11 @@ class LayoutRepository {
 
       // Load machines
       final machineRows = await DbHelper.query(
-        '''SELECT lm.*, m.machine_no, m.brand, m.model, m.status
-           FROM layout_machines lm
-           JOIN machines m ON m.machine_id = lm.machine_id
-           WHERE lm.layout_id = @id
-           ORDER BY lm.z_index''',
+        '''SELECT mp.*, m.machine_no, m.brand, m.model, m.status
+           FROM machine_positions mp
+           JOIN machines m ON m.machine_id = mp.machine_id
+           WHERE mp.layout_id = @id
+           ORDER BY mp.created_at''',
         params: {'id': layoutId},
       );
 
@@ -57,8 +57,8 @@ class LayoutRepository {
             brand: machineRow['brand'] as String?,
             model: machineRow['model'] as String?,
             position: Offset(
-              (machineRow['x'] as num).toDouble(),
-              (machineRow['y'] as num).toDouble(),
+              (machineRow['x_position'] as num).toDouble(),
+              (machineRow['y_position'] as num).toDouble(),
             ),
             size: Size(
               (machineRow['width'] as num?)?.toDouble() ?? 60,
@@ -98,8 +98,8 @@ class LayoutRepository {
     Offset position,
   ) async {
     await DbHelper.execute(
-      '''UPDATE layout_machines
-         SET x = @x, y = @y, updated_at = CURRENT_TIMESTAMP
+      '''UPDATE machine_positions
+         SET x_position = @x, y_position = @y, updated_at = CURRENT_TIMESTAMP
          WHERE layout_id = @layout_id AND machine_id = @machine_id''',
       params: {
         'layout_id': layoutId,

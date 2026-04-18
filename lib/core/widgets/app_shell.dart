@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hugeicons/hugeicons.dart';
 import '../../features/auth/auth_provider.dart';
+import '../theme/theme_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_spacing.dart';
@@ -24,12 +26,18 @@ class AppShell extends ConsumerStatefulWidget {
 class _AppShellState extends ConsumerState<AppShell> {
   bool _sidebarExpanded = true;
 
+  void _onThemeToggle(Offset offset) {
+    ref.read(themeModeProvider.notifier).toggle();
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: AppColors.bgBase,
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Row(
         children: [
           // Sidebar
@@ -47,15 +55,19 @@ class _AppShellState extends ConsumerState<AppShell> {
           ),
 
           // Vertical divider
-          Container(width: 1, color: AppColors.divider),
+          Container(width: 1, color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
 
           // Content
           Expanded(
             child: Column(
               children: [
                 // Top bar
-                _TopBar(user: user, sidebarExpanded: _sidebarExpanded),
-                Container(height: 1, color: AppColors.divider),
+                _TopBar(
+                  user: user,
+                  sidebarExpanded: _sidebarExpanded,
+                  onThemeToggle: _onThemeToggle,
+                ),
+                Container(height: 1, color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
                 // Page content
                 Expanded(child: widget.child),
               ],
@@ -73,8 +85,8 @@ class _AppShellState extends ConsumerState<AppShell> {
 
 class _NavItem {
   final String label;
-  final IconData icon;
-  final IconData iconSelected;
+  final dynamic icon;
+  final dynamic iconSelected;
   final String route;
   final List<String> roles; // empty = all roles
 
@@ -90,73 +102,73 @@ class _NavItem {
 const _navItems = [
   _NavItem(
     label: 'แดชบอร์ด',
-    icon: Icons.dashboard_outlined,
-    iconSelected: Icons.dashboard_rounded,
+    icon: HugeIcons.strokeRoundedDashboardCircle,
+    iconSelected: HugeIcons.strokeRoundedDashboardCircle,
     route: '/dashboard',
   ),
   _NavItem(
-    label: 'รับเครื่องจักร',
-    icon: Icons.add_business_outlined,
-    iconSelected: Icons.add_business_rounded,
-    route: '/machine-intake',
-  ),
-  _NavItem(
-    label: 'แผนที่โรงงาน',
-    icon: Icons.map_outlined,
-    iconSelected: Icons.map_rounded,
-    route: '/factory-layout',
-  ),
-  _NavItem(
     label: 'ทะเบียนเครื่องจักร',
-    icon: Icons.precision_manufacturing_outlined,
-    iconSelected: Icons.precision_manufacturing_rounded,
+    icon: HugeIcons.strokeRoundedLibrary,
+    iconSelected: HugeIcons.strokeRoundedLibrary,
     route: '/machine-registry',
   ),
   _NavItem(
+    label: 'แผนที่โรงงาน',
+    icon: HugeIcons.strokeRoundedLocation01,
+    iconSelected: HugeIcons.strokeRoundedLocation01,
+    route: '/factory-layout',
+  ),
+  _NavItem(
     label: 'PM / AM',
-    icon: Icons.build_circle_outlined,
-    iconSelected: Icons.build_circle_rounded,
+    icon: HugeIcons.strokeRoundedCalendar03,
+    iconSelected: HugeIcons.strokeRoundedCalendar03,
     route: '/pm-am',
   ),
   _NavItem(
     label: 'ใบสั่งงาน',
-    icon: Icons.assignment_outlined,
-    iconSelected: Icons.assignment_rounded,
+    icon: HugeIcons.strokeRoundedTask01,
+    iconSelected: HugeIcons.strokeRoundedTask01,
     route: '/work-orders',
   ),
   _NavItem(
     label: 'ใบอนุญาตทำงาน',
-    icon: Icons.verified_user_outlined,
-    iconSelected: Icons.verified_user_rounded,
+    icon: HugeIcons.strokeRoundedAgreement01,
+    iconSelected: HugeIcons.strokeRoundedAgreement01,
     route: '/work-permit',
     roles: ['safety', 'engineer', 'admin'],
   ),
   _NavItem(
     label: 'คลังอะไหล่',
-    icon: Icons.inventory_2_outlined,
-    iconSelected: Icons.inventory_2_rounded,
+    icon: HugeIcons.strokeRoundedArchive02,
+    iconSelected: HugeIcons.strokeRoundedArchive02,
     route: '/spare-parts',
   ),
   _NavItem(
     label: 'วิเคราะห์ & AI',
-    icon: Icons.auto_graph_outlined,
-    iconSelected: Icons.auto_graph_rounded,
+    icon: HugeIcons.strokeRoundedAiMagic,
+    iconSelected: HugeIcons.strokeRoundedAiMagic,
     route: '/analytics',
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
     label: 'ทีมช่าง',
-    icon: Icons.groups_outlined,
-    iconSelected: Icons.groups_rounded,
+    icon: HugeIcons.strokeRoundedUserGroup,
+    iconSelected: HugeIcons.strokeRoundedUserGroup,
     route: '/workforce',
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
     label: 'จัดการผู้ใช้',
-    icon: Icons.manage_accounts_outlined,
-    iconSelected: Icons.manage_accounts_rounded,
+    icon: HugeIcons.strokeRoundedSettings01,
+    iconSelected: HugeIcons.strokeRoundedSettings01,
     route: '/admin',
     roles: ['admin'],
+  ),
+  _NavItem(
+    label: 'การตั้งค่า',
+    icon: HugeIcons.strokeRoundedSettings02,
+    iconSelected: HugeIcons.strokeRoundedSettings02,
+    route: '/settings',
   ),
 ];
 
@@ -175,10 +187,12 @@ class _Sidebar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     final role = user?.role ?? '';
 
     return Container(
-      color: AppColors.bgSidebar,
+      color: colorScheme.surfaceContainerLow,
       child: Column(
         children: [
           // Logo area
@@ -194,8 +208,8 @@ class _Sidebar extends ConsumerWidget {
                     color: AppColors.primary,
                     borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
-                  child: const Icon(
-                    Icons.precision_manufacturing_rounded,
+                  child: const HugeIcon(
+                    icon: HugeIcons.strokeRoundedDashboardSquare01,
                     color: Colors.white,
                     size: 18,
                   ),
@@ -204,16 +218,16 @@ class _Sidebar extends ConsumerWidget {
                   const SizedBox(width: 10),
                   Text('MASAPP',
                       style: AppTextStyles.titleLarge
-                          .copyWith(color: AppColors.textPrimary)),
+                          .copyWith(color: colorScheme.onSurface)),
                 ],
                 const Spacer(),
                 IconButton(
-                  icon: Icon(
-                    expanded
-                        ? Icons.chevron_left_rounded
-                        : Icons.chevron_right_rounded,
-                    color: AppColors.textSecondary,
+                  icon: HugeIcon(
+                    icon: expanded
+                        ? HugeIcons.strokeRoundedArrowLeft01
+                        : HugeIcons.strokeRoundedArrowRight01,
                     size: 20,
+                    color: colorScheme.onSurfaceVariant,
                   ),
                   onPressed: onToggle,
                   tooltip: expanded ? 'ย่อ Sidebar' : 'ขยาย Sidebar',
@@ -247,8 +261,8 @@ class _Sidebar extends ConsumerWidget {
           _NavTile(
             item: const _NavItem(
               label: 'ออกจากระบบ',
-              icon: Icons.logout_rounded,
-              iconSelected: Icons.logout_rounded,
+              icon: HugeIcons.strokeRoundedLogout01,
+              iconSelected: HugeIcons.strokeRoundedLogout01,
               route: '__logout',
             ),
             isSelected: false,
@@ -282,6 +296,8 @@ class _NavTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Tooltip(
       message: expanded ? '' : item.label,
       child: Padding(
@@ -302,19 +318,19 @@ class _NavTile extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? AppColors.navSelected
+                    ? colorScheme.primaryContainer.withValues(alpha: 0.4)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: Row(
                 children: [
-                  Icon(
-                    isSelected ? item.iconSelected : item.icon,
+                  HugeIcon(
+                    icon: isSelected ? item.iconSelected : item.icon,
                     size: 20,
                     color: iconColor ??
                         (isSelected
-                            ? AppColors.primary
-                            : AppColors.textSecondary),
+                            ? colorScheme.primary
+                            : colorScheme.onSurfaceVariant),
                   ),
                   if (expanded) ...[
                     const SizedBox(width: AppSpacing.md),
@@ -327,8 +343,8 @@ class _NavTile extends ConsumerWidget {
                             .copyWith(
                           color: iconColor ??
                               (isSelected
-                                  ? AppColors.textPrimary
-                                  : AppColors.textSecondary),
+                                  ? colorScheme.onSurface
+                                  : colorScheme.onSurfaceVariant),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -351,27 +367,39 @@ class _NavTile extends ConsumerWidget {
 class _TopBar extends StatelessWidget {
   final UserSession? user;
   final bool sidebarExpanded;
+  final Function(Offset) onThemeToggle;
 
-  const _TopBar({this.user, required this.sidebarExpanded});
+  const _TopBar({
+    this.user,
+    required this.sidebarExpanded,
+    required this.onThemeToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
     return Container(
       height: 60,
-      color: AppColors.bgSurface,
+      color: colorScheme.surface,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
       child: Row(
         children: [
           // Breadcrumb placeholder
           Text('ระบบบริหารจัดการซ่อมบำรุง',
               style: AppTextStyles.titleMedium
-                  .copyWith(color: AppColors.textSecondary)),
+                  .copyWith(color: colorScheme.onSurfaceVariant)),
 
           const Spacer(),
 
+          // Theme toggle
+          _ThemeToggleButton(onToggle: onThemeToggle),
+
+          const SizedBox(width: AppSpacing.sm),
+
           // Notification bell
           _TopBarButton(
-            icon: Icons.notifications_none_rounded,
+            icon: HugeIcons.strokeRoundedNotification01,
             tooltip: 'การแจ้งเตือน',
             onTap: () {},
             badge: '3',
@@ -384,9 +412,9 @@ class _TopBar extends StatelessWidget {
             padding:
                 const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.bgElevated,
+              color: colorScheme.surfaceContainerHigh,
               borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: AppColors.border),
+              border: Border.all(color: colorScheme.outlineVariant),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -412,7 +440,7 @@ class _TopBar extends StatelessWidget {
                     Text(
                       user?.roleDisplayName ?? '-',
                       style: AppTextStyles.labelSmall
-                          .copyWith(color: AppColors.textSecondary),
+                          .copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -426,7 +454,7 @@ class _TopBar extends StatelessWidget {
 }
 
 class _TopBarButton extends StatelessWidget {
-  final IconData icon;
+  final dynamic icon;
   final String tooltip;
   final VoidCallback onTap;
   final String? badge;
@@ -445,13 +473,13 @@ class _TopBarButton extends StatelessWidget {
       child: Stack(
         children: [
           IconButton(
-            icon: Icon(icon, size: 22, color: AppColors.textSecondary),
+            icon: HugeIcon(icon: icon, size: 22, color: Theme.of(context).colorScheme.onSurfaceVariant),
             onPressed: onTap,
             style: IconButton.styleFrom(
-              backgroundColor: AppColors.bgElevated,
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadius.md),
-                side: const BorderSide(color: AppColors.border),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
               ),
             ),
           ),
@@ -476,6 +504,56 @@ class _TopBarButton extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme Toggle Button
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ThemeToggleButton extends ConsumerWidget {
+  final Function(Offset) onToggle;
+  const _ThemeToggleButton({required this.onToggle});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = themeMode == ThemeMode.dark;
+    return Tooltip(
+      message: isDark ? 'สลับเป็น Light Mode' : 'สลับเป็น Dark Mode',
+      child: Builder(builder: (ctx) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          child: IconButton(
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (child, anim) => RotationTransition(
+                turns: anim,
+                child: FadeTransition(opacity: anim, child: child),
+              ),
+              child: HugeIcon(
+                icon: isDark ? HugeIcons.strokeRoundedSun01 : HugeIcons.strokeRoundedMoon02,
+                key: ValueKey(isDark),
+                size: 20,
+                color: isDark ? const Color(0xFFFBBF24) : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            onPressed: () {
+              final RenderBox box = ctx.findRenderObject() as RenderBox;
+              final Offset offset = box.localToGlobal(box.size.center(Offset.zero));
+              onToggle(offset);
+            },
+            padding: const EdgeInsets.all(6),
+            constraints: const BoxConstraints(),
+          ),
+        );
+      }),
     );
   }
 }

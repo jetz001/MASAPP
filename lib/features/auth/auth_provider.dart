@@ -4,6 +4,7 @@ import 'package:logger/logger.dart';
 import '../../core/config/app_config.dart';
 import '../../core/database/db_connection.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/utils/crypto_utils.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model
@@ -103,7 +104,7 @@ class AuthNotifier extends StateNotifier<UserSession?> {
 
       final row = await DbHelper.queryOne(
         '''
-        SELECT user_id, username, full_name, role, dept_id, is_active, password_hash
+        SELECT user_id, username, full_name, role, dept_id, is_active, password_hash, theme_preference
         FROM users
         WHERE LOWER(username) = LOWER(@username)
         ''',
@@ -116,7 +117,7 @@ class AuthNotifier extends StateNotifier<UserSession?> {
         Logger().d('[Login] Match: ${row['password_hash'] == password}');
       }
 
-      if (row == null || row['password_hash'] != password) {
+      if (row == null || !CryptoUtils.verifyPassword(password, row['password_hash'].toString())) {
         return 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
       if (row['is_active'] == false || row['is_active'] == 0) {

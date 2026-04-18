@@ -209,19 +209,34 @@ class WorkOrderRepository {
 
   /// Start work on work order
   Future<bool> startWorkOrder(String woId) async {
-    try {
-      final now = DateTime.now().toIso8601String();
-      await DbHelper.execute(
-        '''UPDATE work_orders
-           SET status = 'in_progress', started_at = @started_at, updated_at = @updated_at
-           WHERE wo_id = @wo_id''',
-        params: {'wo_id': woId, 'started_at': now, 'updated_at': now},
-      );
+    return await DbHelper.transaction((tx) async {
+      try {
+        final now = DateTime.now().toIso8601String();
+        
+        // 1. Update work order status
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE work_orders
+             SET status = 'in_progress', started_at = @started_at, updated_at = @updated_at
+             WHERE wo_id = @wo_id''',
+          params: {'wo_id': woId, 'started_at': now, 'updated_at': now},
+        );
 
-      return true;
-    } catch (e) {
-      return false;
-    }
+        // 2. Sync machine status to 'breakdown' if this was a repair job
+        // (For PM jobs, it might be 'pm', but 'breakdown' is the priority visual)
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE machines
+             SET status = 'breakdown', updated_at = @updated_at
+             WHERE machine_id = (SELECT machine_id FROM work_orders WHERE wo_id = @wo_id)''',
+          params: {'wo_id': woId, 'updated_at': now},
+        );
+
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
   }
 
   /// Complete work order and require RCA if breakdown
@@ -265,6 +280,15 @@ class WorkOrderRepository {
             params: {'rca_id': uuid.v4(), 'wo_id': woId},
           );
         }
+
+        // 3. Sync machine status back to 'normal'
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE machines
+             SET status = 'normal', updated_at = @updated_at
+             WHERE machine_id = (SELECT machine_id FROM work_orders WHERE wo_id = @wo_id)''',
+          params: {'wo_id': woId, 'updated_at': now},
+        );
 
         return true;
       } catch (e) {
@@ -351,6 +375,57 @@ class WorkOrderRepository {
       return false;
     }
   }
+
+  /// Consume a spare part for a work order
+  Future<bool> consumeSparePart({
+    required String woId,
+    required String partId,
+    required int quantity,
+    String? remarks,
+  }) async {
+    return await DbHelper.transaction((tx) async {
+      try {
+        final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+        final now = DateTime.now().toIso8601String();
+        final transId = 'TXN-${uuid.v4().substring(0, 8)}';
+
+        // 1. Record transaction
+        await DbHelper.txExecute(
+          tx,
+          '''INSERT INTO spare_parts_transactions
+             (trans_id, part_id, trans_type, quantity, reference_id, trans_by, remarks, trans_date)
+             VALUES (@tid, @pid, 'out', @qty, @wo_id, @uid, @remarks, @date)''',
+          params: {
+            'tid': transId,
+            'pid': partId,
+            'qty': -quantity,
+            'wo_id': woId,
+            'uid': userId,
+            'remarks': remarks ?? 'Used in Work Order',
+            'date': now,
+          },
+        );
+
+        // 2. Update inventory
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE spare_parts_inventory
+             SET quantity_on_hand = quantity_on_hand - @qty,
+                 updated_at = @now
+             WHERE part_id = @pid''',
+          params: {
+            'pid': partId,
+            'qty': quantity,
+            'now': now,
+          },
+        );
+
+        return true;
+      } catch (e) {
+        return false;
+      }
+    });
+  }
 }
 
 /// Riverpod providers
@@ -386,4 +461,80 @@ final pendingWorkOrdersCountProvider = FutureProvider((ref) async {
   final repo = ref.watch(workOrderRepositoryProvider);
   final workOrders = await repo.listWorkOrders(status: 'pending');
   return workOrders.length;
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Filter model + provider for list screen
+// ─────────────────────────────────────────────────────────────────────────────
+
+class WorkOrderFilter {
+  final String? status;
+  final String? search;
+  final String? machineId;
+
+  const WorkOrderFilter({this.status, this.search, this.machineId});
+
+  @override
+  bool operator ==(Object other) =>
+      other is WorkOrderFilter &&
+      other.status == status &&
+      other.search == search &&
+      other.machineId == machineId;
+
+  @override
+  int get hashCode => Object.hash(status, search, machineId);
+}
+
+final workOrderListProvider =
+    FutureProvider.family<List<WorkOrder>, WorkOrderFilter>(
+        (ref, filter) async {
+  try {
+    final where = <String>['1=1'];
+    final params = <String, dynamic>{};
+
+    if (filter.status != null) {
+      where.add('wo.status = @status');
+      params['status'] = filter.status;
+    }
+    if (filter.machineId != null) {
+      where.add('wo.machine_id = @machine_id');
+      params['machine_id'] = filter.machineId;
+    }
+    if (filter.search != null && filter.search!.isNotEmpty) {
+      where.add(
+          '(wo.wo_no LIKE @search OR wo.title LIKE @search OR m.machine_no LIKE @search)');
+      params['search'] = '%${filter.search}%';
+    }
+
+    final rows = await DbHelper.query(
+      '''SELECT wo.wo_id, wo.wo_no, wo.machine_id, wo.status, wo.priority,
+                wo.title, wo.description, wo.failure_symptom,
+                wo.reported_by, wo.created_by, wo.assigned_to,
+                wo.approved_by, wo.estimated_hours, wo.actual_hours,
+                wo.started_at, wo.completed_at, wo.approved_at,
+                wo.created_at, wo.updated_at,
+                m.machine_no, m.brand as machine_brand, m.model as machine_model,
+                u1.full_name as reported_by_name,
+                u2.full_name as assigned_to_name
+         FROM work_orders wo
+         LEFT JOIN machines m ON m.machine_id = wo.machine_id
+         LEFT JOIN users u1 ON u1.user_id = wo.reported_by
+         LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
+         WHERE ${where.join(' AND ')}
+         ORDER BY wo.created_at DESC
+         LIMIT 200''',
+      params: params,
+    );
+
+    return rows.map((r) {
+      // Ensure required fields default gracefully
+      final map = {
+        ...r,
+        'reported_at': r['created_at'] ?? DateTime.now().toIso8601String(),
+      };
+      return WorkOrder.fromMap(map);
+    }).toList();
+  } catch (e) {
+    return [];
+  }
 });
