@@ -114,6 +114,19 @@ class MachineRepository {
     );
   }
 
+  /// Check if a specific field (machine_no, asset_no) already exists
+  Future<bool> isDuplicate(String field, String value, {String? excludeId}) async {
+    final sql = excludeId != null
+        ? 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND machine_id != @ex'
+        : 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val';
+    
+    final params = {'val': value};
+    if (excludeId != null) params['ex'] = excludeId;
+
+    final row = await DbHelper.queryOne(sql, params: params);
+    return (row?['cnt'] as int? ?? 0) > 0;
+  }
+
   /// Insert a new machine and specs, return the new machine_id
   Future<String> createMachine({
     required Map<String, dynamic> machineData,

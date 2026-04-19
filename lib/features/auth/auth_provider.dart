@@ -10,6 +10,8 @@ import '../../core/utils/crypto_utils.dart';
 // Model
 // ─────────────────────────────────────────────────────────────────────────────
 
+final _log = Logger();
+
 class UserSession {
   final String userId;
   final String username;
@@ -98,9 +100,8 @@ class AuthNotifier extends StateNotifier<UserSession?> {
         }
       }
 
-      // Check plain text password directly
-      Logger().d('[Login] Attempting for user: $username');
-      Logger().d('[Login] Password entered: $password');
+      // Check password using BCrypt
+      _log.d('[Login] Attempting for user: $username');
 
       final row = await DbHelper.queryOne(
         '''
@@ -111,16 +112,12 @@ class AuthNotifier extends StateNotifier<UserSession?> {
         params: {'username': username.trim()},
       );
 
-      Logger().d('[Login] User found in DB: ${row != null}');
-      if (row != null) {
-        Logger().d('[Login] Password in DB: ${row['password_hash']}');
-        Logger().d('[Login] Match: ${row['password_hash'] == password}');
-      }
-
-      if (row == null || !CryptoUtils.verifyPassword(password, row['password_hash'].toString())) {
+      if (row == null || !CryptoUtils.verifyPassword(password, row['password_hash']?.toString() ?? '')) {
         return 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
       }
-      if (row['is_active'] == false || row['is_active'] == 0) {
+
+      final isActive = row['is_active'];
+      if (isActive == false || isActive == 0) {
         return 'บัญชีผู้ใช้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ';
       }
 

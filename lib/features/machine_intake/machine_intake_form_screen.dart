@@ -197,6 +197,19 @@ class _MachineIntakeFormScreenState
       final user = ref.read(authProvider);
       final repo = ref.read(machineRepositoryProvider);
 
+      // Check for duplicates before saving
+      final machineNoDup = await repo.isDuplicate('machine_no', _machineNoCtrl.text, excludeId: _savedMachineId);
+      if (machineNoDup) {
+        throw 'รหัสเครื่องจักร (${_machineNoCtrl.text}) นี้มีอยู่ในระบบแล้ว';
+      }
+
+      if (_assetNoCtrl.text.isNotEmpty) {
+        final assetDup = await repo.isDuplicate('asset_no', _assetNoCtrl.text, excludeId: _savedMachineId);
+        if (assetDup) {
+          throw 'รหัสทรัพย์สิน (${_assetNoCtrl.text}) นี้มีอยู่ในระบบแล้ว';
+        }
+      }
+
       final machineData = {
         'machine_no': _machineNoCtrl.text,
         'machine_name': _machineNameCtrl.text,
@@ -258,8 +271,24 @@ class _MachineIntakeFormScreenState
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
+        String message = e.toString();
+        
+        // Handle specific SQLite unique constraint error if it still slips through
+        if (message.contains('UNIQUE constraint failed')) {
+          if (message.contains('machine_no')) {
+            message = 'รหัสเครื่องจักรนี้มีอยู่ในระบบแล้ว';
+          } else if (message.contains('asset_no')) {
+            message = 'รหัสทรัพย์สินนี้มีอยู่ในระบบแล้ว';
+          } else {
+            message = 'ข้อมูลบางอย่างซ้ำกับที่มีอยู่ในระบบแล้ว';
+          }
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+          SnackBar(
+            content: Text(message),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -426,7 +455,21 @@ class _MachineIntakeFormScreenState
       body: Column(
         children: [
           _buildHeader(),
-          _StepIndicator(currentStep: _currentStep),
+          _StepIndicator(
+            currentStep: _currentStep,
+            onStepTapped: (index) {
+              if (index < _currentStep || _savedMachineId != null) {
+                setState(() => _currentStep = index);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('กรุณาบันทึกข้อมูลทั่วไปก่อนข้ามไปขั้นตอนอื่น'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          ),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -961,7 +1004,8 @@ class _ResultButton extends StatelessWidget {
 
 class _StepIndicator extends StatelessWidget {
   final int currentStep;
-  const _StepIndicator({required this.currentStep});
+  final Function(int)? onStepTapped;
+  const _StepIndicator({required this.currentStep, this.onStepTapped});
 
   @override
   Widget build(BuildContext context) {
@@ -974,40 +1018,48 @@ class _StepIndicator extends StatelessWidget {
         children: List.generate(steps.length, (i) {
           final isDone = i < currentStep;
           final isCurrent = i == currentStep;
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(
-                  color: isCurrent
-                      ? AppColors.primary
-                      : (isDone
-                          ? AppColors.success
-                          : Theme.of(context).colorScheme.surfaceContainerHighest),
-                  shape: BoxShape.circle,
-                  border: isCurrent ? null : Border.all(color: Theme.of(context).dividerColor),
-                ),
-                child: Center(
-                  child: isDone
-                      ? const Icon(Icons.check, size: 16, color: Colors.white)
-                      : Text('${i + 1}',
-                          style: TextStyle(
-                              color: isCurrent
-                                  ? Colors.white
-                                  : Theme.of(context).colorScheme.onSurfaceVariant,
-                              fontWeight: FontWeight.bold)),
-                ),
+          
+          return InkWell(
+            onTap: onStepTapped != null ? () => onStepTapped!(i) : null,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: isCurrent
+                          ? AppColors.primary
+                          : (isDone
+                              ? AppColors.success
+                              : Theme.of(context).colorScheme.surfaceContainerHighest),
+                      shape: BoxShape.circle,
+                      border: isCurrent ? null : Border.all(color: Theme.of(context).dividerColor),
+                    ),
+                    child: Center(
+                      child: isDone
+                          ? const Icon(Icons.check, size: 16, color: Colors.white)
+                          : Text('${i + 1}',
+                              style: TextStyle(
+                                  color: isCurrent
+                                      ? Colors.white
+                                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(steps[i],
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: isCurrent
+                                ? AppColors.primary
+                                : Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 10,
+                          )),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text(steps[i],
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: isCurrent
-                            ? AppColors.primary
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontSize: 10,
-                      )),
-            ],
+            ),
           );
         }),
       ),

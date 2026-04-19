@@ -9,6 +9,7 @@ import 'core/theme/theme_provider.dart';
 import 'package:circular_theme_reveal/circular_theme_reveal.dart';
 
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'core/theme/ui_scale_provider.dart';
 
 class MasApp extends ConsumerStatefulWidget {
   const MasApp({super.key});
@@ -70,11 +71,42 @@ class _MasAppState extends ConsumerState<MasApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('th', 'TH'), Locale('en', 'US')],
-      builder: (context, child) => ScaffoldMessenger(
-        child: CircularThemeRevealOverlay(
-          child: child ?? const SizedBox.shrink(),
-        ),
-      ),
+      builder: (context, child) {
+        if (child == null) return const SizedBox.shrink();
+        
+        final scale = ref.watch(uiScaleProvider);
+        
+        return ScaffoldMessenger(
+          child: CircularThemeRevealOverlay(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Determine logical size to fill the window at the given scale
+                final logicalWidth = constraints.maxWidth / scale;
+                final logicalHeight = constraints.maxHeight / scale;
+                
+                return MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: Size(logicalWidth, logicalHeight),
+                    // We also scale the textFactor to handle complex widgets 
+                    // that might ignore custom sizes but respect text scaling
+                    textScaler: TextScaler.linear(scale),
+                  ),
+                  child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    maxWidth: logicalWidth,
+                    maxHeight: logicalHeight,
+                    child: Transform.scale(
+                      scale: scale,
+                      alignment: Alignment.topLeft,
+                      child: child,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 }
