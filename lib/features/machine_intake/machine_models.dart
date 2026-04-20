@@ -76,6 +76,7 @@ class MachineModel {
   final bool isEditUnlocked;
   final bool isActive;
   final String? notes;
+  final String? handoverConclusion; // accepted, rejected
   final DateTime? createdAt;
 
   // Specs (joined)
@@ -116,6 +117,7 @@ class MachineModel {
     this.isEditUnlocked = false,
     this.isActive = true,
     this.notes,
+    this.handoverConclusion,
     this.createdAt,
     this.specs,
     this.stage1,
@@ -159,6 +161,7 @@ class MachineModel {
           m['is_active'] == 1 ||
           m['is_active'] == null,
       notes: m['notes']?.toString(),
+      handoverConclusion: m['handover_conclusion']?.toString(),
       createdAt: m['created_at'] != null
           ? DateTime.tryParse(m['created_at'].toString())
           : null,
@@ -233,6 +236,7 @@ class MachineModel {
       isEditUnlocked: isEditUnlocked,
       isActive: isActive,
       notes: notes,
+      handoverConclusion: handoverConclusion,
       createdAt: createdAt,
       specs: specs ?? this.specs,
       stage1: stage1 ?? this.stage1,

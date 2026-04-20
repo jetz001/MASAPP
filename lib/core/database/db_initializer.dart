@@ -100,6 +100,12 @@ class DbInitializer {
           await db.execute('ALTER TABLE work_permits ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
         }
 
+        final machinesTableInfo = await db.rawQuery('PRAGMA table_info(machines)');
+        if (!machinesTableInfo.any((col) => col['name'] == 'handover_conclusion')) {
+          _log.i('Migration: Adding handover_conclusion to machines...');
+          await db.execute('ALTER TABLE machines ADD COLUMN handover_conclusion TEXT');
+        }
+
         _log.i('Database schema is up to date (or migrated). Skipping full initialization.');
       }
 

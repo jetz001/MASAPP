@@ -59,6 +59,7 @@ class _MachineIntakeFormScreenState
   String? _selectedCategoryId;
   String? _selectedDeptId;
   String? _selectedSupplierId;
+  String? _handoverConclusion; // pass, fail
 
   // Step 1 — Technical Specs (Now mostly integrated or as Step 1)
   final _powerCtrl = TextEditingController();
@@ -125,6 +126,7 @@ class _MachineIntakeFormScreenState
         _selectedCategoryId = machine.categoryId;
         _selectedDeptId = machine.deptId;
         _selectedSupplierId = machine.supplierId;
+        _handoverConclusion = machine.handoverConclusion;
 
         // Technical specs
         if (machine.specs != null) {
@@ -308,10 +310,11 @@ class _MachineIntakeFormScreenState
         'location': _locationCtrl.text,
         'installation_date': _installDate?.toIso8601String(),
         'warranty_expiry': _warrantyExpiry?.toIso8601String(),
-        'purchase_cost': double.tryParse(_costCtrl.text),
-        'notes': _notesCtrl.text,
-        'supplier_id': _selectedSupplierId,
-      };
+         'purchase_cost': double.tryParse(_costCtrl.text),
+         'notes': _notesCtrl.text,
+         'supplier_id': _selectedSupplierId,
+         'handover_conclusion': _handoverConclusion,
+       };
 
       final specsData = {
         'power_kw': double.tryParse(_powerCtrl.text),
@@ -547,10 +550,11 @@ class _MachineIntakeFormScreenState
       await repo.updateHandoverStage(
         machineId: _savedMachineId!,
         stage: stageEnum,
-        status: allPassed ? HandoverStatus.passed : HandoverStatus.failed,
-        performedBy: user?.userId ?? 'system',
-        notes: notes.text,
-      );
+         status: allPassed ? HandoverStatus.passed : HandoverStatus.failed,
+         performedBy: user?.userId ?? 'system',
+         notes: notes.text,
+         handoverConclusion: currentStep == 4 ? _handoverConclusion : null,
+       );
       
       // Update initial results for this stage
       if (currentStep == 2) {
@@ -1099,8 +1103,34 @@ class _MachineIntakeFormScreenState
           },
         ),
         const SizedBox(height: AppSpacing.lg),
-        _buildTextField(notes, 'หมายเหตุเพิ่มเติม', Icons.comment, maxLines: 3, enabled: enabled),
-        const SizedBox(height: AppSpacing.xl),
+         ),
+         const SizedBox(height: AppSpacing.lg),
+         if (currentStep == 4) ...[
+           Text('ผลสรุปการตรวจรับ', style: AppTextStyles.headlineSmall),
+           const SizedBox(height: AppSpacing.md),
+           Row(
+             children: [
+               _ConclusionButton(
+                 label: 'ผ่านรับเข้า (Pass)',
+                 color: AppColors.success,
+                 isSelected: _handoverConclusion == 'pass',
+                 enabled: enabled,
+                 onTap: () => setState(() => _handoverConclusion = 'pass'),
+               ),
+               const SizedBox(width: AppSpacing.md),
+               _ConclusionButton(
+                 label: 'ไม่รับ (Fail)',
+                 color: AppColors.error,
+                 isSelected: _handoverConclusion == 'fail',
+                 enabled: enabled,
+                 onTap: () => setState(() => _handoverConclusion = 'fail'),
+               ),
+             ],
+           ),
+           const SizedBox(height: AppSpacing.lg),
+         ],
+         _buildTextField(notes, 'หมายเหตุเพิ่มเติม', Icons.comment, maxLines: 3, enabled: enabled),
+         const SizedBox(height: AppSpacing.xl),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -1372,6 +1402,51 @@ class _ResultButton extends StatelessWidget {
                     : Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+}
+
+class _ConclusionButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool isSelected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _ConclusionButton({
+    required this.label,
+    required this.color,
+    required this.isSelected,
+    this.enabled = true,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+          decoration: BoxDecoration(
+            color: isSelected ? color : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            border: Border.all(
+                color: isSelected ? color : Theme.of(context).dividerColor,
+                width: isSelected ? 2 : 1),
+          ),
+          child: Center(
+            child: Text(label,
+                style: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold)),
+          ),
+        ),
       ),
     );
   }

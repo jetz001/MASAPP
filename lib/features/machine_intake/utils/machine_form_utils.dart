@@ -331,13 +331,32 @@ class MachineFormUtils {
             // Summary notes
             pw.Text('3. ข้อสรุปและหมายเหตุเพิ่มเติม', style: sectionStyle),
             pw.SizedBox(height: 4),
+            pw.Row(
+              children: [
+                pw.Text('ผลสรุปการตรวจรับ: ', style: labelStyle),
+                if (machine.handoverConclusion == 'pass')
+                  pw.Text('ผ่านรับเข้า (Accepted)', style: valueStyle.copyWith(color: PdfColors.green900, fontWeight: pw.FontWeight.bold))
+                else if (machine.handoverConclusion == 'fail')
+                  pw.Text('ไม่รับ (Rejected)', style: valueStyle.copyWith(color: PdfColors.red900, fontWeight: pw.FontWeight.bold))
+                else
+                  pw.Text('ยังไม่มีข้อสรุป', style: valueStyle.copyWith(color: PdfColors.grey600)),
+              ],
+            ),
+            pw.SizedBox(height: 6),
             pw.Container(
               width: double.infinity,
               padding: const pw.EdgeInsets.all(6),
               decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey300), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4))),
-              child: pw.Text(
-                (machine.stage3?.notes?.isNotEmpty == true) ? machine.stage3!.notes! : (machine.notes ?? 'ไม่มีบันทึกเพิ่มเติม'),
-                style: valueStyle,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text('หมายเหตุ:', style: pw.TextStyle(fontSize: 6, color: PdfColors.grey600, fontWeight: pw.FontWeight.bold)),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    (machine.stage3?.notes?.isNotEmpty == true) ? machine.stage3!.notes! : (machine.notes ?? 'ไม่มีบันทึกเพิ่มเติม'),
+                    style: valueStyle,
+                  ),
+                ],
               ),
             ),
 

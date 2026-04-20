@@ -44,7 +44,7 @@ class MachineRepository {
       SELECT
         m.machine_id, m.machine_no, m.machine_name, m.asset_no, m.brand, m.model, m.serial_no,
         m.status, m.location, m.installation_date, m.purchase_cost,
-        m.handover_completed, m.is_active, m.notes, m.created_at,
+        m.handover_completed, m.handover_conclusion, m.is_active, m.notes, m.created_at,
         mc.name AS category_name,
         d.dept_name,
         COALESCE(rh.cumulative_hours, 0) AS total_running_hours,
@@ -167,11 +167,11 @@ class MachineRepository {
           INSERT INTO machines (
             machine_id, machine_no, machine_name, asset_no, brand, model, serial_no,
             category_id, dept_id, location, installation_date,
-            warranty_expiry, purchase_cost, supplier_id, notes, created_by
+            warranty_expiry, purchase_cost, supplier_id, notes, handover_conclusion, created_by
           ) VALUES (
             @id, @machine_no, @machine_name, @asset_no, @brand, @model, @serial_no,
             @category_id, @dept_id, @location, @installation_date,
-            @warranty_expiry, @purchase_cost, @supplier_id, @notes, @created_by
+            @warranty_expiry, @purchase_cost, @supplier_id, @notes, @handover_conclusion, @created_by
           )
         ''',
         params: machineData..addAll({'created_by': createdBy, 'id': machineId}),
@@ -227,9 +227,10 @@ class MachineRepository {
           brand = @brand, model = @model, serial_no = @serial_no,
           category_id = @category_id, dept_id = @dept_id,
           location = @location, installation_date = @installation_date,
-          warranty_expiry = @warranty_expiry, purchase_cost = @purchase_cost,
-          supplier_id = @supplier_id, notes = @notes,
-          updated_at = CURRENT_TIMESTAMP
+           warranty_expiry = @warranty_expiry, purchase_cost = @purchase_cost,
+           supplier_id = @supplier_id, notes = @notes,
+           handover_conclusion = @handover_conclusion,
+           updated_at = CURRENT_TIMESTAMP
         WHERE machine_id = @id
         ''',
         params: machineData..['id'] = machineId,
@@ -410,6 +411,7 @@ class MachineRepository {
     required HandoverStatus status,
     required String performedBy,
     String? notes,
+    String? handoverConclusion,
   }) async {
     final isApproval = status == HandoverStatus.approved;
     final sql = isApproval 
@@ -444,6 +446,13 @@ class MachineRepository {
         'notes': notes,
       },
     );
+
+    if (handoverConclusion != null) {
+      await DbHelper.execute(
+        'UPDATE machines SET handover_conclusion = @conclusion, updated_at = CURRENT_TIMESTAMP WHERE machine_id = @mid',
+        params: {'mid': machineId, 'conclusion': handoverConclusion},
+      );
+    }
 
     // Check if Stage 3 is approved OR all 3 stages are done
     // In most contexts, Stage 3 Approval is the final gate.
