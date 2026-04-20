@@ -17,6 +17,20 @@ class MachineFormUtils {
     final fontItalic = await PdfGoogleFonts.sarabunItalic();
     final fontBoldItalic = await PdfGoogleFonts.sarabunBoldItalic();
 
+    // Fetch Settings
+    final rows = await DbHelper.query('SELECT setting_key, setting_value FROM app_settings');
+    final settings = {for (var r in rows) r['setting_key'].toString(): r['setting_value'].toString()};
+    
+    final orgName = settings['org_name'] ?? 'MASAPP Digital Handover';
+    final docRef = settings['doc_intake_ref'] ?? 'FM-MA-001';
+    final logoBase64 = settings['org_logo'];
+    pw.MemoryImage? logoImage;
+    if (logoBase64 != null && logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(base64Decode(logoBase64));
+      } catch (_) {}
+    }
+
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
         base: fontRegular,
@@ -27,48 +41,51 @@ class MachineFormUtils {
     );
 
     final headerStyle = pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold);
-    final sectionStyle = pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900);
-    final labelStyle = pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold);
-    final valueStyle = pw.TextStyle(fontSize: 9);
+    final sectionStyle = pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColors.blue900);
+    final labelStyle = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold);
+    final valueStyle = pw.TextStyle(fontSize: 8);
     final tableHeaderStyle = pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.white);
 
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.symmetric(
-          horizontal: 12 * PdfPageFormat.mm,
-          vertical: 10 * PdfPageFormat.mm,
+        margin: const pw.EdgeInsets.symmetric(horizontal: 10 * PdfPageFormat.mm, vertical: 10 * PdfPageFormat.mm),
+        footer: (pw.Context context) => pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text(docRef, style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800)),
+          ],
         ),
         build: (pw.Context context) {
           return [
             // Header
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: pw.MainAxisAlignment.start,
               children: [
+                if (logoImage != null)
+                  pw.Container(
+                    width: 60, height: 60,
+                    margin: const pw.EdgeInsets.only(right: 15),
+                    child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                  )
+                else
+                  pw.Container(
+                    width: 50, height: 50, color: PdfColors.blue900,
+                    margin: const pw.EdgeInsets.only(right: 15),
+                    child: pw.Center(child: pw.Text('MAS', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 14))),
+                  ),
                 pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('MASAPP - ระบบบริหารจัดการงานซ่อมบำรุง', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700)),
+                    pw.Text('$orgName - MACHINE INTAKE FORM', style: pw.TextStyle(fontSize: 7, color: PdfColors.blue800, fontWeight: pw.FontWeight.bold)),
                     pw.Text('แบบฟอร์มตรวจรับเครื่องจักร', style: headerStyle),
-                    pw.Text('ชื่อเครื่อง: ${machine.machineName ?? ""}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800)),
-                    pw.Text('(บันทึกการตรวจเช็คหน้างาน)', style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600)),
                   ],
-                ),
-                pw.Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const pw.BoxDecoration(
-                    color: PdfColors.blue900,
-                  ),
-                  child: pw.Center(
-                    child: pw.Text('MAS', style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold)),
-                  ),
                 ),
               ],
             ),
-            pw.SizedBox(height: 10),
-            pw.Divider(),
-            pw.SizedBox(height: 10),
+            pw.SizedBox(height: 8),
+            pw.Divider(thickness: 0.5),
+            pw.SizedBox(height: 8),
 
             // Section: Machine Information
             pw.Text('1. ข้อมูลทั่วไป', style: sectionStyle),
@@ -165,10 +182,6 @@ class MachineFormUtils {
             ),
 
             pw.SizedBox(height: 10),
-            pw.Center(
-              child: pw.Text('วันที่ออกรายงาน: ${DateTime.now().toString().split('.')[0]}', 
-                style: pw.TextStyle(fontSize: 7, color: PdfColors.grey)),
-            ),
           ];
         },
       ),
@@ -256,22 +269,6 @@ class MachineFormUtils {
                   children: [
                     pw.Text('$orgName - MACHINE INTAKE REPORT', style: pw.TextStyle(fontSize: 7, color: PdfColors.blue800, fontWeight: pw.FontWeight.bold)),
                     pw.Text('รายงานการตรวจรับเครื่องจักรเสร็จสมบูรณ์', style: headerStyle),
-                    pw.Row(
-                      children: [
-                        pw.Text('สถานะการตรวจรับ: ', style: pw.TextStyle(fontSize: 10)),
-                        pw.Text(
-                          machine.stage3Status == HandoverStatus.approved ? 'สมบูรณ์ (APPROVED)' : 
-                          (machine.stage3Status == HandoverStatus.passed ? 'ผ่านการตรวจรับ (PASSED)' : 
-                          (machine.stage3Status == HandoverStatus.failed ? 'ไม่ผ่าน (FAILED)' : 'อยู่ระหว่างดำเนินการ')),
-                          style: pw.TextStyle(
-                            fontSize: 10,
-                            fontWeight: pw.FontWeight.bold,
-                            color: machine.stage3Status == HandoverStatus.approved ? PdfColors.green700 : 
-                                   (machine.stage3Status == HandoverStatus.failed ? PdfColors.red700 : PdfColors.orange700),
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
                 ),
               ],

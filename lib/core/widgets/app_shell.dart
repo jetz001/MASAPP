@@ -207,46 +207,58 @@ class _Sidebar extends ConsumerWidget {
                     // Logo area
                     SizedBox(
                       height: 60,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 16),
-                          Container(
-                            width: 32,
-                            height: 32,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(AppRadius.sm),
-                            ),
-                            child: const HugeIcon(
-                              icon: HugeIcons.strokeRoundedDashboardSquare01,
-                              color: Colors.white,
-                              size: 18,
-                            ),
-                          ),
-                          if (expanded) ...[
-                            const SizedBox(width: 10),
-                            Text(
-                              'MASAPP',
-                              style: AppTextStyles.titleLarge.copyWith(
-                                color: colorScheme.onSurface,
+                      child: !expanded
+                          ? Center(
+                              child: IconButton(
+                                icon: const HugeIcon(
+                                  icon: HugeIcons.strokeRoundedArrowRight01,
+                                  size: 20,
+                                ),
+                                onPressed: onToggle,
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              physics: const NeverScrollableScrollPhysics(),
+                              child: SizedBox(
+                                width: 220,
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 16),
+                                    Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary,
+                                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                                      ),
+                                      child: const HugeIcon(
+                                        icon: HugeIcons.strokeRoundedDashboardSquare01,
+                                        color: Colors.white,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      'MASAPP',
+                                      style: AppTextStyles.titleLarge.copyWith(
+                                        color: colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    IconButton(
+                                      icon: const HugeIcon(
+                                        icon: HugeIcons.strokeRoundedArrowLeft01,
+                                        size: 20,
+                                      ),
+                                      onPressed: onToggle,
+                                      tooltip: 'ย่อ Sidebar',
+                                      padding: const EdgeInsets.all(8),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                          const Spacer(),
-                          IconButton(
-                            icon: HugeIcon(
-                              icon: expanded
-                                  ? HugeIcons.strokeRoundedArrowLeft01
-                                  : HugeIcons.strokeRoundedArrowRight01,
-                              size: 20,
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                            onPressed: onToggle,
-                            tooltip: expanded ? 'ย่อ Sidebar' : 'ขยาย Sidebar',
-                            padding: const EdgeInsets.all(8),
-                          ),
-                        ],
-                      ),
                     ),
 
                     Container(height: 1, color: AppColors.divider),
@@ -339,38 +351,45 @@ class _NavTile extends ConsumerWidget {
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
-              child: Row(
-                children: [
-                  HugeIcon(
-                    icon: isSelected ? item.iconSelected : item.icon,
-                    size: 20,
-                    color:
-                        iconColor ??
-                        (isSelected
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant),
-                  ),
-                  if (expanded) ...[
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Text(
-                        item.label,
-                        style:
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                child: SizedBox(
+                  width: 200, // Fixed width for navigation items to prevent overflow during sidebar animation
+                  child: Row(
+                    children: [
+                      HugeIcon(
+                        icon: isSelected ? item.iconSelected : item.icon,
+                        size: 20,
+                        color:
+                            iconColor ??
                             (isSelected
-                                    ? AppTextStyles.titleSmall
-                                    : AppTextStyles.bodySmall)
-                                .copyWith(
-                                  color:
-                                      iconColor ??
-                                      (isSelected
-                                          ? colorScheme.onSurface
-                                          : colorScheme.onSurfaceVariant),
-                                ),
-                        overflow: TextOverflow.ellipsis,
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant),
                       ),
-                    ),
-                  ],
-                ],
+                      if (expanded) ...[
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: Text(
+                            item.label,
+                            style:
+                                (isSelected
+                                        ? AppTextStyles.titleSmall
+                                        : AppTextStyles.bodySmall)
+                                    .copyWith(
+                                      color:
+                                          iconColor ??
+                                          (isSelected
+                                              ? colorScheme.onSurface
+                                              : colorScheme.onSurfaceVariant),
+                                    ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
