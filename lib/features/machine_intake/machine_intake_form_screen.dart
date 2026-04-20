@@ -1103,34 +1103,32 @@ class _MachineIntakeFormScreenState
           },
         ),
         const SizedBox(height: AppSpacing.lg),
-         ),
-         const SizedBox(height: AppSpacing.lg),
-         if (currentStep == 4) ...[
-           Text('ผลสรุปการตรวจรับ', style: AppTextStyles.headlineSmall),
-           const SizedBox(height: AppSpacing.md),
-           Row(
-             children: [
-               _ConclusionButton(
-                 label: 'ผ่านรับเข้า (Pass)',
-                 color: AppColors.success,
-                 isSelected: _handoverConclusion == 'pass',
-                 enabled: enabled,
-                 onTap: () => setState(() => _handoverConclusion = 'pass'),
-               ),
-               const SizedBox(width: AppSpacing.md),
-               _ConclusionButton(
-                 label: 'ไม่รับ (Fail)',
-                 color: AppColors.error,
-                 isSelected: _handoverConclusion == 'fail',
-                 enabled: enabled,
-                 onTap: () => setState(() => _handoverConclusion = 'fail'),
-               ),
-             ],
-           ),
-           const SizedBox(height: AppSpacing.lg),
-         ],
-         _buildTextField(notes, 'หมายเหตุเพิ่มเติม', Icons.comment, maxLines: 3, enabled: enabled),
-         const SizedBox(height: AppSpacing.xl),
+        if (_currentStep == 4) ...[
+          Text('ผลสรุปการตรวจรับ', style: AppTextStyles.headlineSmall),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              _ConclusionButton(
+                label: 'ผ่านรับเข้า (Pass)',
+                color: AppColors.success,
+                isSelected: _handoverConclusion == 'pass',
+                enabled: enabled,
+                onTap: () => setState(() => _handoverConclusion = 'pass'),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              _ConclusionButton(
+                label: 'ไม่รับ (Fail)',
+                color: AppColors.error,
+                isSelected: _handoverConclusion == 'fail',
+                enabled: enabled,
+                onTap: () => setState(() => _handoverConclusion = 'fail'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+        ],
+        _buildTextField(notes, 'หมายเหตุเพิ่มเติม', Icons.comment, maxLines: 3, enabled: enabled),
+        const SizedBox(height: AppSpacing.xl),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
