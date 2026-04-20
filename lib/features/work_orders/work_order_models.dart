@@ -111,6 +111,7 @@ class WorkOrder {
   final String woId;
   final String woNo; // Sequential work order number
   final String machineId;
+  final String? snapshotId;
   final String machineNo;
   final String? machineBrand;
   final String? machineModel;
@@ -143,6 +144,7 @@ class WorkOrder {
     required this.woId,
     required this.woNo,
     required this.machineId,
+    this.snapshotId,
     required this.machineNo,
     this.machineBrand,
     this.machineModel,
@@ -181,6 +183,7 @@ class WorkOrder {
       woId: map['wo_id'] as String,
       woNo: map['wo_no'] as String,
       machineId: map['machine_id'] as String,
+      snapshotId: map['snapshot_id'] as String?,
       machineNo: (map['machine_no'] ?? '') as String,
       machineBrand: map['machine_brand'] as String?,
       machineModel: map['machine_model'] as String?,
@@ -217,6 +220,7 @@ class WorkOrder {
     String? woId,
     String? woNo,
     String? machineId,
+    String? snapshotId,
     String? machineNo,
     String? machineBrand,
     String? machineModel,
@@ -247,6 +251,7 @@ class WorkOrder {
       woId: woId ?? this.woId,
       woNo: woNo ?? this.woNo,
       machineId: machineId ?? this.machineId,
+      snapshotId: snapshotId ?? this.snapshotId,
       machineNo: machineNo ?? this.machineNo,
       machineBrand: machineBrand ?? this.machineBrand,
       machineModel: machineModel ?? this.machineModel,

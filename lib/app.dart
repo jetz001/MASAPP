@@ -10,6 +10,7 @@ import 'package:circular_theme_reveal/circular_theme_reveal.dart';
 
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'core/theme/ui_scale_provider.dart';
+import 'core/widgets/window_title_bar.dart';
 
 class MasApp extends ConsumerStatefulWidget {
   const MasApp({super.key});
@@ -86,20 +87,25 @@ class _MasAppState extends ConsumerState<MasApp> {
                 
                 return MediaQuery(
                   data: MediaQuery.of(context).copyWith(
-                    size: Size(logicalWidth, logicalHeight),
-                    // We also scale the textFactor to handle complex widgets 
-                    // that might ignore custom sizes but respect text scaling
+                    size: Size(logicalWidth, logicalHeight - 38 / scale), // Adjust for title bar
                     textScaler: TextScaler.linear(scale),
                   ),
-                  child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    maxWidth: logicalWidth,
-                    maxHeight: logicalHeight,
-                    child: Transform.scale(
-                      scale: scale,
-                      alignment: Alignment.topLeft,
-                      child: child,
-                    ),
+                  child: Column(
+                    children: [
+                      const WindowTitleBar(),
+                      Expanded(
+                        child: OverflowBox(
+                          alignment: Alignment.topLeft,
+                          maxWidth: logicalWidth,
+                          maxHeight: logicalHeight - 38 / scale,
+                          child: Transform.scale(
+                            scale: scale,
+                            alignment: Alignment.topLeft,
+                            child: child,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 );
               },

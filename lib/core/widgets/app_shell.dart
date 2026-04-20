@@ -425,90 +425,92 @@ class _TopBarState extends State<_TopBar> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    return Container(
-      height: 60,
-      color: colorScheme.surface,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-      child: Row(
-        children: [
-          // Breadcrumb placeholder
-          Text(
-            'ระบบบริหารจัดการซ่อมบำรุง',
-            style: AppTextStyles.titleMedium.copyWith(
-              color: colorScheme.onSurfaceVariant,
+    return DragToMoveArea(
+      child: Container(
+        height: 60,
+        color: colorScheme.surface,
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
+        child: Row(
+          children: [
+            // Breadcrumb placeholder
+            Text(
+              'ระบบบริหารจัดการซ่อมบำรุง',
+              style: AppTextStyles.titleMedium.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
-          ),
 
-          const Spacer(),
+            const Spacer(),
 
-          // Theme toggle
-          _ThemeToggleButton(onToggle: widget.onThemeToggle),
+            // Theme toggle
+            _ThemeToggleButton(onToggle: widget.onThemeToggle),
 
-          const SizedBox(width: AppSpacing.sm),
+            const SizedBox(width: AppSpacing.sm),
 
-          // Notification bell
-          _TopBarButton(
-            icon: HugeIcons.strokeRoundedNotification01,
-            tooltip: 'การแจ้งเตือน',
-            onTap: () {},
-            badge: '3',
-          ),
-
-          const SizedBox(width: AppSpacing.sm),
-
-          // User info chip
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(AppRadius.full),
-              border: Border.all(color: colorScheme.outlineVariant),
+            // Notification bell
+            _TopBarButton(
+              icon: HugeIcons.strokeRoundedNotification01,
+              tooltip: 'การแจ้งเตือน',
+              onTap: () {},
+              badge: '3',
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor: AppColors.primaryContainer,
-                  child: Text(
-                    (widget.user?.fullName ?? 'U')
-                        .substring(0, 1)
-                        .toUpperCase(),
-                    style: AppTextStyles.labelMedium.copyWith(
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.user?.fullName ?? '-',
-                      style: AppTextStyles.labelMedium,
-                    ),
-                    Text(
-                      widget.user?.roleDisplayName ?? '-',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+
+            const SizedBox(width: AppSpacing.sm),
+
+            // User info chip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(AppRadius.full),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircleAvatar(
+                    radius: 14,
+                    backgroundColor: AppColors.primaryContainer,
+                    child: Text(
+                      (widget.user?.fullName ?? 'U')
+                          .substring(0, 1)
+                          .toUpperCase(),
+                      style: AppTextStyles.labelMedium.copyWith(
+                        color: AppColors.primary,
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.user?.fullName ?? '-',
+                        style: AppTextStyles.labelMedium,
+                      ),
+                      Text(
+                        widget.user?.roleDisplayName ?? '-',
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          const SizedBox(width: AppSpacing.md),
+            const SizedBox(width: AppSpacing.md),
 
-          _WindowControlButtons(
-            isMaximized: _isMaximized,
-            onMinimize: () => windowManager.minimize(),
-            onMaximizeRestore: _toggleMaximizeRestore,
-            onClose: () => windowManager.close(),
-          ),
-        ],
+            _WindowControlButtons(
+              isMaximized: _isMaximized,
+              onMinimize: () => windowManager.minimize(),
+              onMaximizeRestore: _toggleMaximizeRestore,
+              onClose: () => windowManager.close(),
+            ),
+          ],
+        ),
       ),
     );
   }

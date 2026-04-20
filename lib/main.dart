@@ -21,7 +21,7 @@ void main() async {
     title: 'MASAPP — Maintenance Super App',
     backgroundColor: Color(0xFF0F1117),
     skipTaskbar: false,
-    titleBarStyle: TitleBarStyle.normal,
+    titleBarStyle: TitleBarStyle.hidden,
   );
 
   // Global error logging

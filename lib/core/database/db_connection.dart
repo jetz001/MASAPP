@@ -73,7 +73,9 @@ class DbConnection {
         },
         onOpen: (db) async {
           _log.i('Database connection opened successfully');
-          // Initialize database schema and seed data if needed
+          // [TEMPORARY WIPE] Remove after one run
+          // await DbInitializer.wipeMachineData(db); 
+          
           await DbInitializer.initializeDatabase(db);
         },
       ),

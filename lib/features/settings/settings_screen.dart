@@ -1,15 +1,18 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../auth/auth_provider.dart';
 import '../machine_intake/machine_provider.dart';
 import '../machine_intake/widgets/pin_keypad.dart';
-import '../admin/admin_screen.dart'; // Reuse UserRecord model
+import '../admin/admin_screen.dart'; 
 import '../../../core/theme/ui_scale_provider.dart';
 import 'package:hugeicons/hugeicons.dart';
+import 'package:window_manager/window_manager.dart';
+import 'settings_provider.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -18,91 +21,115 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    // We'll initialize with a temporary length and update in build if needed,
-    // or just use a fixed length that covers all cases.
-    _tabCtrl = TabController(length: 3, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabCtrl.dispose();
-    super.dispose();
-  }
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  int _selectedIndex = 0;
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider);
+    final isAdmin = user?.isEngineerOrAbove ?? false;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final tabs = [
+      _SettingsTabItem(
+        icon: Icons.business_outlined,
+        label: 'ข้อมูลองค์กร',
+        content: const _OrganizationInfoTab(),
+      ),
+      _SettingsTabItem(
+        icon: Icons.description_outlined,
+        label: 'ระบบเอกสาร',
+        content: const _DocumentSystemTab(),
+      ),
+      _SettingsTabItem(
+        icon: Icons.brush_outlined,
+        label: 'การแสดงผล',
+        content: const _DisplaySettingsTab(),
+      ),
+      _SettingsTabItem(
+        icon: Icons.badge_outlined,
+        label: 'รหัส PIN อนุมัติ',
+        content: const _MyPinTab(),
+      ),
+      if (isAdmin)
+        _SettingsTabItem(
+          icon: Icons.lock_open_outlined,
+          label: 'ปลดล็อก PIN พนักงาน',
+          content: const _UnlockPinTab(),
+        ),
+    ];
+
+    return Row(
       children: [
-        // Header
+        // Sidebar Navigation
         Container(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.xxl,
-            AppSpacing.xxl,
-            AppSpacing.xxl,
-            AppSpacing.lg,
+          width: 250,
+          decoration: BoxDecoration(
+            border: Border(
+              right: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.settings_suggest_outlined,
-                    color: AppColors.primary,
-                    size: 24,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'การตั้งค่าและความปลอดภัย',
-                    style: AppTextStyles.headlineLarge,
-                  ),
-                ],
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.xxl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.settings_suggest_outlined, color: AppColors.primary, size: 24),
+                        const SizedBox(width: AppSpacing.sm),
+                        Text('การตั้งค่า', style: AppTextStyles.headlineMedium),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text('จัดการระบบและองค์กร', style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
+                  ],
+                ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'จัดการรหัส PIN สำหรับอนุมัติ และการตั้งค่าระบบความปลอดภัย',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: tabs.length,
+                  itemBuilder: (context, index) {
+                    final item = tabs[index];
+                    final isSelected = _selectedIndex == index;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      child: ListTile(
+                        leading: Icon(
+                          item.icon,
+                          size: 20,
+                          color: isSelected ? AppColors.primary : Colors.grey,
+                        ),
+                        title: Text(
+                          item.label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            color: isSelected ? AppColors.primary : null,
+                          ),
+                        ),
+                        onTap: () => setState(() => _selectedIndex = index),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        selected: isSelected,
+                        selectedTileColor: AppColors.primary.withValues(alpha: 0.1),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
           ),
         ),
 
-        // Tabs
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xxl),
-          child: TabBar(
-            controller: _tabCtrl,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: [
-              const Tab(text: 'รหัส PIN อนุมัติ'),
-              const Tab(text: 'การแสดงผล'),
-              if (user?.isEngineerOrAbove ?? false)
-                const Tab(text: 'การปลดล็อก PIN พนักงาน'),
-            ],
-          ),
-        ),
-
+        // Main Content
         Expanded(
-          child: TabBarView(
-            controller: _tabCtrl,
-            children: [
-              const _MyPinTab(),
-              const _DisplaySettingsTab(),
-              if (user?.isEngineerOrAbove ?? false) const _UnlockPinTab(),
-            ],
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: tabs[_selectedIndex].content,
           ),
         ),
       ],
@@ -110,7 +137,308 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 }
 
-// ─── Tab: My PIN ─────────────────────────────────────────────────────────────
+class _SettingsTabItem {
+  final IconData icon;
+  final String label;
+  final Widget content;
+  _SettingsTabItem({required this.icon, required this.label, required this.content});
+}
+
+// ─── Tab: Organization Info ─────────────────────────────────────────────────
+
+class _OrganizationInfoTab extends ConsumerStatefulWidget {
+  const _OrganizationInfoTab();
+
+  @override
+  ConsumerState<_OrganizationInfoTab> createState() => _OrganizationInfoTabState();
+}
+
+class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
+  late TextEditingController _nameCtrl;
+  late TextEditingController _addressCtrl;
+  late TextEditingController _taxIdCtrl;
+  late TextEditingController _phoneCtrl;
+  bool _isDirty = false;
+  bool _isSaved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = ref.read(appSettingsProvider).valueOrNull;
+    _nameCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgName) ?? '');
+    _addressCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgAddress) ?? '');
+    _taxIdCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgTaxId) ?? '');
+    _phoneCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgPhone) ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _addressCtrl.dispose();
+    _taxIdCtrl.dispose();
+    _phoneCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onChanged() {
+    if (!_isDirty) setState(() => _isDirty = true);
+    if (_isSaved) setState(() => _isSaved = false);
+  }
+
+  Future<void> _save() async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    await notifier.updateSetting(AppSettingKeys.orgName, _nameCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.orgAddress, _addressCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.orgTaxId, _taxIdCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.orgPhone, _phoneCtrl.text);
+    
+    setState(() {
+      _isDirty = false;
+      _isSaved = true;
+    });
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _isSaved = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settingsAsync = ref.watch(appSettingsProvider);
+
+    return settingsAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (settings) {
+        final logoBase64 = settings.get(AppSettingKeys.orgLogo);
+        
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.xxl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('ข้อมูลองค์กร', style: AppTextStyles.headlineSmall),
+              const SizedBox(height: 4),
+              Text('ข้อมูลนี้จะปรากฏในรายงาน PDF และส่วนต่างๆ ของแอป', style: AppTextStyles.bodySmall),
+              const SizedBox(height: 32),
+
+              _buildLogoSection(context, ref, logoBase64),
+              const SizedBox(height: 32),
+
+              _buildField(_nameCtrl, 'ชื่อบริษัท / องค์กร', Icons.business_rounded),
+              _buildField(_addressCtrl, 'ที่อยู่สำนักงาน', Icons.location_on_rounded, maxLines: 3),
+              _buildField(_taxIdCtrl, 'เลขประจำตัวผู้เสียภาษี', Icons.badge_rounded),
+              _buildField(_phoneCtrl, 'เบอร์โทรศัพท์ติดต่อ', Icons.phone_rounded),
+
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _isDirty ? _save : null,
+                  icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
+                  label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกข้อมูลองค์กร'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
+                    foregroundColor: _isDirty ? Colors.white : Colors.grey,
+                    elevation: _isDirty ? 2 : 0,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 48),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildField(TextEditingController controller, String label, IconData icon, {int maxLines = 1}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: controller,
+            maxLines: maxLines,
+            decoration: InputDecoration(
+              prefixIcon: Icon(icon, size: 18),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onChanged: (_) => _onChanged(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLogoSection(BuildContext context, WidgetRef ref, String logoBase64) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Row(
+          children: [
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.grey.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+              ),
+              child: logoBase64.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(base64Decode(logoBase64), fit: BoxFit.contain),
+                    )
+                  : const Center(child: Icon(Icons.image_outlined, color: Colors.grey)),
+            ),
+            const SizedBox(width: 24),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('โลโก้บริษัท', style: AppTextStyles.titleMedium),
+                  const SizedBox(height: 4),
+                  Text('แนะนำไฟล์ PNG/JPG ขนาดไม่เกิน 500 KB', style: AppTextStyles.bodySmall),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () => _pickLogo(ref),
+                        icon: const Icon(Icons.upload_rounded, size: 18),
+                        label: const Text('เปลี่ยนรูปภาพ'),
+                      ),
+                      if (logoBase64.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.orgLogo, ''),
+                          child: const Text('ลบรูปภาพ', style: TextStyle(color: Colors.red)),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickLogo(WidgetRef ref) async {
+    final result = await FilePicker.platform.pickFiles(type: FileType.image);
+    if (result != null && result.files.single.path != null) {
+      final bytes = await result.files.single.xFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+      await ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.orgLogo, base64String);
+    }
+  }
+}
+
+// ─── Tab: Document System ───────────────────────────────────────────────────
+
+class _DocumentSystemTab extends ConsumerStatefulWidget {
+  const _DocumentSystemTab();
+
+  @override
+  ConsumerState<_DocumentSystemTab> createState() => _DocumentSystemTabState();
+}
+
+class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
+  late TextEditingController _docRefCtrl;
+  bool _isDirty = false;
+  bool _isSaved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final settings = ref.read(appSettingsProvider).valueOrNull;
+    _docRefCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docIntakeRef, defaultValue: 'FM-MA-001') ?? 'FM-MA-001');
+  }
+
+  @override
+  void dispose() {
+    _docRefCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    await ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.docIntakeRef, _docRefCtrl.text);
+    setState(() {
+      _isDirty = false;
+      _isSaved = true;
+    });
+    // Reset saved state after a few seconds
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _isSaved = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('ระบบเอกสาร', style: AppTextStyles.headlineSmall),
+          const SizedBox(height: 4),
+          Text('ตั้งค่ารหัสควบคุมเอกสารประจำฟอร์มต่างๆ', style: AppTextStyles.bodySmall),
+          const SizedBox(height: 32),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('แบบฟอร์มตรวจรับเครื่องจักร (Machine Intake)', style: AppTextStyles.titleMedium),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _docRefCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'รหัสควบคุมเอกสาร (Document Ref. Code)',
+                      hintText: 'เช่น FM-MA-001',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => setState(() {
+                      _isDirty = true;
+                      _isSaved = false;
+                    }),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('รหัสนี้จะปรากฏที่มุมขวาล่างของรายงาน PDF ทุกหน้า', style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
+                  const SizedBox(height: 24),
+                  
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _isDirty ? _save : null,
+                      icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
+                      label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกการเปลี่ยนแปลง'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
+                        foregroundColor: _isDirty ? Colors.white : Colors.grey,
+                        elevation: _isDirty ? 2 : 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Tab: My PIN (REFACTORED) ───────────────────────────────────────────────
 
 class _MyPinTab extends ConsumerStatefulWidget {
   const _MyPinTab();
@@ -242,7 +570,6 @@ class _MyPinTabState extends ConsumerState<_MyPinTab> {
                       Text(title, style: AppTextStyles.titleLarge),
                       const SizedBox(height: 24),
 
-                      // Progress Dots
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(4, (i) {
@@ -313,13 +640,13 @@ class _UnlockPinTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (users) {
-        return ListView.builder(
+        return ListView.separated(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           itemCount: users.length,
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final u = users[index];
             return Card(
-              margin: const EdgeInsets.only(bottom: AppSpacing.md),
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: u.roleColor.withValues(alpha: 0.1),
@@ -348,11 +675,7 @@ class _UnlockPinTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmReset(
-    BuildContext context,
-    WidgetRef ref,
-    UserRecord targetUser,
-  ) async {
+  Future<void> _confirmReset(BuildContext context, WidgetRef ref, UserRecord targetUser) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -361,10 +684,7 @@ class _UnlockPinTab extends ConsumerWidget {
           'คุณต้องการล้างรหัส PIN ของ "${targetUser.fullName}" ใช่หรือไม่?\nพนักงานจะต้องตั้งรหัส PIN ใหม่ในการอนุมัติครั้งถัดไป',
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('ยกเลิก'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
@@ -378,11 +698,7 @@ class _UnlockPinTab extends ConsumerWidget {
       await ref.read(machineRepositoryProvider).resetUserPin(targetUser.userId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'ปลดล็อก PIN ของ ${targetUser.fullName} เรียบร้อยแล้ว',
-            ),
-          ),
+          SnackBar(content: Text('ปลดล็อก PIN ของ ${targetUser.fullName} เรียบร้อยแล้ว')),
         );
       }
     }
@@ -406,8 +722,7 @@ class _DisplaySettingsTab extends ConsumerWidget {
           _buildSection(
             context,
             title: 'ขนาดส่วนต่อประสานผู้ใช้ (UI Scale)',
-            subtitle:
-                'ปรับขนาดของตัวอักษรและองค์ประกอบต่างๆ ในแอปให้เล็กลงหรือใหญ่ขึ้น',
+            subtitle: 'ปรับขนาดของตัวอักษรและองค์ประกอบต่างๆ ในแอปให้เล็กลงหรือใหญ่ขึ้น',
             icon: HugeIcons.strokeRoundedAiView,
             child: Column(
               children: [
@@ -434,13 +749,9 @@ class _DisplaySettingsTab extends ConsumerWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'ปัจจุบัน: ${(scale * 100).toInt()}%',
-                        style: AppTextStyles.labelMedium,
-                      ),
+                      Text('ปัจจุบัน: ${(scale * 100).toInt()}%', style: AppTextStyles.labelMedium),
                       TextButton(
-                        onPressed: () =>
-                            ref.read(uiScaleProvider.notifier).setScale(1.0),
+                        onPressed: () => ref.read(uiScaleProvider.notifier).setScale(1.0),
                         child: const Text('รีเซ็ตเป็นค่าเริ่มต้น'),
                       ),
                     ],
@@ -453,116 +764,17 @@ class _DisplaySettingsTab extends ConsumerWidget {
           _buildSection(
             context,
             title: 'ขนาดหน้าต่างแอป',
-            subtitle:
-                'เลือกขนาดหน้าต่างมาตรฐาน VGA/SVGA/XGA/SXGA/UXGA หรือ Wide Screen ตามความละเอียดจอ',
+            subtitle: 'เลือกขนาดหน้าต่างมาตรฐานหรือปรับตามความละเอียดจอ',
             icon: Icons.aspect_ratio,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Wrap(
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.sm,
               children: [
-                Wrap(
-                  spacing: AppSpacing.md,
-                  runSpacing: AppSpacing.sm,
-                  children: [
-                    _buildWindowSizeButton(
-                      context,
-                      'VGA 640x480',
-                      const Size(640, 480),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'SVGA 800x600',
-                      const Size(800, 600),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'XGA 1024x768',
-                      const Size(1024, 768),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'SXGA 1280x1024',
-                      const Size(1280, 1024),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'SXGA+ 1400x1050',
-                      const Size(1400, 1050),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'UXGA 1600x1200',
-                      const Size(1600, 1200),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'WVGA 840x480',
-                      const Size(840, 480),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'WXGA 1280x800',
-                      const Size(1280, 800),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'WXGA+ 1440x900',
-                      const Size(1440, 900),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'WSXGA 1680x1050',
-                      const Size(1680, 1050),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'WUXGA 1920x1200',
-                      const Size(1920, 1200),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'HD Ready 1366x768',
-                      const Size(1366, 768),
-                    ),
-                    _buildWindowSizeButton(
-                      context,
-                      'Full HD 1920x1080',
-                      const Size(1920, 1080),
-                    ),
-                    _buildCurrentWindowSizeButton(context),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.md),
-                FutureBuilder<Size>(
-                  future: _currentWindowSize(),
-                  builder: (context, snapshot) {
-                    final size = snapshot.data;
-                    return Text(
-                      size == null
-                          ? 'กำลังโหลดขนาดหน้าต่าง...'
-                          : 'ขนาดหน้าต่างปัจจุบัน: ${size.width.toInt()}x${size.height.toInt()}',
-                      style: AppTextStyles.bodySmall,
-                    );
-                  },
-                ),
+                _buildWindowSizeButton(context, 'XGA 1024x768', const Size(1024, 768)),
+                _buildWindowSizeButton(context, 'SXGA 1280x1024', const Size(1280, 1024)),
+                _buildWindowSizeButton(context, 'WXGA+ 1440x900', const Size(1440, 900)),
+                _buildWindowSizeButton(context, 'Full HD 1920x1080', const Size(1920, 1080)),
               ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xl),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(AppSpacing.lg),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: AppColors.primary),
-                  SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Text(
-                      'หากแอปดู "ล้นหน้าจอ" หรือองค์ประกอบต่างๆ ใหญ่เกินไป แนะนำให้ปรับขนาดลงครับ',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
         ],
@@ -570,71 +782,33 @@ class _DisplaySettingsTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildSection(
-    BuildContext context, {
-    required String title,
-    required String subtitle,
-    required dynamic icon,
-    required Widget child,
-  }) {
+  Widget _buildSection(BuildContext context, {required String title, required String subtitle, required dynamic icon, required Widget child}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            icon is IconData
-                ? Icon(icon, size: 20, color: AppColors.primary)
-                : HugeIcon(icon: icon, size: 20, color: AppColors.primary),
+            icon is IconData ? Icon(icon, size: 20, color: AppColors.primary) : HugeIcon(icon: icon, size: 20, color: AppColors.primary),
             const SizedBox(width: AppSpacing.sm),
             Text(title, style: AppTextStyles.titleLarge),
           ],
         ),
         const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: AppTextStyles.bodySmall.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
+        Text(subtitle, style: AppTextStyles.bodySmall.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
         const SizedBox(height: AppSpacing.lg),
         child,
       ],
     );
   }
 
-  Future<Size> _currentWindowSize() async {
-    final bounds = await windowManager.getBounds();
-    return bounds.size;
-  }
-
   Widget _buildWindowSizeButton(BuildContext context, String label, Size size) {
     return ElevatedButton(
-      onPressed: () async {
-        await windowManager.setSize(size);
-      },
+      onPressed: () async => await windowManager.setSize(size),
       style: ElevatedButton.styleFrom(
         backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
         foregroundColor: Theme.of(context).colorScheme.onSurface,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
       child: Text(label),
-    );
-  }
-
-  Widget _buildCurrentWindowSizeButton(BuildContext context) {
-    return OutlinedButton(
-      onPressed: () async {
-        final currentSize = await _currentWindowSize();
-        await windowManager.setSize(currentSize);
-      },
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Theme.of(context).colorScheme.primary,
-        side: BorderSide(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      ),
-      child: const Text('ขนาดปัจจุบัน'),
     );
   }
 }

@@ -74,11 +74,11 @@ final pmSchedulesProvider =
     final rows = await DbHelper.query(
       '''SELECT s.schedule_id, s.plan_id, s.scheduled_date, s.status,
                 pl.plan_code, pl.plan_name, pl.plan_type, pl.estimated_hours,
-                m.machine_no, m.brand,
+                sn.machine_no, sn.brand,
                 u.full_name as assigned_to_name
          FROM pm_am_schedules s
          JOIN pm_am_plans pl ON pl.plan_id = s.plan_id
-         JOIN machines m ON m.machine_id = pl.machine_id
+         LEFT JOIN machine_snapshots sn ON sn.snapshot_id = pl.snapshot_id
          LEFT JOIN users u ON u.user_id = s.assigned_to
          WHERE ${where.join(' AND ')}
          ORDER BY s.scheduled_date DESC

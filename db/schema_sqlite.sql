@@ -204,15 +204,16 @@ CREATE TABLE handover_checklist_results (
   checked_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE handover_attachments (
-  attachment_id TEXT PRIMARY KEY,
-  handover_id   TEXT NOT NULL REFERENCES machine_handover(handover_id) ON DELETE CASCADE,
-  file_name     TEXT NOT NULL,
-  file_path     TEXT NOT NULL,
-  file_size     INTEGER,
-  mime_type     TEXT,
-  uploaded_by   TEXT REFERENCES users(user_id),
-  uploaded_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE machine_snapshots (
+  snapshot_id   TEXT PRIMARY KEY,
+  machine_id    TEXT NOT NULL,
+  machine_no    TEXT NOT NULL,
+  machine_name  TEXT,
+  brand         TEXT,
+  model         TEXT,
+  dept_name     TEXT,
+  location      TEXT,
+  captured_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- =============================================================================
@@ -233,7 +234,8 @@ CREATE TABLE app_settings (
 CREATE TABLE work_orders (
   wo_id             TEXT PRIMARY KEY,
   wo_no             TEXT UNIQUE NOT NULL, -- Auto-generated: WO-YYYY-00001
-  machine_id        TEXT NOT NULL REFERENCES machines(machine_id),
+  machine_id        TEXT NOT NULL, -- Logical reference
+  snapshot_id       TEXT REFERENCES machine_snapshots(snapshot_id),
   status            TEXT NOT NULL DEFAULT 'pending', -- pending, approved, inProgress, completed, cancelled, rejected
   priority          TEXT NOT NULL DEFAULT 'normal', -- low, normal, high, urgent
   title             TEXT NOT NULL,
@@ -363,7 +365,8 @@ CREATE INDEX idx_machine_running_hours_date ON machine_running_hours(recorded_da
 
 CREATE TABLE pm_am_plans (
   plan_id           TEXT PRIMARY KEY,
-  machine_id        TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+  machine_id        TEXT NOT NULL,
+  snapshot_id       TEXT REFERENCES machine_snapshots(snapshot_id),
   plan_type         TEXT NOT NULL, -- PM (preventive), AM (autonomous)
   plan_code         TEXT UNIQUE NOT NULL,
   plan_name         TEXT NOT NULL,
@@ -424,7 +427,8 @@ CREATE TABLE work_permits (
   permit_id         TEXT PRIMARY KEY,
   permit_no         TEXT UNIQUE NOT NULL,
   permit_type       TEXT NOT NULL, -- hot_work, confined_space, electrical, heights, energy_isolation
-  machine_id        TEXT REFERENCES machines(machine_id),
+  machine_id        TEXT,
+  snapshot_id       TEXT REFERENCES machine_snapshots(snapshot_id),
   department        TEXT,
   description       TEXT NOT NULL,
   duration_hours    INTEGER,

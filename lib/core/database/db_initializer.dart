@@ -57,12 +57,47 @@ class DbInitializer {
           await _seedInitialData(db);
         }
 
-        // 3. Check for machine_name column in machines table (Added 2026-04-18)
-        final machineTableInfo = await db.rawQuery('PRAGMA table_info(machines)');
-        final hasMachineName = machineTableInfo.any((col) => col['name'] == 'machine_name');
-        if (!hasMachineName) {
-          _log.i('Migration: Adding machine_name column to machines table...');
-          await db.execute('ALTER TABLE machines ADD COLUMN machine_name TEXT');
+        // 4. Check for machine_snapshots (Added 2026-04-20)
+        final snapTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'machine_snapshots'],
+        );
+        if (snapTable.isEmpty) {
+          _log.i('Migration: Creating machine_snapshots table...');
+          await db.execute('''
+            CREATE TABLE machine_snapshots (
+              snapshot_id   TEXT PRIMARY KEY,
+              machine_id    TEXT NOT NULL,
+              machine_no    TEXT NOT NULL,
+              machine_name  TEXT,
+              brand         TEXT,
+              model         TEXT,
+              dept_name     TEXT,
+              location      TEXT,
+              captured_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
+
+        // 5. Add snapshot_id to work_orders (Added 2026-04-20)
+        final woTableInfo = await db.rawQuery('PRAGMA table_info(work_orders)');
+        final hasSnapshotId = woTableInfo.any((col) => col['name'] == 'snapshot_id');
+        if (!hasSnapshotId) {
+          _log.i('Migration: Adding snapshot_id to work_orders...');
+          await db.execute('ALTER TABLE work_orders ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
+        }
+
+        // 6. Add snapshot_id to pm_am_plans and work_permits (Added 2026-04-20)
+        final pmTableInfo = await db.rawQuery('PRAGMA table_info(pm_am_plans)');
+        if (!pmTableInfo.any((col) => col['name'] == 'snapshot_id')) {
+          _log.i('Migration: Adding snapshot_id to pm_am_plans...');
+          await db.execute('ALTER TABLE pm_am_plans ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
+        }
+        final wpTableInfo = await db.rawQuery('PRAGMA table_info(work_permits)');
+        if (!wpTableInfo.any((col) => col['name'] == 'snapshot_id')) {
+          _log.i('Migration: Adding snapshot_id to work_permits...');
+          await db.execute('ALTER TABLE work_permits ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
         }
 
         _log.i('Database schema is up to date (or migrated). Skipping full initialization.');
@@ -73,6 +108,41 @@ class DbInitializer {
       _log.e('Failed to initialize database: $e');
       return false;
     }
+  }
+
+  /// [TEMPORARY] Wipe all machine-related data to allow a fresh start.
+  static Future<void> wipeMachineData(Database db) async {
+    _log.w('WIPING ALL MACHINE DATA AS REQUESTED...');
+    await db.transaction((tx) async {
+      final tables = [
+        'handover_attachments',
+        'handover_checklist_results',
+        'machine_handover',
+        'machine_specs',
+        'permit_safety_checks',
+        'work_permits',
+        'pm_am_executions',
+        'pm_am_tasks',
+        'pm_am_schedules',
+        'pm_am_plans',
+        'machine_positions',
+        'work_order_rca',
+        'work_order_labor',
+        'work_orders',
+        'machine_running_hours',
+        'machines',
+        'machine_snapshots'
+      ];
+      for (final table in tables) {
+        try {
+          await tx.execute('DELETE FROM $table');
+          _log.i('Cleared table: $table');
+        } catch (e) {
+          _log.w('Failed to clear $table: $e');
+        }
+      }
+    });
+    _log.i('Database machine data wipe completed.');
   }
 
   /// Load and execute schema SQL from asset.

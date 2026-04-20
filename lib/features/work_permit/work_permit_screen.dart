@@ -125,10 +125,10 @@ final workPermitListProvider =
     FutureProvider<List<WorkPermit>>((ref) async {
   try {
     final rows = await DbHelper.query(
-      '''SELECT wp.*, m.machine_no,
+      '''SELECT wp.*, s.machine_no,
                 u1.full_name as authorized_by_name
          FROM work_permits wp
-         LEFT JOIN machines m ON m.machine_id = wp.machine_id
+         LEFT JOIN machine_snapshots s ON s.snapshot_id = wp.snapshot_id
          LEFT JOIN users u1 ON u1.user_id = wp.authorized_by
          ORDER BY wp.created_at DESC
          LIMIT 100''',

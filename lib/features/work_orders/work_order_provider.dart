@@ -4,6 +4,7 @@ import '../../core/database/db_helper.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/audit/audit_service.dart';
 import 'work_order_models.dart';
+import '../machine_intake/machine_provider.dart';
 
 /// Repository for work order operations
 class WorkOrderRepository {
@@ -38,17 +39,21 @@ class WorkOrderRepository {
       final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
       final now = DateTime.now().toIso8601String();
 
+      // 1. Get/Create Machine Snapshot (Clone to Dummy)
+      final snapshotId = await MachineRepository().getOrCreateSnapshot(machineId);
+
       await DbHelper.txExecute(
         tx,
         '''INSERT INTO work_orders
-           (wo_id, wo_no, machine_id, description, failure_symptom,
+           (wo_id, wo_no, machine_id, snapshot_id, description, failure_symptom,
             priority, status, reported_by, reported_at, created_at, updated_at)
-           VALUES (@wo_id, @wo_no, @machine_id, @description, @failure_symptom,
+           VALUES (@wo_id, @wo_no, @machine_id, @snapshot_id, @description, @failure_symptom,
                    @priority, 'pending', @reported_by, @reported_at, @created_at, @updated_at)''',
         params: {
           'wo_id': woId,
           'wo_no': woNo,
           'machine_id': machineId,
+          'snapshot_id': snapshotId,
           'description': description,
           'failure_symptom': failureSymptom,
           'priority': priority.dbValue,
@@ -75,10 +80,10 @@ class WorkOrderRepository {
   Future<WorkOrder?> getWorkOrder(String woId) async {
     try {
       final row = await DbHelper.queryOne(
-        '''SELECT wo.*, m.machine_no, m.brand as machine_brand, m.model as machine_model,
+        '''SELECT wo.*, s.machine_no, s.brand as machine_brand, s.model as machine_model,
                   u1.full_name as reported_by_name, u2.full_name as assigned_to_name
            FROM work_orders wo
-           LEFT JOIN machines m ON m.machine_id = wo.machine_id
+           LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
            LEFT JOIN users u1 ON u1.user_id = wo.reported_by
            LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
            WHERE wo.wo_id = @wo_id''',
@@ -135,10 +140,10 @@ class WorkOrderRepository {
       }
 
       final rows = await DbHelper.query(
-        '''SELECT wo.*, m.machine_no, m.brand, m.model,
+        '''SELECT wo.*, s.machine_no, s.brand, s.model,
                   u1.full_name as reported_by_name, u2.full_name as assigned_to_name
            FROM work_orders wo
-           LEFT JOIN machines m ON m.machine_id = wo.machine_id
+           LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
            LEFT JOIN users u1 ON u1.user_id = wo.reported_by
            LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
            WHERE ${where.join(' AND ')}
@@ -502,22 +507,22 @@ final workOrderListProvider =
     }
     if (filter.search != null && filter.search!.isNotEmpty) {
       where.add(
-          '(wo.wo_no LIKE @search OR wo.title LIKE @search OR m.machine_no LIKE @search)');
+          '(wo.wo_no LIKE @search OR wo.title LIKE @search OR s.machine_no LIKE @search)');
       params['search'] = '%${filter.search}%';
     }
 
     final rows = await DbHelper.query(
-      '''SELECT wo.wo_id, wo.wo_no, wo.machine_id, wo.status, wo.priority,
+      '''SELECT wo.wo_id, wo.wo_no, wo.machine_id, wo.snapshot_id, wo.status, wo.priority,
                 wo.title, wo.description, wo.failure_symptom,
                 wo.reported_by, wo.created_by, wo.assigned_to,
                 wo.approved_by, wo.estimated_hours, wo.actual_hours,
                 wo.started_at, wo.completed_at, wo.approved_at,
                 wo.created_at, wo.updated_at,
-                m.machine_no, m.brand as machine_brand, m.model as machine_model,
+                s.machine_no, s.brand as machine_brand, s.model as machine_model,
                 u1.full_name as reported_by_name,
                 u2.full_name as assigned_to_name
          FROM work_orders wo
-         LEFT JOIN machines m ON m.machine_id = wo.machine_id
+         LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
          LEFT JOIN users u1 ON u1.user_id = wo.reported_by
          LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
          WHERE ${where.join(' AND ')}

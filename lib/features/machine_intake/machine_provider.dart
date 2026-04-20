@@ -88,37 +88,63 @@ class MachineRepository {
     );
     final specs = specRow != null ? MachineSpecs.fromMap(specRow) : null;
 
-    // Handovers
+    // Handovers (with user names)
     final handoverRows = await DbHelper.query(
-      'SELECT * FROM machine_handover WHERE machine_id = @id ORDER BY stage',
+      '''
+      SELECT h.*, 
+             u1.full_name AS performer_name, 
+             u2.full_name AS approver_name
+      FROM machine_handover h
+      LEFT JOIN users u1 ON u1.user_id = h.performed_by
+      LEFT JOIN users u2 ON u2.user_id = h.approved_by
+      WHERE h.machine_id = @id 
+      ORDER BY h.stage
+      ''',
       params: {'id': machineId},
     );
     HandoverInfo? s1, s2, s3;
     for (final h in handoverRows) {
       final info = HandoverInfo.fromMap(h);
+      final results = info.handoverId != null 
+          ? await fetchHandoverResults(info.handoverId!)
+          : <ChecklistResult>[];
+      
+      final infoWithResults = info.copyWith(results: results);
+
       switch (info.stage) {
         case HandoverStage.stage1:
-          s1 = info;
+          s1 = infoWithResults;
         case HandoverStage.stage2:
-          s2 = info;
+          s2 = infoWithResults;
         case HandoverStage.stage3:
-          s3 = info;
+          s3 = infoWithResults;
       }
     }
+    
+    // Attachments
+    final attachments = await fetchAttachments(machineId);
 
     return MachineModel.fromMap(row).copyWithDetails(
       specs: specs,
       stage1: s1,
       stage2: s2,
       stage3: s3,
+      attachments: attachments.map((a) => {
+        'attachment_id': a['attachment_id'],
+        'file_name': a['file_name'],
+        'file_path': a['file_path'],
+        'file_size': a['file_size'],
+        'mime_type': a['mime_type'],
+        'stage': a['stage'],
+      }).toList(),
     );
   }
 
   /// Check if a specific field (machine_no, asset_no) already exists
   Future<bool> isDuplicate(String field, String value, {String? excludeId}) async {
     final sql = excludeId != null
-        ? 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND machine_id != @ex'
-        : 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val';
+        ? 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND machine_id != @ex AND is_active = 1'
+        : 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND is_active = 1';
     
     final params = {'val': value};
     if (excludeId != null) params['ex'] = excludeId;
@@ -252,12 +278,63 @@ class MachineRepository {
     });
   }
 
-  /// Soft-delete a machine (admin only)
-  Future<void> deleteMachine(String machineId) async {
+  /// Create a snapshot of a machine's current state (Clone to Dummy)
+  /// This prevents historical data from breaking when machines are deleted/modified.
+  Future<String> getOrCreateSnapshot(String machineId) async {
+    final machine = await fetchById(machineId);
+    if (machine == null) throw Exception('ไม่พบเครื่องจักรในระบบ');
+
+    final snapshotId = const Uuid().v4();
     await DbHelper.execute(
-      'UPDATE machines SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE machine_id = @id',
-      params: {'id': machineId},
+      '''
+      INSERT INTO machine_snapshots (
+        snapshot_id, machine_id, machine_no, machine_name, brand, model, dept_name, location
+      ) VALUES (@sid, @mid, @no, @name, @brand, @model, @dept, @loc)
+      ''',
+      params: {
+        'sid': snapshotId,
+        'mid': machine.machineId,
+        'no': machine.machineNo,
+        'name': machine.machineName,
+        'brand': machine.brand,
+        'model': machine.model,
+        'dept': machine.deptName,
+        'loc': machine.location,
+      },
     );
+    return snapshotId;
+  }
+
+  /// Hard-delete a machine and all related data (admin only)
+  Future<void> deleteMachine(String machineId) async {
+    await DbHelper.transaction((tx) async {
+      // 1. Delete layout positions (no cascade in schema)
+      await DbHelper.txExecute(tx, 
+          'DELETE FROM machine_positions WHERE machine_id = @id', 
+          params: {'id': machineId});
+          
+      // 2. Delete work permits & safety checks (no cascade in schema)
+      await DbHelper.txExecute(tx, 
+          '''
+          DELETE FROM permit_safety_checks 
+          WHERE permit_id IN (SELECT permit_id FROM work_permits WHERE machine_id = @id)
+          ''', 
+          params: {'id': machineId});
+      await DbHelper.txExecute(tx, 
+          'DELETE FROM work_permits WHERE machine_id = @id', 
+          params: {'id': machineId});
+
+      // 3. Delete work orders (cascades to labor and RCA, but from machine needs manual trigger if not cascading)
+      await DbHelper.txExecute(tx, 
+          'DELETE FROM work_orders WHERE machine_id = @id', 
+          params: {'id': machineId});
+
+      // 4. Delete the machine itself
+      // (Cascades to specs, handover, results, attachments, pm_plans, running_hours)
+      await DbHelper.txExecute(tx, 
+          'DELETE FROM machines WHERE machine_id = @id', 
+          params: {'id': machineId});
+    });
   }
 
   /// Verify user PIN for approval, or set it if null
@@ -280,6 +357,19 @@ class MachineRepository {
     }
 
     return CryptoUtils.verifyPassword(pin, hash);
+  }
+
+  /// Find user by PIN (for shared terminals)
+  Future<Map<String, dynamic>?> getUserByPin(String pin) async {
+    // Note: This is an expensive lookup for 4-digit PINs but necessary for identifying individuals on shared terminals
+    final users = await DbHelper.query('SELECT user_id, full_name, approval_pin_hash FROM users WHERE approval_pin_hash IS NOT NULL');
+    for (final row in users) {
+      final hash = row['approval_pin_hash'].toString();
+      if (CryptoUtils.verifyPassword(pin, hash)) {
+        return row;
+      }
+    }
+    return null;
   }
 
   /// Change current user PIN
@@ -337,6 +427,8 @@ class MachineRepository {
           status = @status,
           performed_by = @user,
           performed_at = CURRENT_TIMESTAMP,
+          approved_by = NULL,
+          approved_at = NULL,
           notes = @notes,
           updated_at = CURRENT_TIMESTAMP
         WHERE machine_id = @mid AND stage = @stage
@@ -353,13 +445,16 @@ class MachineRepository {
       },
     );
 
-    // Check if all 3 stages are done → mark machine handover_completed
+    // Check if Stage 3 is approved OR all 3 stages are done
+    // In most contexts, Stage 3 Approval is the final gate.
     final stages = await DbHelper.query(
-      "SELECT status FROM machine_handover WHERE machine_id = @mid",
+      "SELECT status, stage FROM machine_handover WHERE machine_id = @mid",
       params: {'mid': machineId},
     );
     final allApproved = stages.every((s) => s['status'] == 'approved');
-    if (allApproved) {
+    final s3Approved = stages.any((s) => s['stage'] == 'stage3' && s['status'] == 'approved');
+
+    if (allApproved || s3Approved) {
       await DbHelper.execute(
         'UPDATE machines SET handover_completed = 1, updated_at = CURRENT_TIMESTAMP WHERE machine_id = @mid',
         params: {'mid': machineId},
@@ -479,15 +574,23 @@ class MachineRepository {
       params: {'id': attachmentId},
     );
   }
+
+  /// Toggle the editing permission for a specific machine (Admin feature)
+  Future<void> updateEditUnlock(String machineId, bool unlocked) async {
+    await DbHelper.execute(
+      'UPDATE machines SET is_edit_unlocked = @unlocked WHERE machine_id = @id',
+      params: {'id': machineId, 'unlocked': unlocked ? 1 : 0},
+    );
+  }
 }
 
-// Extension to allow copying a MachineModel with extra details
 extension MachineModelCopy on MachineModel {
   MachineModel copyWithDetails({
     MachineSpecs? specs,
     HandoverInfo? stage1,
     HandoverInfo? stage2,
     HandoverInfo? stage3,
+    List<Map<String, dynamic>>? attachments,
   }) {
     return MachineModel(
       machineId: machineId,
@@ -517,6 +620,7 @@ extension MachineModelCopy on MachineModel {
       stage2: stage2 ?? this.stage2,
       stage3: stage3 ?? this.stage3,
       totalRunningHours: totalRunningHours,
+      attachments: attachments ?? this.attachments,
     );
   }
 }

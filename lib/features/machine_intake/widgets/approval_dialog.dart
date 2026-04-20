@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../auth/auth_provider.dart';
 import '../machine_provider.dart';
 import '../machine_models.dart';
 import 'pin_keypad.dart';
@@ -11,11 +10,13 @@ import 'pin_keypad.dart';
 class ApprovalDialog extends ConsumerStatefulWidget {
   final String machineId;
   final String title;
+  final bool isApprover;
 
   const ApprovalDialog({
     super.key,
     required this.machineId,
     required this.title,
+    this.isApprover = false,
   });
 
   @override
@@ -65,13 +66,11 @@ class _ApprovalDialogState extends ConsumerState<ApprovalDialog> {
 
     setState(() => _loading = true);
     try {
-      final user = ref.read(authProvider);
       final repo = ref.read(machineRepositoryProvider);
 
-      if (user == null) return;
-
-      final pinValid = await repo.verifyApprovalPin(user.userId, _pin);
-      if (!pinValid) {
+      // Find who is approving by their PIN
+      final approver = await repo.getUserByPin(_pin);
+      if (approver == null) {
         setState(() {
           _pin = '';
           _error = 'รหัส PIN ไม่ถูกต้อง';
@@ -80,13 +79,16 @@ class _ApprovalDialogState extends ConsumerState<ApprovalDialog> {
         return;
       }
 
+      final approverId = approver['user_id'].toString();
+
       // Perform the update
-      // For this simple intake flow, we assume we are approving Stage 3
       await repo.updateHandoverStage(
         machineId: widget.machineId,
         stage: HandoverStage.stage3,
-        status: approved ? HandoverStatus.approved : HandoverStatus.failed,
-        performedBy: user.userId,
+        status: approved 
+            ? (widget.isApprover ? HandoverStatus.approved : HandoverStatus.passed) 
+            : HandoverStatus.failed,
+        performedBy: approverId,
         notes: _reasonCtrl.text,
       );
 
@@ -116,9 +118,14 @@ class _ApprovalDialogState extends ConsumerState<ApprovalDialog> {
                   color: _isReject ? AppColors.error : AppColors.primary,
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  _isReject ? 'การปฏิเสธ (Reject)' : 'การอนุมัติ (Approve)',
-                  style: AppTextStyles.headlineMedium,
+                Expanded(
+                  child: Text(
+                    _isReject 
+                        ? 'การปฏิเสธ (Reject)' 
+                        : (widget.isApprover ? 'การอนุมัติทางการ (Approver)' : 'การยืนยันตรวจรับ (Receiver)'),
+                    style: AppTextStyles.headlineMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const Spacer(),
                 IconButton(
@@ -129,7 +136,7 @@ class _ApprovalDialogState extends ConsumerState<ApprovalDialog> {
             ),
             const Divider(height: 32),
             Text(
-              'กรุณาใส่รหัส PIN เพื่อยืนยันการ${_isReject ? "ปฏิเสธ" : "อนุมัติ"}',
+              'กรุณาใส่รหัส PIN เพื่อยืนยันการ${_isReject ? "ปฏิเสธ" : (widget.isApprover ? "อนุมัติ" : "ตรวจรับ")}',
               style: AppTextStyles.bodyMedium,
             ),
             const SizedBox(height: 24),
@@ -198,7 +205,9 @@ class _ApprovalDialogState extends ConsumerState<ApprovalDialog> {
                     ),
                     child: _loading 
                       ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                      : Text(_isReject ? 'ยืนยันปฏิเสธ' : 'ยืนยันอนุมัติ'),
+                      : Text(_isReject 
+                          ? 'ยืนยันปฏิเสธ' 
+                          : (widget.isApprover ? 'ยืนยันอนุมัติ' : 'ยืนยันการตรวจรับ')),
                   ),
                 ),
               ],

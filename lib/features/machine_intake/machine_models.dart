@@ -73,6 +73,7 @@ class MachineModel {
   final String? supplierId;
   final String? supplierName;
   final bool handoverCompleted;
+  final bool isEditUnlocked;
   final bool isActive;
   final String? notes;
   final DateTime? createdAt;
@@ -84,9 +85,13 @@ class MachineModel {
   final HandoverInfo? stage1;
   final HandoverInfo? stage2;
   final HandoverInfo? stage3;
+  final HandoverStatus stage3Status;
 
   // Running hours
   final double? totalRunningHours;
+
+  // Attachments
+  final List<Map<String, dynamic>> attachments;
 
   const MachineModel({
     this.machineId,
@@ -108,6 +113,7 @@ class MachineModel {
     this.supplierId,
     this.supplierName,
     this.handoverCompleted = false,
+    this.isEditUnlocked = false,
     this.isActive = true,
     this.notes,
     this.createdAt,
@@ -115,7 +121,9 @@ class MachineModel {
     this.stage1,
     this.stage2,
     this.stage3,
+    this.stage3Status = HandoverStatus.pending,
     this.totalRunningHours,
+    this.attachments = const [],
   });
 
   factory MachineModel.fromMap(Map<String, dynamic> m) {
@@ -144,6 +152,8 @@ class MachineModel {
       supplierName: m['supplier_name']?.toString(),
       handoverCompleted:
           m['handover_completed'] == true || m['handover_completed'] == 1,
+      isEditUnlocked:
+          m['is_edit_unlocked'] == true || m['is_edit_unlocked'] == 1,
       isActive:
           m['is_active'] == true ||
           m['is_active'] == 1 ||
@@ -153,6 +163,9 @@ class MachineModel {
           ? DateTime.tryParse(m['created_at'].toString())
           : null,
       totalRunningHours: (m['total_running_hours'] as num?)?.toDouble(),
+      stage3Status: m['stage3_status'] != null 
+          ? HandoverInfo.parseStatus(m['stage3_status'].toString()) 
+          : HandoverStatus.pending,
     );
   }
 
@@ -195,6 +208,7 @@ class MachineModel {
     HandoverInfo? stage1,
     HandoverInfo? stage2,
     HandoverInfo? stage3,
+    List<Map<String, dynamic>>? attachments,
   }) {
     return MachineModel(
       machineId: machineId,
@@ -216,6 +230,7 @@ class MachineModel {
       supplierId: supplierId,
       supplierName: supplierName,
       handoverCompleted: handoverCompleted,
+      isEditUnlocked: isEditUnlocked,
       isActive: isActive,
       notes: notes,
       createdAt: createdAt,
@@ -224,6 +239,7 @@ class MachineModel {
       stage2: stage2 ?? this.stage2,
       stage3: stage3 ?? this.stage3,
       totalRunningHours: totalRunningHours,
+      attachments: attachments ?? this.attachments,
     );
   }
 }
@@ -276,6 +292,8 @@ class HandoverInfo {
   final HandoverStatus status;
   final String? performedBy;
   final String? approvedBy;
+  final String? performerName;
+  final String? approverName;
   final DateTime? performedAt;
   final DateTime? approvedAt;
   final String? notes;
@@ -287,18 +305,49 @@ class HandoverInfo {
     this.status = HandoverStatus.pending,
     this.performedBy,
     this.approvedBy,
+    this.performerName,
+    this.approverName,
     this.performedAt,
     this.approvedAt,
     this.notes,
     this.results = const [],
   });
 
+  HandoverInfo copyWith({
+    String? handoverId,
+    HandoverStage? stage,
+    HandoverStatus? status,
+    String? performedBy,
+    String? approvedBy,
+    String? performerName,
+    String? approverName,
+    DateTime? performedAt,
+    DateTime? approvedAt,
+    String? notes,
+    List<ChecklistResult>? results,
+  }) =>
+      HandoverInfo(
+        handoverId: handoverId ?? this.handoverId,
+        stage: stage ?? this.stage,
+        status: status ?? this.status,
+        performedBy: performedBy ?? this.performedBy,
+        approvedBy: approvedBy ?? this.approvedBy,
+        performerName: performerName ?? this.performerName,
+        approverName: approverName ?? this.approverName,
+        performedAt: performedAt ?? this.performedAt,
+        approvedAt: approvedAt ?? this.approvedAt,
+        notes: notes ?? this.notes,
+        results: results ?? this.results,
+      );
+
   factory HandoverInfo.fromMap(Map<String, dynamic> m) => HandoverInfo(
     handoverId: m['handover_id']?.toString(),
     stage: HandoverStageLabel.fromDb(m['stage'].toString()),
-    status: _parseStatus(m['status'].toString()),
+    status: parseStatus(m['status'].toString()),
     performedBy: m['performed_by']?.toString(),
     approvedBy: m['approved_by']?.toString(),
+    performerName: m['performer_name']?.toString(),
+    approverName: m['approver_name']?.toString(),
     performedAt: m['performed_at'] != null
         ? DateTime.tryParse(m['performed_at'].toString())
         : null,
@@ -308,7 +357,7 @@ class HandoverInfo {
     notes: m['notes']?.toString(),
   );
 
-  static HandoverStatus _parseStatus(String s) {
+  static HandoverStatus parseStatus(String s) {
     switch (s) {
       case 'in_progress':
         return HandoverStatus.inProgress;
@@ -353,4 +402,12 @@ class ChecklistResult {
     this.actualValue,
     this.remarks,
   });
+
+  factory ChecklistResult.fromMap(Map<String, dynamic> m) => ChecklistResult(
+        resultId: m['result_id']?.toString(),
+        itemName: m['item_name']?.toString() ?? '',
+        result: m['result']?.toString(),
+        actualValue: m['actual_value']?.toString(),
+        remarks: m['remarks']?.toString(),
+      );
 }
