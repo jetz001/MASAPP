@@ -1,8 +1,10 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 import 'layout_models.dart';
 
 class LayoutPdfService {
@@ -35,7 +37,7 @@ class LayoutPdfService {
       }
     } catch (e) {
       // Log error and proceed without background if failed
-      print('PDF Export Error (Background Image): $e');
+      debugPrint('PDF Export Error (Background Image): $e');
     }
 
     // 2. Load Logo or Assets (optional, using default text for now)
@@ -159,6 +161,7 @@ class LayoutPdfService {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.Text('MACHINE TAG', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                    pw.Text(layout.name, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey500)),
                     pw.Divider(color: PdfColors.blueGrey200),
                     pw.SizedBox(height: 20),
                     
@@ -190,10 +193,12 @@ class LayoutPdfService {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'MachineTag_${machine.machineNo}.pdf',
-    );
+    // 3. Save and Open in browser/default viewer
+    final output = await getTemporaryDirectory();
+    final file = File("${output.path}/MachineTag_${machine.machineNo}.pdf");
+    await file.writeAsBytes(await pdf.save());
+    
+    await OpenFilex.open(file.path);
   }
 
   static pw.Widget _buildDetail(String label, String value) {
