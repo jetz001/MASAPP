@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -11,13 +12,30 @@ class LayoutPdfService {
   }) async {
     final pdf = pw.Document();
 
-    // 1. Prepare Background Image (if exists)
+    // 1. Prepare Background Image (Handle both Image and PDF)
     pw.ImageProvider? bgImage;
-    if (layout.backgroundPath != null) {
-      final file = File(layout.backgroundPath!);
-      if (await file.exists()) {
-        bgImage = pw.MemoryImage(await file.readAsBytes());
+    try {
+      if (layout.backgroundPath != null) {
+        final file = File(layout.backgroundPath!);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          
+          if (layout.backgroundPath!.toLowerCase().endsWith('.pdf')) {
+            // Convert PDF page to Image for embedding
+            await for (final page in Printing.raster(bytes, pages: [0], dpi: 200)) {
+              final pngBytes = await page.toPng();
+              bgImage = pw.MemoryImage(pngBytes);
+              break; // Use the first page
+            }
+          } else {
+            // Standard Image (PNG/JPG)
+            bgImage = pw.MemoryImage(bytes);
+          }
+        }
       }
+    } catch (e) {
+      // Log error and proceed without background if failed
+      print('PDF Export Error (Background Image): $e');
     }
 
     // 2. Load Logo or Assets (optional, using default text for now)
