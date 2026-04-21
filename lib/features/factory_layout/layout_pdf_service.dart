@@ -1,0 +1,194 @@
+import 'dart:io';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'layout_models.dart';
+
+class LayoutPdfService {
+  static Future<void> generateMachineTag({
+    required FactoryLayout layout,
+    required MachinePosition machine,
+  }) async {
+    final pdf = pw.Document();
+
+    // 1. Prepare Background Image (if exists)
+    pw.ImageProvider? bgImage;
+    if (layout.backgroundPath != null) {
+      final file = File(layout.backgroundPath!);
+      if (await file.exists()) {
+        bgImage = pw.MemoryImage(await file.readAsBytes());
+      }
+    }
+
+    // 2. Load Logo or Assets (optional, using default text for now)
+    // final logo = await imageFromAssetBundle('assets/images/logo.png');
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        build: (pw.Context context) {
+          return pw.Row(
+            children: [
+              // --- LEFT: PLAN AREA (75%) ---
+              pw.Expanded(
+                flex: 3,
+                child: pw.Container(
+                  padding: const pw.EdgeInsets.all(10),
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                  ),
+                  child: pw.Stack(
+                    children: [
+                      // Floor Plan Image
+                      if (bgImage != null)
+                        pw.Center(child: pw.Image(bgImage, fit: pw.BoxFit.contain)),
+                      
+                      // Overlay Arrow pointing to machine
+                      pw.LayoutBuilder(builder: (context, constraints) {
+                        // Calculate drawing Rect for the floor plan inside the container
+                        // (Mimic the aspect ratio logic from the painter)
+                        double canvasW = layout.canvasSize.width;
+                        double canvasH = layout.canvasSize.height;
+                        
+                        double containerW = constraints!.maxWidth;
+                        double containerH = constraints.maxHeight;
+                        
+                        double imgAspect = canvasW / canvasH;
+                        double containerAspect = containerW / containerH;
+                        
+                        double drawW, drawH;
+                        double offsetX = 0, offsetY = 0;
+                        
+                        if (imgAspect > containerAspect) {
+                          drawW = containerW;
+                          drawH = containerW / imgAspect;
+                          offsetY = (containerH - drawH) / 2;
+                        } else {
+                          drawH = containerH;
+                          drawW = containerH * imgAspect;
+                          offsetX = (containerW - drawW) / 2;
+                        }
+
+                        // Map machine position (1600x1000) to PDF points
+                        final px = offsetX + (machine.position.dx / canvasW) * drawW;
+                        final py = offsetY + (machine.position.dy / canvasH) * drawH;
+
+                        return pw.Stack(
+                          children: [
+                            // Arrow
+                            pw.Positioned(
+                              left: px - 20,
+                              top: py - 60,
+                              child: pw.Transform.rotate(
+                                angle: 0,
+                                child: pw.Column(
+                                  children: [
+                                    pw.Container(
+                                      width: 40,
+                                      height: 60,
+                                      child: pw.CustomPaint(
+                                        painter: (canvas, size) {
+                                          canvas.setFillColor(PdfColors.red);
+                                          
+                                          // Draw Arrow Body
+                                          canvas.drawRect(size.x / 2 - 4, 15, 8, size.y - 15);
+                                          canvas.fillPath();
+                                          
+                                          // Draw Arrow Head
+                                          canvas.moveTo(0, 15);
+                                          canvas.lineTo(size.x, 15);
+                                          canvas.lineTo(size.x / 2, 0);
+                                          canvas.closePath();
+                                          canvas.fillPath();
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            
+                            // Pulse dot at target
+                            pw.Positioned(
+                              left: px - 5,
+                              top: py - 5,
+                              child: pw.Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const pw.BoxDecoration(
+                                  color: PdfColors.red,
+                                  shape: pw.BoxShape.circle,
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+
+              // --- RIGHT: DETAILS AREA (25%) ---
+              pw.Container(
+                width: 200,
+                padding: const pw.EdgeInsets.all(20),
+                decoration: const pw.BoxDecoration(
+                  color: PdfColors.blueGrey50,
+                  border: pw.Border(left: pw.BorderSide(color: PdfColors.blueGrey100, width: 2)),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('MACHINE TAG', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                    pw.Divider(color: PdfColors.blueGrey200),
+                    pw.SizedBox(height: 20),
+                    
+                    _buildDetail('MACHINE NO', machine.machineNo),
+                    _buildDetail('BRAND', machine.brand ?? '-'),
+                    _buildDetail('MODEL', machine.model ?? '-'),
+                    _buildDetail('ZONE', machine.zoneId),
+                    _buildDetail('POSITION', '(${machine.position.dx.toInt()}, ${machine.position.dy.toInt()})'),
+                    _buildDetail('STATUS', machine.status.label.toUpperCase()),
+                    
+                    pw.Spacer(),
+                    
+                    // QR Code placeholder logic (could use qr_flutter to image if needed)
+                    pw.Container(
+                      height: 100,
+                      width: 100,
+                      decoration: const pw.BoxDecoration(color: PdfColors.white),
+                      child: pw.Center(child: pw.Text('QR CODE', style: const pw.TextStyle(color: PdfColors.grey500, fontSize: 10))),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Text('Report Generated:', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                    pw.Text(DateTime.now().toString().substring(0, 16), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'MachineTag_${machine.machineNo}.pdf',
+    );
+  }
+
+  static pw.Widget _buildDetail(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 12),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(label, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey400, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 2),
+          pw.Text(value, style: pw.TextStyle(fontSize: 14, color: PdfColors.black, fontWeight: pw.FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}

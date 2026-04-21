@@ -18,6 +18,7 @@ import '../machine_intake/machine_models.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/theme/app_colors.dart';
+import 'layout_pdf_service.dart';
 
 final _machineSearchProvider = StateProvider<String>((ref) => '');
 
@@ -823,6 +824,29 @@ class _MachineDetailPanel extends ConsumerWidget {
             ),
 
           const SizedBox(height: 24),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+              label: const Text('Export Detail Tag'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary.withAlpha(20),
+                foregroundColor: AppColors.primary,
+                elevation: 0,
+              ),
+              onPressed: () async {
+                final layout = ref.read(currentLayoutProvider).value;
+                if (layout != null) {
+                  await LayoutPdfService.generateMachineTag(
+                    layout: layout,
+                    machine: machine,
+                  );
+                }
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
 
           SizedBox(
             width: double.infinity,

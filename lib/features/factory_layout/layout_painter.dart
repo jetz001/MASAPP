@@ -167,80 +167,81 @@ class FactoryLayoutPainter extends CustomPainter {
   void _drawMachines(Canvas canvas) {
     for (final machine in layout.machines) {
       final isSelected = selectedMachine?.machineId == machine.machineId;
+      final statusColor = machine.status.color;
+      final center = machine.position;
 
-      // Machine shape (rounded rectangle)
-      final machinePaint = Paint()
-        ..color = machine.status.color
-        ..style = PaintingStyle.fill;
-
-      final borderPaint = Paint()
-        ..color = isSelected 
-            ? (themeColors['selectedBorderColor'] ?? Colors.blue) 
-            : machine.status.color.withAlpha(180)
-        ..strokeWidth = isSelected ? 3 : 1.5
-        ..style = PaintingStyle.stroke;
-
-      final machineRect = machine.bounds;
-      const radius = Radius.circular(6);
-
-      // Drop shadow for machines
-      if (!isSelected) {
-        final shadowPaint = Paint()
-          ..color = Colors.black.withAlpha(80)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(machineRect.shift(const Offset(2, 2)), radius),
-          shadowPaint,
-        );
-      }
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(machineRect, radius),
-        machinePaint,
-      );
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(machineRect, radius),
-        borderPaint,
-      );
-
-      // Machine label
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: machine.machineNo,
-          style: TextStyle(
-            color: machine.status.color.computeLuminance() > 0.5
-                ? Colors.black
-                : Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            shadows: [
-              Shadow(
-                blurRadius: 3,
-                color: Colors.black.withValues(alpha: 0.5),
-                offset: const Offset(1, 1),
-              ),
-            ],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-      );
-      textPainter.layout(maxWidth: machine.size.width - 4);
-
-      final textOffset = Offset(
-        machineRect.center.dx - textPainter.width / 2,
-        machineRect.center.dy - textPainter.height / 2,
-      );
-      textPainter.paint(canvas, textOffset);
-
-      // Status indicator (shine effect for selected)
+      // 1. Draw Dot Marker
+      final dotRadius = isSelected ? 10.0 : 7.0;
+      
+      // Shadow/Glow for the dot
       if (isSelected) {
         final glowPaint = Paint()
-          ..color = (themeColors['selectedBorderColor'] ?? Colors.blue).withValues(alpha: 0.4)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 8);
+          ..color = statusColor.withValues(alpha: 0.5)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+        canvas.drawCircle(center, dotRadius + 4, glowPaint);
+      }
+
+      // Outer Ring
+      final ringPaint = Paint()
+        ..color = isSelected ? Colors.white : Colors.white.withAlpha(180)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = isSelected ? 3 : 2;
+      canvas.drawCircle(center, dotRadius, ringPaint);
+
+      // Core Dot
+      final dotPaint = Paint()
+        ..color = statusColor
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(center, dotRadius, dotPaint);
+
+      // 2. Draw Floating Label (Tooltip) - Only if selected
+      if (isSelected) {
+        final labelText = machine.machineNo;
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: labelText,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+
+        final labelPadding = const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
+        final labelWidth = textPainter.width + labelPadding.horizontal;
+        final labelHeight = textPainter.height + labelPadding.vertical;
+        
+        // Position label above the dot
+        final labelRect = Rect.fromCenter(
+          center: center - Offset(0, dotRadius + labelHeight / 2 + 12),
+          width: labelWidth,
+          height: labelHeight,
+        );
+
+        // Draw bubble background
+        final bubblePaint = Paint()
+          ..color = Colors.black.withValues(alpha: 0.8)
+          ..style = PaintingStyle.fill;
         canvas.drawRRect(
-          RRect.fromRectAndRadius(machineRect, radius),
-          glowPaint,
+          RRect.fromRectAndRadius(labelRect, const Radius.circular(6)),
+          bubblePaint,
+        );
+
+        // Draw small arrow pointing to the dot
+        final path = Path();
+        path.moveTo(center.dx - 6, labelRect.bottom);
+        path.lineTo(center.dx + 6, labelRect.bottom);
+        path.lineTo(center.dx, labelRect.bottom + 6);
+        path.close();
+        canvas.drawPath(path, bubblePaint);
+
+        // Draw text
+        textPainter.paint(
+          canvas,
+          Offset(labelRect.left + labelPadding.left, labelRect.top + labelPadding.top),
         );
       }
     }
