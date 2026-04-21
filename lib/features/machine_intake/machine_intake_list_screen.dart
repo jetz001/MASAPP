@@ -12,6 +12,7 @@ import 'machine_models.dart';
 import 'machine_provider.dart';
 import 'widgets/approval_dialog.dart';
 import 'utils/machine_form_utils.dart';
+import '../dashboard/dashboard_screen.dart';
 
 class MachineIntakeListScreen extends ConsumerStatefulWidget {
   const MachineIntakeListScreen({super.key});
@@ -198,6 +199,7 @@ class _MachineIntakeListScreenState
       try {
         await ref.read(machineRepositoryProvider).deleteMachine(machineId);
         ref.invalidate(machineListProvider(_filter));
+        ref.invalidate(dashboardStatsProvider);
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

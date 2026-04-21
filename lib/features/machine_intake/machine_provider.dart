@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/database/db_connection.dart';
 import '../../core/utils/crypto_utils.dart';
 import 'machine_models.dart';
 
@@ -16,6 +18,10 @@ class MachineRepository {
     String? statusFilter,
     String? categoryId,
   }) async {
+    // Debug log to confirm DB path used for this request
+    final dbPath = DbConnection.instance.isConnected ? "active" : "unconnected";
+    debugPrint('🔎 [Registry] Fetching machines from database (Path accessibility: $dbPath)');
+    
     final where = <String>['1=1'];
     final params = <String, dynamic>{};
 

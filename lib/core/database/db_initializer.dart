@@ -106,7 +106,16 @@ class DbInitializer {
           await db.execute('ALTER TABLE machines ADD COLUMN handover_conclusion TEXT');
         }
 
-        _log.i('Database schema is up to date (or migrated). Skipping full initialization.');
+        // 8. Add layout background columns (Added 2026-04-21)
+        final layoutTableInfo = await db.rawQuery('PRAGMA table_info(factory_layouts)');
+        if (!layoutTableInfo.any((col) => col['name'] == 'background_path')) {
+           _log.i('Migration: Adding background_path to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_path TEXT');
+        }
+        if (!layoutTableInfo.any((col) => col['name'] == 'background_opacity')) {
+           _log.i('Migration: Adding background_opacity to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0');
+        }
       }
 
       return true;

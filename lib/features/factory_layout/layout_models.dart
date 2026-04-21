@@ -5,38 +5,44 @@ import 'package:flutter/material.dart';
 /// Represents a zone (area) in the factory
 class LayoutZone {
   final String zoneId;
+  final String layoutId;
   final String name;
+  final String type;
   final Rect bounds; // Position and size of the zone
   final Color color;
-  final String? description;
 
   const LayoutZone({
     required this.zoneId,
+    required this.layoutId,
     required this.name,
+    this.type = 'general',
     required this.bounds,
-    this.color = const Color(0xFF4A5568),
-    this.description,
+    this.color = Colors.green,
   });
 
   LayoutZone copyWith({
     String? zoneId,
+    String? layoutId,
     String? name,
+    String? type,
     Rect? bounds,
     Color? color,
-    String? description,
   }) {
     return LayoutZone(
       zoneId: zoneId ?? this.zoneId,
+      layoutId: layoutId ?? this.layoutId,
       name: name ?? this.name,
+      type: type ?? this.type,
       bounds: bounds ?? this.bounds,
       color: color ?? this.color,
-      description: description ?? this.description,
     );
   }
 }
 
 /// Represents a machine position on the factory layout
 class MachinePosition {
+  final String positionId;
+  final String layoutId;
   final String machineId;
   final String machineNo;
   final String? brand;
@@ -48,6 +54,8 @@ class MachinePosition {
   final DateTime? lastUpdated;
 
   const MachinePosition({
+    required this.positionId,
+    required this.layoutId,
     required this.machineId,
     required this.machineNo,
     this.brand,
@@ -73,6 +81,8 @@ class MachinePosition {
   }
 
   MachinePosition copyWith({
+    String? positionId,
+    String? layoutId,
     String? machineId,
     String? machineNo,
     String? brand,
@@ -84,6 +94,8 @@ class MachinePosition {
     DateTime? lastUpdated,
   }) {
     return MachinePosition(
+      positionId: positionId ?? this.positionId,
+      layoutId: layoutId ?? this.layoutId,
       machineId: machineId ?? this.machineId,
       machineNo: machineNo ?? this.machineNo,
       brand: brand ?? this.brand,
@@ -145,6 +157,8 @@ class FactoryLayout {
   final Size canvasSize; // Width and height of the layout canvas
   final List<LayoutZone> zones;
   final List<MachinePosition> machines;
+  final String? backgroundPath; // Path to PDF or Image file
+  final double backgroundOpacity; // 0.0 to 1.0
   final DateTime? lastUpdated;
 
   const FactoryLayout({
@@ -153,6 +167,8 @@ class FactoryLayout {
     this.canvasSize = const Size(1600, 1000),
     this.zones = const [],
     this.machines = const [],
+    this.backgroundPath,
+    this.backgroundOpacity = 1.0,
     this.lastUpdated,
   });
 
@@ -162,6 +178,8 @@ class FactoryLayout {
     Size? canvasSize,
     List<LayoutZone>? zones,
     List<MachinePosition>? machines,
+    String? backgroundPath,
+    double? backgroundOpacity,
     DateTime? lastUpdated,
   }) {
     return FactoryLayout(
@@ -170,6 +188,8 @@ class FactoryLayout {
       canvasSize: canvasSize ?? this.canvasSize,
       zones: zones ?? this.zones,
       machines: machines ?? this.machines,
+      backgroundPath: backgroundPath ?? this.backgroundPath,
+      backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

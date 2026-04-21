@@ -181,7 +181,7 @@ class _WoPageHeader extends StatelessWidget {
           if (user?.isTechnicianOrAbove ?? false)
             ElevatedButton.icon(
               onPressed: onNew,
-              icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18, color: Colors.white),
+              icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18),
               label: const Text('สร้างใบสั่งงาน'),
             ),
         ],

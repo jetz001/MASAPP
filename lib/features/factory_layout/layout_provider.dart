@@ -1,7 +1,17 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:printing/printing.dart';
+import 'package:logger/logger.dart';
 import '../../core/database/db_helper.dart';
 import 'layout_models.dart';
+
+final _log = Logger();
+
+final isScanningProvider = StateProvider<bool>((ref) => false);
+final isEditModeProvider = StateProvider<bool>((ref) => false);
 
 /// Repository for factory layout data
 class LayoutRepository {
@@ -26,14 +36,18 @@ class LayoutRepository {
         zones.add(
           LayoutZone(
             zoneId: zoneRow['zone_id'] as String,
+            layoutId: layoutId,
             name: zoneRow['zone_name'] as String,
+            type: zoneRow['zone_type'] as String? ?? 'production',
             bounds: Rect.fromLTWH(
               (zoneRow['x_start'] as num).toDouble(),
               (zoneRow['y_start'] as num).toDouble(),
               ((zoneRow['x_end'] as num) - (zoneRow['x_start'] as num)).toDouble(),
               ((zoneRow['y_end'] as num) - (zoneRow['y_start'] as num)).toDouble(),
             ),
-            description: zoneRow['description'] as String?,
+            color: zoneRow['background_color'] != null
+                ? Color(int.parse(zoneRow['background_color'].toString().replaceAll('#', ''), radix: 16) | 0xFF000000)
+                : Colors.green,
           ),
         );
       }
@@ -52,6 +66,8 @@ class LayoutRepository {
       for (final machineRow in machineRows) {
         machines.add(
           MachinePosition(
+            positionId: machineRow['position_id'] as String,
+            layoutId: layoutId,
             machineId: machineRow['machine_id'] as String,
             machineNo: machineRow['machine_no'] as String,
             brand: machineRow['brand'] as String?,
@@ -64,7 +80,7 @@ class LayoutRepository {
               (machineRow['width'] as num?)?.toDouble() ?? 60,
               (machineRow['height'] as num?)?.toDouble() ?? 50,
             ),
-            zoneId: machineRow['zone_id'] as String,
+            zoneId: machineRow['zone_id'] as String? ?? '',
             status: _parseStatus(machineRow['status'] as String?),
             lastUpdated: machineRow['updated_at'] != null
                 ? DateTime.tryParse(machineRow['updated_at'] as String)
@@ -82,13 +98,26 @@ class LayoutRepository {
         ),
         zones: zones,
         machines: machines,
+        backgroundPath: row['background_path'] as String?,
+        backgroundOpacity: (row['background_opacity'] as num?)?.toDouble() ?? 1.0,
         lastUpdated: row['updated_at'] != null
             ? DateTime.tryParse(row['updated_at'] as String)
             : null,
       );
-    } catch (e) {
-      return null;
+    } catch (e, stack) {
+      _log.e('Error loading layout $layoutId: $e', stackTrace: stack);
+      rethrow;
     }
+  }
+
+  /// Ensure all required columns exist in the layout tables
+  static Future<void> ensureSchema() async {
+    try {
+      await DbHelper.execute('ALTER TABLE factory_layouts ADD COLUMN background_path TEXT');
+    } catch (_) {}
+    try {
+      await DbHelper.execute('ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0');
+    } catch (_) {}
   }
 
   /// Save machine position
@@ -107,6 +136,22 @@ class LayoutRepository {
         'x': position.dx,
         'y': position.dy,
       },
+    );
+  }
+
+  /// Delete a machine position
+  Future<void> deleteMachinePosition(String layoutId, String positionId) async {
+    await DbHelper.execute(
+      'DELETE FROM machine_positions WHERE layout_id = @lid AND position_id = @pid',
+      params: {'lid': layoutId, 'pid': positionId},
+    );
+  }
+
+  /// Delete a layout zone
+  Future<void> deleteLayoutZone(String layoutId, String zoneId) async {
+    await DbHelper.execute(
+      'DELETE FROM layout_zones WHERE layout_id = @lid AND zone_id = @zid',
+      params: {'lid': layoutId, 'zid': zoneId},
     );
   }
 
@@ -129,6 +174,50 @@ class LayoutRepository {
     }
   }
 
+  /// Create a new factory layout
+  Future<String> createLayout({
+    required String name,
+    String? description,
+    double widthM = 32.0,
+    double heightM = 20.0,
+    double scale = 50.0,
+    String? backgroundPath,
+    double backgroundOpacity = 1.0,
+    String? createdBy,
+  }) async {
+    final layoutId = 'layout_${DateTime.now().millisecondsSinceEpoch}';
+    await DbHelper.execute(
+      '''INSERT INTO factory_layouts (
+           layout_id, layout_name, description, width_m, height_m, 
+           scale_pixel_per_m, background_path, background_opacity,
+           created_by, created_at, updated_at
+         ) VALUES (
+           @id, @name, @desc, @width, @height, @scale, @bg, @opacity, @user, 
+           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+         )''',
+      params: {
+        'id': layoutId,
+        'name': name,
+        'desc': description,
+        'width': widthM,
+        'height': heightM,
+        'scale': scale,
+        'bg': backgroundPath,
+        'opacity': backgroundOpacity,
+        'user': createdBy,
+      },
+    );
+    return layoutId;
+  }
+
+  /// Delete a layout
+  Future<void> deleteLayout(String layoutId) async {
+    await DbHelper.execute(
+      'DELETE FROM factory_layouts WHERE layout_id = @id',
+      params: {'id': layoutId},
+    );
+  }
+
   static MachineLayoutStatus _parseStatus(String? status) {
     switch (status) {
       case 'breakdown':
@@ -144,6 +233,36 @@ class LayoutRepository {
   }
 }
 
+/// Provider for loading layout background image/pdf
+final layoutBackgroundImageProvider =
+    FutureProvider.family<ui.Image?, String?>((ref, path) async {
+  if (path == null || path.isEmpty) return null;
+
+  try {
+    final file = File(path);
+    if (!await file.exists()) return null;
+
+    final bytes = await file.readAsBytes();
+
+    // Check if it's a PDF
+    if (path.toLowerCase().endsWith('.pdf')) {
+      // Rasterize the first page of the PDF
+      final images = Printing.raster(bytes, pages: [0], dpi: 150);
+      await for (final image in images) {
+        final uiImage = await decodeImageFromList(await image.toPng());
+        return uiImage;
+      }
+    } else {
+      // Direct image file
+      final uiImage = await decodeImageFromList(bytes);
+      return uiImage;
+    }
+  } catch (e) {
+    debugPrint('Error loading background image: $e');
+  }
+  return null;
+});
+
 /// Riverpod providers for factory layout
 
 final layoutRepositoryProvider = Provider((ref) => LayoutRepository());
@@ -155,15 +274,26 @@ final layoutListProvider = FutureProvider((ref) async {
 });
 
 /// Selected layout ID
-final selectedLayoutIdProvider = StateProvider<String>(
-  (ref) => 'default_layout',
-);
+final selectedLayoutIdProvider = StateProvider<String?>((ref) => null);
 
 /// Current layout with machines and zones
-final currentLayoutProvider = FutureProvider((ref) async {
+final currentLayoutProvider = FutureProvider<FactoryLayout?>((ref) async {
+  final layouts = await ref.watch(layoutListProvider.future);
+  if (layouts.isEmpty) return null;
+
+  String? selectedId = ref.watch(selectedLayoutIdProvider);
+  
+  if (selectedId == null || !layouts.any((l) => l.layoutId == selectedId)) {
+    // Default to first layout if none selected or selection invalid
+    selectedId = layouts.first.layoutId;
+    // Update provider in microtask to avoid side-effects during build
+    Future.microtask(() {
+      ref.read(selectedLayoutIdProvider.notifier).state = selectedId;
+    });
+  }
+
   final repo = ref.watch(layoutRepositoryProvider);
-  final layoutId = ref.watch(selectedLayoutIdProvider);
-  return await repo.loadLayout(layoutId);
+  return await repo.loadLayout(selectedId);
 });
 
 /// Selected machine on the layout

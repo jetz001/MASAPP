@@ -1,7 +1,22 @@
 /// Machine Intake domain models
 library;
 
+import 'package:flutter/material.dart';
+
 enum MachineStatus { normal, breakdown, pm, am, offline, decommissioned }
+
+extension MachineStatusColor on MachineStatus {
+  Color get color {
+    switch (this) {
+      case MachineStatus.normal: return Colors.green;
+      case MachineStatus.breakdown: return Colors.red;
+      case MachineStatus.pm: return Colors.orange;
+      case MachineStatus.am: return Colors.blue;
+      case MachineStatus.offline: return Colors.grey;
+      case MachineStatus.decommissioned: return Colors.black54;
+    }
+  }
+}
 
 enum HandoverStage { stage1, stage2, stage3 }
 

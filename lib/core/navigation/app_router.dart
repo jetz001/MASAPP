@@ -14,6 +14,7 @@ import '../../features/work_permit/work_permit_screen.dart';
 import '../../features/workforce/workforce_screen.dart';
 import '../../features/admin/admin_screen.dart';
 import '../../features/factory_layout/factory_layout_screen.dart';
+import '../../features/factory_layout/layout_list_screen.dart';
 import '../../features/analytics/analytics_dashboard_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../widgets/app_shell.dart';
@@ -37,6 +38,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      // Root redirect
+      GoRoute(
+        path: '/',
+        redirect: (_, _) => '/dashboard',
+      ),
+
       // DB Setup (first launch)
       GoRoute(
         path: '/setup',
@@ -88,6 +95,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/factory-layout',
             builder: (context, state) => const FactoryLayoutScreen(),
+            routes: [
+              GoRoute(
+                path: 'management',
+                builder: (context, state) => const LayoutListScreen(),
+              ),
+            ],
           ),
 
           // PM / AM

@@ -15,6 +15,7 @@ import 'machine_provider.dart';
 import 'utils/machine_form_utils.dart';
 import 'utils/asset_tag_utils.dart';
 import 'widgets/approval_dialog.dart';
+import '../dashboard/dashboard_screen.dart';
 
 /// 3-stage machine intake stepper form
 class MachineIntakeFormScreen extends ConsumerStatefulWidget {
@@ -359,6 +360,7 @@ class _MachineIntakeFormScreenState
           _saving = false;
           _currentStep = 1; // Move to Documents step
         });
+        ref.invalidate(dashboardStatsProvider);
       }
     } catch (e) {
       if (mounted) {
@@ -575,6 +577,7 @@ class _MachineIntakeFormScreenState
              _currentStep++;
           }
         });
+        ref.invalidate(dashboardStatsProvider);
       }
     } catch (e) {
       if (mounted) {

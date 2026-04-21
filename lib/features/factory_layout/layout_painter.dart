@@ -1,54 +1,128 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'layout_models.dart';
 
-/// CustomPaint widget for rendering factory layout
 class FactoryLayoutPainter extends CustomPainter {
   final FactoryLayout layout;
+  final ui.Image? backgroundImage;
+  final double zoomLevel;
+  final Offset offset;
   final MachinePosition? selectedMachine;
+  final Map<String, Color> themeColors;
 
   FactoryLayoutPainter({
     required this.layout,
+    this.backgroundImage,
+    required this.zoomLevel,
+    required this.offset,
     this.selectedMachine,
+    required this.themeColors,
   });
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
-    // Draw background
-    _drawBackground(canvas);
+    canvas.save();
+    canvas.translate(offset.dx, offset.dy);
+    canvas.scale(zoomLevel);
 
-    // Draw zones
+    // Calculate image destination rect (preserving aspect ratio)
+    Rect imageRect = Rect.fromLTWH(0, 0, layout.canvasSize.width, layout.canvasSize.height);
+    
+    if (backgroundImage != null) {
+      final double imgWidth = backgroundImage!.width.toDouble();
+      final double imgHeight = backgroundImage!.height.toDouble();
+      final double canvasWidth = layout.canvasSize.width;
+      final double canvasHeight = layout.canvasSize.height;
+
+      final double imgAspect = imgWidth / imgHeight;
+      final double canvasAspect = canvasWidth / canvasHeight;
+
+      double drawWidth, drawHeight;
+      double offsetX = 0, offsetY = 0;
+
+      if (imgAspect > canvasAspect) {
+        drawWidth = canvasWidth;
+        drawHeight = canvasWidth / imgAspect;
+        offsetY = (canvasHeight - drawHeight) / 2;
+      } else {
+        drawHeight = canvasHeight;
+        drawWidth = canvasHeight * imgAspect;
+        offsetX = (canvasWidth - drawWidth) / 2;
+      }
+      imageRect = Rect.fromLTWH(offsetX, offsetY, drawWidth, drawHeight);
+    }
+
+    // 1. Base Layer (Grey background outside image)
+    _drawBaseBackground(canvas, canvasSize);
+
+    // Clip all subsequent drawing to the image area
+    canvas.clipRect(imageRect);
+
+    // 2. White background for the floor plan area
+    _drawPlanBackground(canvas, imageRect);
+
+    // 3. Floor Plan Image
+    if (backgroundImage != null) {
+      _drawFloorPlan(canvas, imageRect);
+    }
+
+    // 4. Grid Lines (Constrained to imageRect)
+    _drawGrid(canvas, imageRect);
+
+    // 5. Activity Zones
     _drawZones(canvas);
 
-    // Draw machines
+    // 6. Machines & Status Labels
     _drawMachines(canvas);
+
+    canvas.restore();
   }
 
-  void _drawBackground(Canvas canvas) {
-    final paint = Paint()
-      ..color = const Color(0xFF1F2937)
-      ..style = PaintingStyle.fill;
+  void _drawBaseBackground(Canvas canvas, Size size) {
+    // Fill the visible area with a neutral grey, but the actual canvas is already translated.
+    // We just fill a large enough area around the layout.
+    final paint = Paint()..color = themeColors['backgroundColor']?.withAlpha(100) ?? Colors.grey.withAlpha(50);
     canvas.drawRect(
-      Rect.fromLTWH(0, 0, layout.canvasSize.width, layout.canvasSize.height),
+      Rect.fromLTWH(-5000, -5000, 10000, 10000), 
       paint,
     );
+  }
 
-    // Grid lines
+  void _drawPlanBackground(Canvas canvas, Rect rect) {
+    final paint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(rect, paint);
+  }
+
+  void _drawFloorPlan(Canvas canvas, Rect dst) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: layout.backgroundOpacity)
+      ..filterQuality = FilterQuality.medium;
+
+    final src = Rect.fromLTWH(
+        0, 0, backgroundImage!.width.toDouble(), backgroundImage!.height.toDouble());
+
+    canvas.drawImageRect(backgroundImage!, src, dst, paint);
+  }
+
+  void _drawGrid(Canvas canvas, Rect rect) {
     final gridPaint = Paint()
-      ..color = const Color(0xFF374151)
+      ..color = themeColors['gridColor'] ?? Colors.grey.withAlpha(50)
       ..strokeWidth = 0.5;
 
     const gridSize = 50.0;
-    for (double x = 0; x <= layout.canvasSize.width; x += gridSize) {
+    for (double x = rect.left; x <= rect.right; x += gridSize) {
       canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, layout.canvasSize.height),
+        Offset(x, rect.top),
+        Offset(x, rect.bottom),
         gridPaint,
       );
     }
-    for (double y = 0; y <= layout.canvasSize.height; y += gridSize) {
+    for (double y = rect.top; y <= rect.bottom; y += gridSize) {
       canvas.drawLine(
-        Offset(0, y),
-        Offset(layout.canvasSize.width, y),
+        Offset(rect.left, y),
+        Offset(rect.right, y),
         gridPaint,
       );
     }
@@ -74,7 +148,7 @@ class FactoryLayoutPainter extends CustomPainter {
         text: TextSpan(
           text: zone.name,
           style: TextStyle(
-            color: Colors.white.withAlpha(120),
+            color: (themeColors['labelColor'] ?? Colors.black).withValues(alpha: 0.5),
             fontSize: 16,
             fontWeight: FontWeight.w700,
             letterSpacing: 1.2,
@@ -100,7 +174,9 @@ class FactoryLayoutPainter extends CustomPainter {
         ..style = PaintingStyle.fill;
 
       final borderPaint = Paint()
-        ..color = isSelected ? Colors.white : machine.status.color.withAlpha(180)
+        ..color = isSelected 
+            ? (themeColors['selectedBorderColor'] ?? Colors.blue) 
+            : machine.status.color.withAlpha(180)
         ..strokeWidth = isSelected ? 3 : 1.5
         ..style = PaintingStyle.stroke;
 
@@ -132,13 +208,15 @@ class FactoryLayoutPainter extends CustomPainter {
         text: TextSpan(
           text: machine.machineNo,
           style: TextStyle(
-            color: Colors.white,
+            color: machine.status.color.computeLuminance() > 0.5
+                ? Colors.black
+                : Colors.white,
             fontSize: 11,
             fontWeight: FontWeight.w600,
             shadows: [
               Shadow(
                 blurRadius: 3,
-                color: Colors.black.withAlpha(200),
+                color: Colors.black.withValues(alpha: 0.5),
                 offset: const Offset(1, 1),
               ),
             ],
@@ -158,7 +236,7 @@ class FactoryLayoutPainter extends CustomPainter {
       // Status indicator (shine effect for selected)
       if (isSelected) {
         final glowPaint = Paint()
-          ..color = Colors.white.withAlpha(100)
+          ..color = (themeColors['selectedBorderColor'] ?? Colors.blue).withValues(alpha: 0.4)
           ..maskFilter = const MaskFilter.blur(BlurStyle.outer, 8);
         canvas.drawRRect(
           RRect.fromRectAndRadius(machineRect, radius),
@@ -171,69 +249,10 @@ class FactoryLayoutPainter extends CustomPainter {
   @override
   bool shouldRepaint(FactoryLayoutPainter oldDelegate) {
     return layout != oldDelegate.layout ||
-        selectedMachine != oldDelegate.selectedMachine;
-  }
-}
-
-/// Interactive layout canvas with zoom and pan via InteractiveViewer
-class FactoryLayoutCanvas extends StatefulWidget {
-  final FactoryLayout? layout;
-  final MachinePosition? selectedMachine;
-  final ValueChanged<MachinePosition?>? onMachineSelected;
-
-  const FactoryLayoutCanvas({
-    super.key,
-    this.layout,
-    this.selectedMachine,
-    this.onMachineSelected,
-  });
-
-  @override
-  State<FactoryLayoutCanvas> createState() => _FactoryLayoutCanvasState();
-}
-
-class _FactoryLayoutCanvasState extends State<FactoryLayoutCanvas> {
-  final TransformationController _transformationController =
-      TransformationController();
-
-  @override
-  void dispose() {
-    _transformationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.layout == null) {
-      return const Center(child: Text('Layout not available'));
-    }
-
-    final canvasSize = widget.layout!.canvasSize;
-
-    return LayoutBuilder(builder: (context, constraints) {
-      return InteractiveViewer(
-        transformationController: _transformationController,
-        boundaryMargin: const EdgeInsets.all(500),
-        minScale: 0.1,
-        maxScale: 5.0,
-        child: GestureDetector(
-          onTapUp: (details) {
-            // Important: details.localPosition in GestureDetector child of InteractiveViewer
-            // ALREADY accounts for the current transform.
-            final tapPosition = details.localPosition;
-
-            final machine = widget.layout!.getMachineAt(tapPosition);
-            widget.onMachineSelected?.call(machine);
-          },
-          child: CustomPaint(
-            size: canvasSize,
-            painter: FactoryLayoutPainter(
-              layout: widget.layout!,
-              selectedMachine: widget.selectedMachine,
-            ),
-          ),
-        ),
-      );
-    });
+        backgroundImage != oldDelegate.backgroundImage ||
+        selectedMachine != oldDelegate.selectedMachine ||
+        zoomLevel != oldDelegate.zoomLevel ||
+        offset != oldDelegate.offset ||
+        themeColors != oldDelegate.themeColors;
   }
 }

@@ -122,6 +122,13 @@ const _navItems = [
     route: '/factory-layout',
   ),
   _NavItem(
+    label: 'ทะเบียนผังพื้นที่',
+    icon: HugeIcons.strokeRoundedLayers01,
+    iconSelected: HugeIcons.strokeRoundedLayers01,
+    route: '/factory-layout/management',
+    roles: ['engineer', 'admin'],
+  ),
+  _NavItem(
     label: 'PM / AM',
     icon: HugeIcons.strokeRoundedCalendar03,
     iconSelected: HugeIcons.strokeRoundedCalendar03,

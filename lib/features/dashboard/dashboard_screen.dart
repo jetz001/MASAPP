@@ -26,6 +26,7 @@ class DashboardStats {
   final int lowStockParts;
   final List<Map<String, dynamic>> recentWorkOrders;
   final List<double> woTrendValues;
+  final Map<String, int> machineStatuses;
 
   const DashboardStats({
     required this.totalMachines,
@@ -35,6 +36,7 @@ class DashboardStats {
     required this.lowStockParts,
     required this.recentWorkOrders,
     required this.woTrendValues,
+    required this.machineStatuses,
   });
 
   static Future<DashboardStats> load() async {
@@ -60,6 +62,20 @@ class DashboardStats {
          ORDER BY w.created_at DESC LIMIT 6''',
     );
 
+    // Load real machine statuses
+    final statusRows = await DbHelper.query(
+      'SELECT status, COUNT(*) as c FROM machines WHERE is_active=1 GROUP BY status'
+    );
+    final statusMap = <String, int>{
+      'normal': 0,
+      'breakdown': 0,
+      'pm': 0,
+      'offline': 0,
+    };
+    for (final row in statusRows) {
+      statusMap[row['status'] as String? ?? 'normal'] = row['c'] as int? ?? 0;
+    }
+
     // Simulated WO trend (last 7 days values)
     final trendValues = List.generate(7, (i) => (2 + (i * 1.3) % 5).toDouble());
 
@@ -71,6 +87,7 @@ class DashboardStats {
       lowStockParts: lowStock?['c'] as int? ?? 0,
       recentWorkOrders: recentWo,
       woTrendValues: trendValues,
+      machineStatuses: statusMap,
     );
   }
 }
@@ -115,6 +132,16 @@ class DashboardScreen extends ConsumerWidget {
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
               ),
+              const SizedBox(width: AppSpacing.md),
+              IconButton(
+                icon: HugeIcon(
+                  icon: HugeIcons.strokeRoundedRefresh,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                onPressed: () => ref.invalidate(dashboardStatsProvider),
+                tooltip: 'รีเฟรช',
+              ),
             ],
           ),
 
@@ -140,7 +167,7 @@ class DashboardScreen extends ConsumerWidget {
                       unit: 'เครื่อง',
                       icon: HugeIcons.strokeRoundedFactory,
                       color: AppColors.primary,
-                      onTap: () => context.go('/machine-intake'),
+                      onTap: () => context.go('/machine-registry'),
                     ),
                     const SizedBox(width: AppSpacing.lg),
                     _KpiCard(
@@ -197,7 +224,7 @@ class DashboardScreen extends ConsumerWidget {
                     Expanded(
                       flex: 3,
                       child: _MachineStatusCard(
-                        total: stats.totalMachines,
+                        stats: stats,
                       ),
                     ),
                   ],
@@ -488,8 +515,8 @@ class _WoTrendCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _MachineStatusCard extends StatefulWidget {
-  final int total;
-  const _MachineStatusCard({required this.total});
+  final DashboardStats stats;
+  const _MachineStatusCard({required this.stats});
 
   @override
   State<_MachineStatusCard> createState() => _MachineStatusCardState();
@@ -500,38 +527,44 @@ class _MachineStatusCardState extends State<_MachineStatusCard> {
 
   @override
   Widget build(BuildContext context) {
+    final s = widget.stats;
+    
     final sections = [
       PieChartSectionData(
-        value: 60,
+        value: s.machineStatuses['normal']?.toDouble() ?? 0,
         color: AppColors.machineNormal,
         title: 'ปกติ',
         radius: _touched == 0 ? 60 : 52,
         titleStyle: AppTextStyles.labelSmall
             .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+        showTitle: (s.machineStatuses['normal'] ?? 0) > 0,
       ),
       PieChartSectionData(
-        value: 20,
+        value: s.machineStatuses['breakdown']?.toDouble() ?? 0,
         color: AppColors.machineBreakdown,
         title: 'เสีย',
         radius: _touched == 1 ? 60 : 52,
         titleStyle: AppTextStyles.labelSmall
             .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+        showTitle: (s.machineStatuses['breakdown'] ?? 0) > 0,
       ),
       PieChartSectionData(
-        value: 15,
+        value: s.machineStatuses['pm']?.toDouble() ?? 0,
         color: AppColors.machinePM,
         title: 'PM',
         radius: _touched == 2 ? 60 : 52,
         titleStyle: AppTextStyles.labelSmall
             .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+        showTitle: (s.machineStatuses['pm'] ?? 0) > 0,
       ),
       PieChartSectionData(
-        value: 5,
+        value: s.machineStatuses['offline']?.toDouble() ?? 0,
         color: AppColors.machineOffline,
         title: 'หยุด',
         radius: _touched == 3 ? 60 : 52,
         titleStyle: AppTextStyles.labelSmall
             .copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+        showTitle: (s.machineStatuses['offline'] ?? 0) > 0,
       ),
     ];
 
