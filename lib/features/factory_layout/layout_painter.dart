@@ -126,26 +126,22 @@ class FactoryLayoutPainter extends CustomPainter {
 
   void _drawGrid(Canvas canvas, Rect rect, {bool isOverlay = false}) {
     final gridPaint = Paint()
-      ..color = isOverlay 
-          ? Colors.blue.withAlpha(100) 
-          : (themeColors['gridColor'] ?? Colors.grey).withAlpha(60)
-      ..strokeWidth = isOverlay ? 1.5 : 0.5;
+      ..color = Colors.blue.withAlpha(isOverlay ? 100 : 80)
+      ..strokeWidth = isOverlay ? 1.5 : 1.0;
 
     const gridSize = 250.0; // 5 meters = 250 pixels (1m = 50px)
     
-    // Draw minor grid (1m) if in overlay mode for better precision
-    if (isOverlay) {
-      final minorPaint = Paint()
-        ..color = Colors.blue.withAlpha(30)
-        ..strokeWidth = 0.5;
-      
-      const minorSize = 10.0; // 1 meter = 10 pixels
-      for (double x = rect.left; x <= rect.right; x += minorSize) {
-        canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), minorPaint);
-      }
-      for (double y = rect.top; y <= rect.bottom; y += minorSize) {
-        canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), minorPaint);
-      }
+    // Draw minor grid (1m)
+    final minorPaint = Paint()
+      ..color = Colors.blue.withAlpha(isOverlay ? 30 : 20)
+      ..strokeWidth = 0.5;
+    
+    const minorSize = 50.0; // 1 meter = 50 pixels
+    for (double x = rect.left; x <= rect.right; x += minorSize) {
+      canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), minorPaint);
+    }
+    for (double y = rect.top; y <= rect.bottom; y += minorSize) {
+      canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), minorPaint);
     }
 
     // Draw major grid (5m)
