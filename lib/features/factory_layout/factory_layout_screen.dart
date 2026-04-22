@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -21,6 +22,8 @@ import '../../core/theme/app_colors.dart';
 import 'layout_pdf_service.dart';
 
 final _machineSearchProvider = StateProvider<String>((ref) => '');
+final _selectedMachinesProvider = StateProvider<Set<String>>((ref) => {});
+final _isGridVisibleProvider = StateProvider<bool>((ref) => true);
 
 extension ColorExtension on Color {
   String toHex() => '#${toARGB32().toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}';
@@ -59,146 +62,74 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
     final user = ref.watch(authProvider);
     final isEditMode = ref.watch(isEditModeProvider);
     final layoutAsync = ref.watch(currentLayoutProvider);
-    final zoomLevel = ref.watch(zoomLevelProvider);
     final layoutList = ref.watch(layoutListProvider);
     final selectedLayoutId = ref.watch(selectedLayoutIdProvider);
 
-    return Scaffold(
-      appBar: AppBar(
+    return KeyboardListener(
+      focusNode: FocusNode(),
+      autofocus: true,
+      onKeyEvent: (event) {
+        if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+          // ESC behavior: Deselect machine and close any transient state
+          ref.read(selectedMachineProvider.notifier).state = null;
+          // If in Align mode, we stay in Align mode but could deselect?
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          onPressed: () => context.go('/factory-layout/management'),
+          tooltip: 'กลับสู่ ทะเบียนพื้นที่โรงงาน',
+        ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Layout:'),
-            const SizedBox(width: 12),
-            layoutList.when(
-              data: (layouts) => DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: layouts.any((l) => l.layoutId == selectedLayoutId)
-                      ? selectedLayoutId
-                      : (layouts.isNotEmpty ? layouts.first.layoutId : null),
-                  items: layouts
-                      .map((l) => DropdownMenuItem(
-                            value: l.layoutId,
-                            child: Text(l.name, style: const TextStyle(fontSize: 16)),
-                          ))
-                      .toList(),
-                  onChanged: (id) {
-                    if (id != null) {
-                      ref.read(selectedLayoutIdProvider.notifier).state = id;
-                      ref.read(selectedMachineProvider.notifier).state = null;
-                    }
-                  },
+            const Text('พื้นที่:', style: TextStyle(fontSize: 16)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: layoutList.when(
+                data: (layouts) => DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    isDense: true,
+                    value: layouts.any((l) => l.layoutId == selectedLayoutId)
+                        ? selectedLayoutId
+                        : (layouts.isNotEmpty ? layouts.first.layoutId : null),
+                    items: layouts
+                        .map((l) => DropdownMenuItem(
+                              value: l.layoutId,
+                              child: Text(l.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            ))
+                        .toList(),
+                    onChanged: (id) {
+                      if (id != null) {
+                        ref.read(selectedLayoutIdProvider.notifier).state = id;
+                        ref.read(selectedMachineProvider.notifier).state = null;
+                      }
+                    },
+                  ),
                 ),
+                loading: () => const SizedBox(width: 40, child: LinearProgressIndicator()),
+                error: (error, stack) => const Icon(Icons.error_outline, size: 16),
               ),
-              loading: () => const SizedBox(
-                  width: 100,
-                  height: 20,
-                  child: LinearProgressIndicator(minHeight: 2)),
-              error: (error, stack) => const Text('Error loading layouts'),
             ),
           ],
         ),
         actions: [
-          // Zoom controls
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: SizedBox(
-                width: 120,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.zoom_out_rounded,
-                          color: Theme.of(context).colorScheme.onSurface,
-                          size: 20),
-                      onPressed: () {
-                        ref.read(zoomLevelProvider.notifier).state =
-                            (zoomLevel * 0.8).clamp(0.5, 3.0);
-                      },
-                      tooltip: 'Zoom Out',
-                    ),
-                    Text(
-                      '${(zoomLevel * 100).toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.zoom_in_rounded,
-                          color: Theme.of(context).colorScheme.onSurface,
-                          size: 20),
-                      onPressed: () {
-                        ref.read(zoomLevelProvider.notifier).state =
-                            (zoomLevel * 1.2).clamp(0.5, 3.0);
-                      },
-                      tooltip: 'Zoom In',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Reset view button
-          IconButton(
-            icon: Icon(Icons.center_focus_strong_rounded,
-                color: Theme.of(context).colorScheme.onSurface, size: 20),
-            onPressed: () {
-              ref.read(zoomLevelProvider.notifier).state = 1.0;
-              ref.read(panOffsetProvider.notifier).state = Offset.zero;
-            },
-            tooltip: 'Reset View',
-          ),
-          // Layout Management Button (Registry)
-          IconButton(
-            icon: const Icon(Icons.settings_suggest_rounded, color: AppColors.primary),
-            tooltip: 'จัดการพื้นที่ (Manage Areas)',
-            onPressed: () => context.go('/factory-layout/management'),
-          ),
-          // Edit Mode Toggle (Role-restricted)
           if (user?.isEngineerOrAbove ?? false)
             IconButton(
               icon: Icon(
                 isEditMode ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
                 color: isEditMode ? Colors.orange : Theme.of(context).colorScheme.onSurface,
               ),
-              tooltip: isEditMode ? 'Exit Management Mode' : 'Enter Management Mode',
+              tooltip: isEditMode ? 'ออกจากโหมดจัดการ' : 'เข้าสู่โหมดจัดการ',
               onPressed: () {
                 ref.read(isEditModeProvider.notifier).state = !isEditMode;
-                // De-select machine when entering edit mode to avoid confusion
+                ref.read(isAligningModeProvider.notifier).state = false;
                 ref.read(selectedMachineProvider.notifier).state = null;
               },
             ),
-          const VerticalDivider(width: 1, indent: 12, endIndent: 12),
-          if (isEditMode)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-              child: ElevatedButton.icon(
-                onPressed: () => _showAddMachineMarkerDialog(context, ref, layoutAsync.valueOrNull!),
-                icon: const Icon(Icons.add_location_alt_rounded, size: 18),
-                label: const Text('Add Machine'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange.withAlpha(40),
-                  foregroundColor: Colors.orange[900],
-                  elevation: 0,
-                ),
-              ),
-            ),
-          // Add Layout Button
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add Area'),
-              onPressed: () => _showAddLayoutDialog(context, ref),
-              style: ElevatedButton.styleFrom(
-                elevation: 0,
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
         ],
       ),
       body: Stack(
@@ -255,6 +186,10 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                               ref.read(selectedMachineProvider.notifier).state =
                                   machine;
                             },
+                            isAligning: ref.watch(isAligningModeProvider),
+                            showGrid: ref.watch(_isGridVisibleProvider),
+                            tempBgScale: ref.watch(tempBgScaleProvider),
+                            tempBgOffset: ref.watch(tempBgOffsetProvider),
                           );
                         },
                       ),
@@ -289,6 +224,19 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (err, stack) => Center(child: Text('Error: $err')),
           ),
+          // Floating Control Center (Zoom & Alignment)
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: _LayoutControlBanner(
+                layout: layoutAsync.valueOrNull,
+                onAddMachine: (layout) => _showAddMachineMarkerDialog(context, ref, layout),
+                onAddArea: () => _showAddLayoutDialog(context, ref),
+              ),
+            ),
+          ),
           // Scanning Overlay
           if (ref.watch(isScanningProvider))
             Container(
@@ -315,14 +263,19 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
             ),
         ],
       ),
-    );
+    ),
+   );
   }
   void _showAddMachineMarkerDialog(BuildContext context, WidgetRef ref, FactoryLayout layout) {
+    // Reset selection when opening dialog
+    ref.read(_selectedMachinesProvider.notifier).state = {};
+
     showDialog(
       context: context,
       builder: (context) => Consumer(
         builder: (context, ref, _) {
           final searchQuery = ref.watch(_machineSearchProvider);
+          final selectedIds = ref.watch(_selectedMachinesProvider);
           final machinesAsync = ref.watch(machineListProvider(MachineListFilter(searchQuery: searchQuery)));
 
           return AlertDialog(
@@ -330,108 +283,150 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
               children: [
                 const Icon(Icons.add_location_alt_rounded, color: AppColors.primary),
                 const SizedBox(width: 12),
-                const Text('เลือกเครื่องจักรลงผัง (From Registry)'),
+                const Text('เลือกเครื่องจักรลงผัง'),
               ],
             ),
-            content: SizedBox(
-              width: 500,
-              height: 600,
-              child: Column(
-                children: [
-                  TextField(
-                    decoration: InputDecoration(
-                      hintText: 'ค้นหา รหัส หรือ ชื่อเครื่องจักร...',
-                      prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      filled: true,
-                      fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
-                    ),
-                    onChanged: (v) => ref.read(_machineSearchProvider.notifier).state = v,
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: machinesAsync.when(
-                      data: (machines) {
-                        // Filter out machines already on this layout
-                        final placedIds = layout.machines.map((m) => m.machineId).toSet();
-                        final available = machines.where((m) => !placedIds.contains(m.machineId)).toList();
-
-                        if (available.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey.withAlpha(100)),
-                                const SizedBox(height: 16),
-                                const Text('ไม่พบเครื่องจักรอื่นที่ยังไม่ได้ลงผัง', 
-                                    style: TextStyle(color: Colors.grey)),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return ListView.separated(
-                          itemCount: available.length,
-                          separatorBuilder: (context, index) => const Divider(height: 1),
-                          itemBuilder: (context, index) {
-                            final m = available[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: m.status.color.withAlpha(40),
-                                child: Text(m.machineNo.characters.take(1).toString(), 
-                                    style: TextStyle(color: m.status.color, fontWeight: FontWeight.bold)),
-                              ),
-                              title: Text(m.machineNo, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(m.machineName ?? '-'),
-                              trailing: const Icon(Icons.chevron_right, size: 16),
-                              onTap: () async {
-                                final centerX = layout.canvasSize.width / 2;
-                                final centerY = layout.canvasSize.height / 2;
-                                final positionId = 'pos_${DateTime.now().millisecondsSinceEpoch}';
-
-                                await DbHelper.execute(
-                                  '''INSERT INTO machine_positions (
-                                       position_id, layout_id, machine_id, 
-                                       x_position, y_position, width, height, status_color
-                                     ) VALUES (@pid, @lid, @mid, @x, @y, @w, @h, @color)''',
-                                  params: {
-                                    'pid': positionId,
-                                    'lid': layout.layoutId,
-                                    'mid': m.machineId,
-                                    'x': centerX,
-                                    'y': centerY,
-                                    'w': 60.0,
-                                    'h': 50.0,
-                                    'color': m.status.color.toHex(),
-                                  },
-                                );
-
-                                ref.invalidate(currentLayoutProvider);
-                                ref.invalidate(dashboardStatsProvider);
-                                if (context.mounted) Navigator.pop(context);
-                              },
-                            );
-                          },
-                        );
-                      },
-                      loading: () => const Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text('กำลังดึงข้อมูลจาก Registry...'),
-                          ],
-                        ),
+            content: CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.escape): () {
+                  Navigator.pop(context);
+                },
+              },
+              child: SizedBox(
+                width: 500,
+                height: 600,
+                child: Column(
+                  children: [
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: 'ค้นหา รหัส หรือ ชื่อเครื่องจักร...',
+                        prefixIcon: const Icon(Icons.search),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        filled: true,
+                        fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
                       ),
-                      error: (err, _) => Center(child: Text('Error: $err')),
+                      onChanged: (v) => ref.read(_machineSearchProvider.notifier).state = v,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: machinesAsync.when(
+                        data: (machines) {
+                          // Filter out machines already on this layout AND machines not yet approved
+                          final placedIds = layout.machines.map((m) => m.machineId).toSet();
+                          final available = machines.where((m) => 
+                            !placedIds.contains(m.machineId) && 
+                            m.stage3Status == HandoverStatus.approved
+                          ).toList();
+  
+                          if (available.isEmpty) {
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey.withAlpha(100)),
+                                  const SizedBox(height: 16),
+                                  const Text('ไม่พบเครื่องจักรที่อนุมัติแล้ว (Approved) หรือยังไม่ได้ลงผัง', 
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                            );
+                          }
+  
+                          return ListView.separated(
+                            itemCount: available.length,
+                            separatorBuilder: (context, index) => const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final m = available[index];
+                              final isSelected = selectedIds.contains(m.machineId);
+  
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: m.status.color.withAlpha(40),
+                                  child: Text(m.machineNo.characters.take(1).toString(), 
+                                      style: TextStyle(color: m.status.color, fontWeight: FontWeight.bold)),
+                                ),
+                                title: Text(m.machineNo, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                subtitle: Text(m.machineName ?? '-'),
+                                trailing: Checkbox(
+                                  value: isSelected,
+                                  onChanged: (val) {
+                                    final current = Set<String>.from(ref.read(_selectedMachinesProvider));
+                                    if (val == true) {
+                                      current.add(m.machineId!);
+                                    } else {
+                                      current.remove(m.machineId);
+                                    }
+                                    ref.read(_selectedMachinesProvider.notifier).state = current;
+                                  },
+                                ),
+                                onTap: () {
+                                  final current = Set<String>.from(ref.read(_selectedMachinesProvider));
+                                  if (isSelected) {
+                                    current.remove(m.machineId);
+                                  } else {
+                                    current.add(m.machineId!);
+                                  }
+                                  ref.read(_selectedMachinesProvider.notifier).state = current;
+                                },
+                              );
+                            },
+                          );
+                        },
+                        loading: () => const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 16),
+                              Text('กำลังดึงข้อมูลจาก Registry...'),
+                            ],
+                          ),
+                        ),
+                        error: (err, _) => Center(child: Text('Error: $err')),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: selectedIds.isEmpty ? null : () async {
+                  final centerX = layout.canvasSize.width / 2;
+                  final centerY = layout.canvasSize.height / 2;
+                  
+                  final machines = machinesAsync.valueOrNull ?? [];
+                  
+                  for (final mid in selectedIds) {
+                    final m = machines.firstWhere((element) => element.machineId == mid);
+                    final positionId = 'pos_${mid}_${DateTime.now().millisecondsSinceEpoch}';
+
+                    await DbHelper.execute(
+                      '''INSERT INTO machine_positions (
+                           position_id, layout_id, machine_id, 
+                           x_position, y_position, width, height, status_color
+                         ) VALUES (@pid, @lid, @mid_param, @x, @y, @w, @h, @color)''',
+                      params: {
+                        'pid': positionId,
+                        'lid': layout.layoutId,
+                        'mid_param': mid,
+                        'x': centerX,
+                        'y': centerY,
+                        'w': 60.0,
+                        'h': 50.0,
+                        'color': m.status.color.toHex(),
+                      },
+                    );
+                  }
+
+                  ref.invalidate(currentLayoutProvider);
+                  ref.invalidate(dashboardStatsProvider);
+                  if (context.mounted) Navigator.pop(context);
+                },
+                child: Text('เพิ่มที่เลือก (${selectedIds.length})'),
+              ),
             ],
           );
         },
@@ -448,7 +443,7 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Add New Factory Area'),
+          title: const Text('เพิ่มพื้นที่โรงงานใหม่'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -456,8 +451,8 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                 TextField(
                   controller: nameCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Area Name',
-                    hintText: 'e.g., Assembly Line A, Warehouse 1',
+                    labelText: 'ชื่อพื้นที่',
+                    hintText: 'เช่น อาคาร A, คลังสินค้า 1',
                   ),
                   autofocus: true,
                 ),
@@ -465,7 +460,7 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                 // Dimensions removed as requested - will be calculated from file
                 const SizedBox(height: 24),
                 // Background Picker
-                const Text('Floor Plan Background (Optional)', 
+                const Text('รูปผังพื้น (ไม่บังคับ)', 
                     style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
                 const SizedBox(height: 8),
                 Container(
@@ -569,11 +564,11 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
                 if (context.mounted) {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Created area: ${nameCtrl.text} (${widthM.toStringAsFixed(1)}m x ${heightM.toStringAsFixed(1)}m)')),
+                    SnackBar(content: Text('สร้างพื้นที่ใหม่แล้ว: ${nameCtrl.text} (${widthM.toStringAsFixed(1)}ม. x ${heightM.toStringAsFixed(1)}ม.)')),
                   );
                 }
               },
-              child: const Text('Create'),
+              child: const Text('สร้างพื้นที่'),
             ),
           ],
         ),
@@ -587,6 +582,10 @@ class FactoryLayoutCanvas extends ConsumerStatefulWidget {
   final ui.Image? backgroundImage;
   final MachinePosition? selectedMachine;
   final Function(MachinePosition) onMachineSelected;
+  final bool isAligning;
+  final bool showGrid;
+  final double tempBgScale;
+  final Offset tempBgOffset;
 
   const FactoryLayoutCanvas({
     super.key,
@@ -594,6 +593,10 @@ class FactoryLayoutCanvas extends ConsumerStatefulWidget {
     this.backgroundImage,
     required this.selectedMachine,
     required this.onMachineSelected,
+    this.isAligning = false,
+    this.showGrid = true,
+    this.tempBgScale = 1.0,
+    this.tempBgOffset = Offset.zero,
   });
 
   @override
@@ -682,6 +685,21 @@ class _FactoryLayoutCanvasState extends ConsumerState<FactoryLayoutCanvas> {
           }
         },
         onScaleUpdate: (details) {
+          final isAligning = ref.read(isAligningModeProvider);
+          
+          if (isAligning) {
+            if (details.pointerCount == 1) {
+              if (_dragStartOffset != null) {
+                final delta = (details.localFocalPoint - _dragStartOffset!) / zoomLevel;
+                ref.read(tempBgOffsetProvider.notifier).state += delta;
+                _dragStartOffset = details.localFocalPoint;
+              }
+            } else if (details.pointerCount == 2) {
+              ref.read(tempBgScaleProvider.notifier).state *= details.scale;
+            }
+            return;
+          }
+
           if (isEditMode && _draggedMachine != null) {
             final RenderBox box = context.findRenderObject() as RenderBox;
             final localPoint = box.globalToLocal(details.focalPoint);
@@ -746,6 +764,10 @@ class _FactoryLayoutCanvasState extends ConsumerState<FactoryLayoutCanvas> {
               zoomLevel: zoomLevel,
               offset: panOffset,
               selectedMachine: widget.selectedMachine,
+              isAligning: widget.isAligning,
+              showGrid: widget.showGrid,
+              tempBgScale: widget.tempBgScale,
+              tempBgOffset: widget.tempBgOffset,
               themeColors: {
                 'backgroundColor': Theme.of(context).colorScheme.surface,
                 'gridColor': Theme.of(context).colorScheme.outlineVariant.withAlpha(50),
@@ -794,12 +816,12 @@ class _MachineDetailPanel extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // Machine number
-          _DetailRow(label: 'Machine No', value: machine.machineNo),
+          _DetailRow(label: 'หมายเลขเครื่อง', value: machine.machineNo),
 
           // Brand and model
           if (machine.brand != null || machine.model != null)
             _DetailRow(
-              label: 'Model',
+              label: 'รุ่น/แบรนด์',
               value: [
                 machine.brand,
                 machine.model,
@@ -807,11 +829,11 @@ class _MachineDetailPanel extends ConsumerWidget {
             ),
 
           // Zone
-          _DetailRow(label: 'Zone', value: machine.zoneId),
+          _DetailRow(label: 'โซน', value: machine.zoneId),
 
           // Position
           _DetailRow(
-            label: 'Position',
+            label: 'ตำแหน่ง (พิกัด)',
             value:
                 '(${machine.position.dx.toStringAsFixed(0)}, ${machine.position.dy.toStringAsFixed(0)})',
           ),
@@ -819,7 +841,7 @@ class _MachineDetailPanel extends ConsumerWidget {
           // Last updated
           if (machine.lastUpdated != null)
             _DetailRow(
-              label: 'Updated',
+              label: 'อัปเดตล่าสุด',
               value: _formatDate(machine.lastUpdated!),
             ),
 
@@ -829,7 +851,7 @@ class _MachineDetailPanel extends ConsumerWidget {
             width: double.infinity,
             child: ElevatedButton.icon(
               icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
-              label: const Text('Export Detail Tag'),
+              label: const Text('บันทึกเป็น PDF'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary.withAlpha(20),
                 foregroundColor: AppColors.primary,
@@ -958,6 +980,210 @@ class _DetailRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+class _LayoutControlBanner extends ConsumerWidget {
+  final FactoryLayout? layout;
+  final Function(FactoryLayout)? onAddMachine;
+  final VoidCallback? onAddArea;
+
+  const _LayoutControlBanner({this.layout, this.onAddMachine, this.onAddArea});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (layout == null) return const SizedBox.shrink();
+    final currentLayout = layout!; // Local promotion
+
+    final isGridVisible = ref.watch(_isGridVisibleProvider);
+    final isAligning = ref.watch(isAligningModeProvider);
+    final isEditMode = ref.watch(isEditModeProvider);
+    final zoomLevel = ref.watch(zoomLevelProvider);
+    final tempBgScale = ref.watch(tempBgScaleProvider);
+    final tempBgOffset = ref.watch(tempBgOffsetProvider);
+    final user = ref.watch(authProvider);
+
+    return Card(
+      elevation: 6,
+      shadowColor: Colors.black45,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+      color: Theme.of(context).colorScheme.surface.withAlpha(250),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: IntrinsicHeight(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Zoom Group
+              IconButton(
+                icon: const Icon(Icons.zoom_out_rounded, size: 20),
+                onPressed: () => ref.read(zoomLevelProvider.notifier).state = (zoomLevel * 0.8).clamp(0.5, 3.0),
+                tooltip: 'ซูมออก',
+              ),
+              Text('${(zoomLevel * 100).toStringAsFixed(0)}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.zoom_in_rounded, size: 20),
+                onPressed: () => ref.read(zoomLevelProvider.notifier).state = (zoomLevel * 1.2).clamp(0.5, 3.0),
+                tooltip: 'ซูมเข้า',
+              ),
+              const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+              
+              // Reset View
+              IconButton(
+                icon: const Icon(Icons.center_focus_strong_rounded, size: 20),
+                onPressed: () {
+                  ref.read(zoomLevelProvider.notifier).state = 1.0;
+                  ref.read(panOffsetProvider.notifier).state = Offset.zero;
+                },
+                tooltip: 'รีเซ็ตมุมมอง',
+              ),
+
+              if (user?.isEngineerOrAbove ?? false) ...[
+                const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+                // Align Toggle
+                IconButton(
+                  icon: Icon(
+                    Icons.straighten_rounded,
+                    color: isAligning ? AppColors.primary : null,
+                  ),
+                  tooltip: 'จัดตำแหน่งผัง (Align Mode)',
+                  onPressed: () {
+                    if (!isAligning) {
+                      ref.read(tempBgScaleProvider.notifier).state = layout?.backgroundScale ?? 1.0;
+                      ref.read(tempBgOffsetProvider.notifier).state = layout?.backgroundOffset ?? Offset.zero;
+                      ref.read(isEditModeProvider.notifier).state = false;
+                    }
+                    ref.read(isAligningModeProvider.notifier).state = !isAligning;
+                  },
+                ),
+              ],
+
+              if (isAligning) ...[
+                const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+                // Precision Scaling Buttons (ย่อขยาย)
+                _ToolButton(
+                  icon: Icons.unfold_more_rounded,
+                  tooltip: 'Fit Width (ย่อขยายตามแนวขวาง)',
+                  onPressed: () async {
+                    final bgImage = await ref.read(layoutBackgroundImageProvider(layout!.backgroundPath).future);
+                    if (bgImage != null) {
+                      final newScale = layout!.canvasSize.width / bgImage.width.toDouble();
+                      ref.read(tempBgScaleProvider.notifier).state = newScale;
+                    }
+                  },
+                ),
+                _ToolButton(
+                  icon: Icons.unfold_less_rounded,
+                  tooltip: 'Fit Height (ย่อขยายตามแนวตั้ง)',
+                  onPressed: () async {
+                    final bgImage = await ref.read(layoutBackgroundImageProvider(layout!.backgroundPath).future);
+                    if (bgImage != null) {
+                      final newScale = layout!.canvasSize.height / bgImage.height.toDouble();
+                      ref.read(tempBgScaleProvider.notifier).state = newScale;
+                    }
+                  },
+                ),
+                _ToolButton(
+                  icon: Icons.center_focus_weak_rounded,
+                  tooltip: 'วางกึ่งกลาง (Center Image)',
+                  onPressed: () => ref.read(tempBgOffsetProvider.notifier).state = Offset.zero,
+                ),
+                const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+                // Save/Approve Action
+                ElevatedButton(
+                  onPressed: () async {
+                    await ref.read(layoutRepositoryProvider).approveLayout(layout!.layoutId);
+                    await ref.read(layoutRepositoryProvider).updateBackgroundAlignment(
+                      layout!.layoutId,
+                      tempBgScale,
+                      tempBgOffset,
+                    );
+                    ref.read(isAligningModeProvider.notifier).state = false;
+                    ref.invalidate(currentLayoutProvider);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('ผังได้รับการอนุมัติแล้ว')),
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    elevation: 0,
+                  ),
+                  child: const Text('บันทึกและอนุมัติ', style: TextStyle(fontSize: 12)),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => ref.read(isAligningModeProvider.notifier).state = false,
+                  child: const Text('ยกเลิก', style: TextStyle(color: Colors.redAccent)),
+                ),
+              ],
+
+              // Management Actions (Visible in Edit Mode when not aligning)
+              if (!isAligning && isEditMode) ...[
+                const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+                ElevatedButton.icon(
+                  onPressed: (currentLayout.isApproved) 
+                    ? () => onAddMachine?.call(currentLayout)
+                    : null,
+                  icon: const Icon(Icons.add_location_alt_rounded, size: 16),
+                  label: Text(currentLayout.isApproved ? 'วางเครื่องจักร' : 'ต้องอนุมัติก่อน', style: const TextStyle(fontSize: 12)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.withAlpha(40),
+                    foregroundColor: Colors.orange[900],
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.add_rounded, size: 16),
+                  label: const Text('Add Area', style: TextStyle(fontSize: 12)),
+                  onPressed: () => onAddArea?.call(),
+                   style: ElevatedButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 8),
+              const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+              
+              // Grid Toggle & Scale Note
+              _ToolButton(
+                icon: isGridVisible ? Icons.grid_on_rounded : Icons.grid_off_rounded,
+                tooltip: 'แสดงตารางกริด',
+                onPressed: () => ref.read(_isGridVisibleProvider.notifier).state = !isGridVisible,
+              ),
+              const SizedBox(width: 4),
+              const Text('1 ช่อง = 5x5ม.', style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _ToolButton({required this.icon, required this.tooltip, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      icon: Icon(icon, size: 20),
+      onPressed: onPressed,
+      tooltip: tooltip,
+      splashRadius: 20,
     );
   }
 }

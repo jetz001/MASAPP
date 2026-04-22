@@ -155,20 +155,30 @@ class FactoryLayout {
   final String layoutId;
   final String name;
   final Size canvasSize; // Width and height of the layout canvas
+  final double widthM; // Estimated width in meters
+  final double heightM; // Estimated height in meters
   final List<LayoutZone> zones;
   final List<MachinePosition> machines;
   final String? backgroundPath; // Path to PDF or Image file
   final double backgroundOpacity; // 0.0 to 1.0
+  final double backgroundScale; // Manual scale factor
+  final Offset backgroundOffset; // Manual offset for alignment
+  final bool isApproved; // Whether the layout is finalized and approved for machine placement
   final DateTime? lastUpdated;
 
   const FactoryLayout({
     required this.layoutId,
     required this.name,
     this.canvasSize = const Size(1600, 1000),
+    this.widthM = 32.0,
+    this.heightM = 20.0,
     this.zones = const [],
     this.machines = const [],
     this.backgroundPath,
     this.backgroundOpacity = 1.0,
+    this.backgroundScale = 1.0,
+    this.backgroundOffset = Offset.zero,
+    this.isApproved = false,
     this.lastUpdated,
   });
 
@@ -176,20 +186,30 @@ class FactoryLayout {
     String? layoutId,
     String? name,
     Size? canvasSize,
+    double? widthM,
+    double? heightM,
     List<LayoutZone>? zones,
     List<MachinePosition>? machines,
     String? backgroundPath,
     double? backgroundOpacity,
+    double? backgroundScale,
+    Offset? backgroundOffset,
+    bool? isApproved,
     DateTime? lastUpdated,
   }) {
     return FactoryLayout(
       layoutId: layoutId ?? this.layoutId,
       name: name ?? this.name,
       canvasSize: canvasSize ?? this.canvasSize,
+      widthM: widthM ?? this.widthM,
+      heightM: heightM ?? this.heightM,
       zones: zones ?? this.zones,
       machines: machines ?? this.machines,
       backgroundPath: backgroundPath ?? this.backgroundPath,
       backgroundOpacity: backgroundOpacity ?? this.backgroundOpacity,
+      backgroundScale: backgroundScale ?? this.backgroundScale,
+      backgroundOffset: backgroundOffset ?? this.backgroundOffset,
+      isApproved: isApproved ?? this.isApproved,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

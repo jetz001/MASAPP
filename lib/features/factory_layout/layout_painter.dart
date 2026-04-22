@@ -8,16 +8,24 @@ class FactoryLayoutPainter extends CustomPainter {
   final double zoomLevel;
   final Offset offset;
   final MachinePosition? selectedMachine;
-  final Map<String, Color> themeColors;
-
-  FactoryLayoutPainter({
-    required this.layout,
-    this.backgroundImage,
-    required this.zoomLevel,
-    required this.offset,
-    this.selectedMachine,
-    required this.themeColors,
-  });
+    final bool isAligning;
+    final bool showGrid; // Toggleable grid visibility
+    final double tempBgScale;
+    final Offset tempBgOffset;
+    final Map<String, Color> themeColors;
+  
+    FactoryLayoutPainter({
+      required this.layout,
+      this.backgroundImage,
+      required this.zoomLevel,
+      required this.offset,
+      this.selectedMachine,
+      this.isAligning = false,
+      this.showGrid = true,
+      this.tempBgScale = 1.0,
+      this.tempBgOffset = Offset.zero,
+      required this.themeColors,
+    });
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
@@ -25,55 +33,65 @@ class FactoryLayoutPainter extends CustomPainter {
     canvas.translate(offset.dx, offset.dy);
     canvas.scale(zoomLevel);
 
-    // Calculate image destination rect (preserving aspect ratio)
-    Rect imageRect = Rect.fromLTWH(0, 0, layout.canvasSize.width, layout.canvasSize.height);
-    
-    if (backgroundImage != null) {
-      final double imgWidth = backgroundImage!.width.toDouble();
-      final double imgHeight = backgroundImage!.height.toDouble();
-      final double canvasWidth = layout.canvasSize.width;
-      final double canvasHeight = layout.canvasSize.height;
+    // Fixed layout bounds (e.g. 32m x 110m in pixels)
+    final fixedLayoutRect = Rect.fromLTWH(0, 0, layout.canvasSize.width, layout.canvasSize.height);
 
-      final double imgAspect = imgWidth / imgHeight;
-      final double canvasAspect = canvasWidth / canvasHeight;
-
-      double drawWidth, drawHeight;
-      double offsetX = 0, offsetY = 0;
-
-      if (imgAspect > canvasAspect) {
-        drawWidth = canvasWidth;
-        drawHeight = canvasWidth / imgAspect;
-        offsetY = (canvasHeight - drawHeight) / 2;
-      } else {
-        drawHeight = canvasHeight;
-        drawWidth = canvasHeight * imgAspect;
-        offsetX = (canvasWidth - drawWidth) / 2;
-      }
-      imageRect = Rect.fromLTWH(offsetX, offsetY, drawWidth, drawHeight);
-    }
-
-    // 1. Base Layer (Grey background outside image)
+    // 1. Base Layer (Background canvas)
     _drawBaseBackground(canvas, canvasSize);
 
-    // Clip all subsequent drawing to the image area
-    canvas.clipRect(imageRect);
+    // 2. Background Image Layer (Transformed)
+    // In Align mode, we allow the image to bleed outside the fixed layout rect
+    final double bgScale = isAligning ? tempBgScale : layout.backgroundScale;
+    final Offset bgOffset = isAligning ? tempBgOffset : layout.backgroundOffset;
 
-    // 2. White background for the floor plan area
-    _drawPlanBackground(canvas, imageRect);
-
-    // 3. Floor Plan Image
     if (backgroundImage != null) {
+      final imageRect = Rect.fromLTWH(
+        bgOffset.dx, 
+        bgOffset.dy, 
+        backgroundImage!.width * bgScale, 
+        backgroundImage!.height * bgScale
+      );
+      
+      // Draw white background and image for the floor plan
+      _drawPlanBackground(canvas, imageRect);
       _drawFloorPlan(canvas, imageRect);
     }
 
-    // 4. Grid Lines (Constrained to imageRect)
-    _drawGrid(canvas, imageRect);
+    // Clip all relative layout items to the layout bounds if not aligning
+    // If aligning, we show them all over the background
+    if (!isAligning) {
+      canvas.save();
+      canvas.clipRect(fixedLayoutRect);
+    }
 
-    // 5. Activity Zones
+    // 3. Grid Lines (Fixed to layout rect)
+    // Draw if exploring is set to visible, or if explicitly aligning
+    if (showGrid || isAligning) {
+       _drawGrid(canvas, fixedLayoutRect, isOverlay: isAligning);
+    }
+
+    // 4. Activity Zones
     _drawZones(canvas);
 
-    // 6. Machines & Status Labels
+    // 5. Machines & Status Labels
     _drawMachines(canvas);
+
+    if (!isAligning) {
+      canvas.restore();
+    }
+
+    // 6. Alignment Overlays
+    if (isAligning) {
+      // Draw grid ON TOP of everything during alignment for maximum visibility
+      _drawGrid(canvas, fixedLayoutRect, isOverlay: true);
+      
+      // Draw a boundary around the fixed layout area
+      final borderPaint = Paint()
+        ..color = Colors.blue.withAlpha(200)
+        ..strokeWidth = 3.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawRect(fixedLayoutRect, borderPaint);
+    }
 
     canvas.restore();
   }
@@ -106,25 +124,36 @@ class FactoryLayoutPainter extends CustomPainter {
     canvas.drawImageRect(backgroundImage!, src, dst, paint);
   }
 
-  void _drawGrid(Canvas canvas, Rect rect) {
+  void _drawGrid(Canvas canvas, Rect rect, {bool isOverlay = false}) {
     final gridPaint = Paint()
-      ..color = themeColors['gridColor'] ?? Colors.grey.withAlpha(50)
-      ..strokeWidth = 0.5;
+      ..color = isOverlay 
+          ? Colors.blue.withAlpha(100) 
+          : (themeColors['gridColor'] ?? Colors.grey).withAlpha(60)
+      ..strokeWidth = isOverlay ? 1.5 : 0.5;
 
-    const gridSize = 50.0;
+    const gridSize = 250.0; // 5 meters = 250 pixels (1m = 50px)
+    
+    // Draw minor grid (1m) if in overlay mode for better precision
+    if (isOverlay) {
+      final minorPaint = Paint()
+        ..color = Colors.blue.withAlpha(30)
+        ..strokeWidth = 0.5;
+      
+      const minorSize = 10.0; // 1 meter = 10 pixels
+      for (double x = rect.left; x <= rect.right; x += minorSize) {
+        canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), minorPaint);
+      }
+      for (double y = rect.top; y <= rect.bottom; y += minorSize) {
+        canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), minorPaint);
+      }
+    }
+
+    // Draw major grid (5m)
     for (double x = rect.left; x <= rect.right; x += gridSize) {
-      canvas.drawLine(
-        Offset(x, rect.top),
-        Offset(x, rect.bottom),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), gridPaint);
     }
     for (double y = rect.top; y <= rect.bottom; y += gridSize) {
-      canvas.drawLine(
-        Offset(rect.left, y),
-        Offset(rect.right, y),
-        gridPaint,
-      );
+      canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), gridPaint);
     }
   }
 
@@ -253,6 +282,8 @@ class FactoryLayoutPainter extends CustomPainter {
         backgroundImage != oldDelegate.backgroundImage ||
         selectedMachine != oldDelegate.selectedMachine ||
         zoomLevel != oldDelegate.zoomLevel ||
+        showGrid != oldDelegate.showGrid ||
+        isAligning != oldDelegate.isAligning ||
         offset != oldDelegate.offset ||
         themeColors != oldDelegate.themeColors;
   }

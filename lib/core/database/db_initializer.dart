@@ -107,14 +107,55 @@ class DbInitializer {
         }
 
         // 8. Add layout background columns (Added 2026-04-21)
-        final layoutTableInfo = await db.rawQuery('PRAGMA table_info(factory_layouts)');
-        if (!layoutTableInfo.any((col) => col['name'] == 'background_path')) {
+        // 8. Add layout background columns (Added 2026-04-21)
+        final List<Map<String, dynamic>> layoutsInfo = await db.rawQuery('PRAGMA table_info(factory_layouts)');
+        
+        final bool hasBgPath = layoutsInfo.any((col) => col['name'] == 'background_path');
+        if (!hasBgPath) {
            _log.i('Migration: Adding background_path to factory_layouts...');
            await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_path TEXT');
         }
-        if (!layoutTableInfo.any((col) => col['name'] == 'background_opacity')) {
+        
+        final bool hasBgOpacity = layoutsInfo.any((col) => col['name'] == 'background_opacity');
+        if (!hasBgOpacity) {
            _log.i('Migration: Adding background_opacity to factory_layouts...');
            await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0');
+        }
+        
+        final bool hasWidth = layoutsInfo.any((col) => col['name'] == 'width_m');
+        if (!hasWidth) {
+           _log.i('Migration: Adding width_m to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN width_m REAL DEFAULT 32.0');
+        }
+        
+        final bool hasHeight = layoutsInfo.any((col) => col['name'] == 'height_m');
+        if (!hasHeight) {
+           _log.i('Migration: Adding height_m to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN height_m REAL DEFAULT 20.0');
+        }
+        
+        final bool hasBgScale = layoutsInfo.any((col) => col['name'] == 'background_scale');
+        if (!hasBgScale) {
+           _log.i('Migration: Adding background_scale to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_scale REAL DEFAULT 1.0');
+        }
+        
+        final bool hasBgOffsetX = layoutsInfo.any((col) => col['name'] == 'bg_offset_x');
+        if (!hasBgOffsetX) {
+           _log.i('Migration: Adding bg_offset_x to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN bg_offset_x REAL DEFAULT 0.0');
+        }
+        
+        final bool hasBgOffsetY = layoutsInfo.any((col) => col['name'] == 'bg_offset_y');
+        if (!hasBgOffsetY) {
+           _log.i('Migration: Adding bg_offset_y to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN bg_offset_y REAL DEFAULT 0.0');
+        }
+
+        final bool hasApproved = layoutsInfo.any((col) => col['name'] == 'is_approved');
+        if (!hasApproved) {
+           _log.i('Migration: Adding is_approved to factory_layouts...');
+           await db.execute('ALTER TABLE factory_layouts ADD COLUMN is_approved INTEGER DEFAULT 0');
         }
       }
 

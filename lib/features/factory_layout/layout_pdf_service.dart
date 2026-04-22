@@ -12,7 +12,12 @@ class LayoutPdfService {
     required FactoryLayout layout,
     required MachinePosition machine,
   }) async {
-    final pdf = pw.Document();
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: await PdfGoogleFonts.sarabunRegular(),
+        bold: await PdfGoogleFonts.sarabunBold(),
+      ),
+    );
 
     // 1. Prepare Background Image (Handle both Image and PDF)
     pw.ImageProvider? bgImage;
@@ -160,17 +165,17 @@ class LayoutPdfService {
                 child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
-                    pw.Text('MACHINE TAG', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                    pw.Text('ป้ายกำกับเครื่องจักร', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
                     pw.Text(layout.name, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey500)),
                     pw.Divider(color: PdfColors.blueGrey200),
                     pw.SizedBox(height: 20),
                     
-                    _buildDetail('MACHINE NO', machine.machineNo),
-                    _buildDetail('BRAND', machine.brand ?? '-'),
-                    _buildDetail('MODEL', machine.model ?? '-'),
-                    _buildDetail('ZONE', machine.zoneId),
-                    _buildDetail('POSITION', '(${machine.position.dx.toInt()}, ${machine.position.dy.toInt()})'),
-                    _buildDetail('STATUS', machine.status.label.toUpperCase()),
+                    _buildDetail('รหัสเครื่องจักร', machine.machineNo),
+                    _buildDetail('ยี่ห้อ', machine.brand ?? '-'),
+                    _buildDetail('รุ่น', machine.model ?? '-'),
+                    _buildDetail('โซน', machine.zoneId.isEmpty ? '-' : machine.zoneId),
+                    _buildDetail('ตำแหน่ง', '(${machine.position.dx.toInt()}, ${machine.position.dy.toInt()})'),
+                    _buildDetail('สถานะ', machine.status.label),
                     
                     pw.Spacer(),
                     
@@ -182,7 +187,7 @@ class LayoutPdfService {
                       child: pw.Center(child: pw.Text('QR CODE', style: const pw.TextStyle(color: PdfColors.grey500, fontSize: 10))),
                     ),
                     pw.SizedBox(height: 10),
-                    pw.Text('Report Generated:', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                    pw.Text('วันที่ออกรายงาน:', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
                     pw.Text(DateTime.now().toString().substring(0, 16), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
                   ],
                 ),

@@ -12,6 +12,11 @@ final _log = Logger();
 
 final isScanningProvider = StateProvider<bool>((ref) => false);
 final isEditModeProvider = StateProvider<bool>((ref) => false);
+final isAligningModeProvider = StateProvider<bool>((ref) => false);
+
+/// Temporary state for background alignment (unsaved)
+final tempBgScaleProvider = StateProvider<double>((ref) => 1.0);
+final tempBgOffsetProvider = StateProvider<Offset>((ref) => Offset.zero);
 
 /// Repository for factory layout data
 class LayoutRepository {
@@ -89,17 +94,26 @@ class LayoutRepository {
         );
       }
 
+      final double widthM = (row['width_m'] as num?)?.toDouble() ?? 32.0;
+      final double heightM = (row['height_m'] as num?)?.toDouble() ?? 20.0;
+      final double scale = (row['scale_pixel_per_m'] as num?)?.toDouble() ?? 10.0;
+
       return FactoryLayout(
         layoutId: layoutId,
         name: row['layout_name'] as String,
-        canvasSize: Size(
-          (row['canvas_width'] as num?)?.toDouble() ?? 1600,
-          (row['canvas_height'] as num?)?.toDouble() ?? 1000,
-        ),
+        canvasSize: Size(widthM * scale, heightM * scale),
+        widthM: widthM,
+        heightM: heightM,
         zones: zones,
         machines: machines,
         backgroundPath: row['background_path'] as String?,
         backgroundOpacity: (row['background_opacity'] as num?)?.toDouble() ?? 1.0,
+        backgroundScale: (row['background_scale'] as num?)?.toDouble() ?? 1.0,
+        backgroundOffset: Offset(
+          (row['bg_offset_x'] as num?)?.toDouble() ?? 0.0,
+          (row['bg_offset_y'] as num?)?.toDouble() ?? 0.0,
+        ),
+        isApproved: (row['is_approved'] as int?) == 1,
         lastUpdated: row['updated_at'] != null
             ? DateTime.tryParse(row['updated_at'] as String)
             : null,
@@ -110,14 +124,26 @@ class LayoutRepository {
     }
   }
 
-  /// Ensure all required columns exist in the layout tables
-  static Future<void> ensureSchema() async {
-    try {
-      await DbHelper.execute('ALTER TABLE factory_layouts ADD COLUMN background_path TEXT');
-    } catch (_) {}
-    try {
-      await DbHelper.execute('ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0');
-    } catch (_) {}
+  /// Update floor plan alignment
+  Future<void> updateBackgroundAlignment(
+    String layoutId,
+    double scale,
+    Offset offset,
+  ) async {
+    await DbHelper.execute(
+      '''UPDATE factory_layouts 
+         SET background_scale = @scale, 
+             bg_offset_x = @ox, 
+             bg_offset_y = @oy, 
+             updated_at = CURRENT_TIMESTAMP
+         WHERE layout_id = @id''',
+      params: {
+        'id': layoutId,
+        'scale': scale,
+        'ox': offset.dx,
+        'oy': offset.dy,
+      },
+    );
   }
 
   /// Save machine position
@@ -159,19 +185,47 @@ class LayoutRepository {
   Future<List<FactoryLayout>> getAllLayouts() async {
     try {
       final rows = await DbHelper.query(
-        'SELECT layout_id, layout_name FROM factory_layouts ORDER BY layout_name',
+        'SELECT * FROM factory_layouts ORDER BY layout_name',
       );
       return rows
           .map(
-            (row) => FactoryLayout(
-              layoutId: row['layout_id'] as String,
-              name: row['layout_name'] as String,
-            ),
+            (row) {
+              final double widthM = (row['width_m'] as num?)?.toDouble() ?? 32.0;
+              final double heightM = (row['height_m'] as num?)?.toDouble() ?? 20.0;
+              final double scale = (row['scale_pixel_per_m'] as num?)?.toDouble() ?? 10.0;
+              
+              return FactoryLayout(
+                layoutId: row['layout_id'] as String,
+                name: row['layout_name'] as String,
+                widthM: widthM,
+                heightM: heightM,
+                canvasSize: Size(widthM * scale, heightM * scale),
+                backgroundPath: row['background_path'] as String?,
+                backgroundOpacity: (row['background_opacity'] as num?)?.toDouble() ?? 1.0,
+                backgroundScale: (row['background_scale'] as num?)?.toDouble() ?? 1.0,
+                backgroundOffset: Offset(
+                  (row['bg_offset_x'] as num?)?.toDouble() ?? 0.0,
+                  (row['bg_offset_y'] as num?)?.toDouble() ?? 0.0,
+                ),
+                isApproved: (row['is_approved'] as int?) == 1,
+                lastUpdated: row['updated_at'] != null
+                    ? DateTime.tryParse(row['updated_at'] as String)
+                    : null,
+              );
+            },
           )
           .toList();
     } catch (e) {
       return [];
     }
+  }
+
+  /// Approve a factory layout
+  Future<void> approveLayout(String layoutId) async {
+    await DbHelper.execute(
+      'UPDATE factory_layouts SET is_approved = 1, updated_at = CURRENT_TIMESTAMP WHERE layout_id = @id',
+      params: {'id': layoutId},
+    );
   }
 
   /// Create a new factory layout
@@ -180,7 +234,7 @@ class LayoutRepository {
     String? description,
     double widthM = 32.0,
     double heightM = 20.0,
-    double scale = 50.0,
+    double scale = 10.0,
     String? backgroundPath,
     double backgroundOpacity = 1.0,
     String? createdBy,
@@ -190,10 +244,12 @@ class LayoutRepository {
       '''INSERT INTO factory_layouts (
            layout_id, layout_name, description, width_m, height_m, 
            scale_pixel_per_m, background_path, background_opacity,
+           background_scale, bg_offset_x, bg_offset_y,
            created_by, created_at, updated_at
          ) VALUES (
-           @id, @name, @desc, @width, @height, @scale, @bg, @opacity, @user, 
-           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+           @id, @name, @desc, @width, @height, @scale, @bg, @opacity, 
+           1.0, 0.0, 0.0,
+           @user, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
          )''',
       params: {
         'id': layoutId,
@@ -208,6 +264,38 @@ class LayoutRepository {
       },
     );
     return layoutId;
+  }
+
+  /// Update an existing factory layout
+  Future<void> updateLayout({
+    required String layoutId,
+    required String name,
+    String? description,
+    double widthM = 32.0,
+    double heightM = 20.0,
+    String? backgroundPath,
+    double? backgroundOpacity,
+  }) async {
+    await DbHelper.execute(
+      '''UPDATE factory_layouts 
+         SET layout_name = @name, 
+             description = @desc, 
+             width_m = @width, 
+             height_m = @height, 
+             background_path = @bg,
+             background_opacity = COALESCE(@opacity, background_opacity),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE layout_id = @id''',
+      params: {
+        'id': layoutId,
+        'name': name,
+        'desc': description,
+        'width': widthM,
+        'height': heightM,
+        'bg': backgroundPath,
+        'opacity': backgroundOpacity,
+      },
+    );
   }
 
   /// Delete a layout

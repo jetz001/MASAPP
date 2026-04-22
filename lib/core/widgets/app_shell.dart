@@ -116,13 +116,7 @@ const _navItems = [
     route: '/machine-registry',
   ),
   _NavItem(
-    label: 'แผนที่โรงงาน',
-    icon: HugeIcons.strokeRoundedLocation01,
-    iconSelected: HugeIcons.strokeRoundedLocation01,
-    route: '/factory-layout',
-  ),
-  _NavItem(
-    label: 'ทะเบียนผังพื้นที่',
+    label: 'ทะเบียนพื้นที่โรงงาน',
     icon: HugeIcons.strokeRoundedLayers01,
     iconSelected: HugeIcons.strokeRoundedLayers01,
     route: '/factory-layout/management',
@@ -278,7 +272,10 @@ class _Sidebar extends ConsumerWidget {
                             if (item.roles.isEmpty || item.roles.contains(role))
                               _NavTile(
                                 item: item,
-                                isSelected: currentRoute.startsWith(item.route),
+                                // Use exact match for factory-layout to distinguish from /factory-layout/management
+                                isSelected: item.route == '/factory-layout'
+                                    ? currentRoute == item.route
+                                    : currentRoute.startsWith(item.route),
                                 expanded: expanded,
                               ),
                         ],
