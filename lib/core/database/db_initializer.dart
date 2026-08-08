@@ -39,11 +39,15 @@ class DbInitializer {
         _log.i('Database schema and seed data created/updated successfully');
       } else {
         // --- ADDED MIGRATION CHECKS FOR DEV PARITY ---
-        
+
         final userTableInfo = await db.rawQuery('PRAGMA table_info(users)');
-        final hasThemeCol = userTableInfo.any((col) => col['name'] == 'theme_preference');
-        final hasPinCol = userTableInfo.any((col) => col['name'] == 'approval_pin_hash');
-        
+        final hasThemeCol = userTableInfo.any(
+          (col) => col['name'] == 'theme_preference',
+        );
+        final hasPinCol = userTableInfo.any(
+          (col) => col['name'] == 'approval_pin_hash',
+        );
+
         // 2. Check for machine_positions (renamed from layout_machines)
         final posTable = await db.query(
           'sqlite_master',
@@ -52,7 +56,9 @@ class DbInitializer {
         );
 
         if (!hasThemeCol || !hasPinCol || posTable.isEmpty) {
-          _log.i('Migration: Outdated schema detected. Forcing full initialization...');
+          _log.i(
+            'Migration: Outdated schema detected. Forcing full initialization...',
+          );
           await _createSchema(db);
           await _seedInitialData(db);
         }
@@ -82,80 +88,327 @@ class DbInitializer {
 
         // 5. Add snapshot_id to work_orders (Added 2026-04-20)
         final woTableInfo = await db.rawQuery('PRAGMA table_info(work_orders)');
-        final hasSnapshotId = woTableInfo.any((col) => col['name'] == 'snapshot_id');
+        final hasSnapshotId = woTableInfo.any(
+          (col) => col['name'] == 'snapshot_id',
+        );
         if (!hasSnapshotId) {
           _log.i('Migration: Adding snapshot_id to work_orders...');
-          await db.execute('ALTER TABLE work_orders ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
+          await db.execute(
+            'ALTER TABLE work_orders ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)',
+          );
+        }
+        if (!woTableInfo.any((col) => col['name'] == 'closure_notes')) {
+          _log.i('Migration: Adding closure_notes to work_orders...');
+          await db.execute(
+            'ALTER TABLE work_orders ADD COLUMN closure_notes TEXT',
+          );
+        }
+
+        final supplierTableInfo = await db.rawQuery(
+          'PRAGMA table_info(suppliers)',
+        );
+        if (!supplierTableInfo.any((col) => col['name'] == 'service_scope')) {
+          _log.i('Migration: Adding service_scope to suppliers...');
+          await db.execute(
+            'ALTER TABLE suppliers ADD COLUMN service_scope TEXT',
+          );
+        }
+        if (!supplierTableInfo.any((col) => col['name'] == 'vendor_type')) {
+          _log.i('Migration: Adding vendor_type to suppliers...');
+          await db.execute(
+            "ALTER TABLE suppliers ADD COLUMN vendor_type TEXT NOT NULL DEFAULT 'repair'",
+          );
+        }
+        if (!supplierTableInfo.any(
+          (col) => col['name'] == 'is_outsource_vendor',
+        )) {
+          _log.i('Migration: Adding is_outsource_vendor to suppliers...');
+          await db.execute(
+            'ALTER TABLE suppliers ADD COLUMN is_outsource_vendor INTEGER NOT NULL DEFAULT 0',
+          );
         }
 
         // 6. Add snapshot_id to pm_am_plans and work_permits (Added 2026-04-20)
         final pmTableInfo = await db.rawQuery('PRAGMA table_info(pm_am_plans)');
         if (!pmTableInfo.any((col) => col['name'] == 'snapshot_id')) {
           _log.i('Migration: Adding snapshot_id to pm_am_plans...');
-          await db.execute('ALTER TABLE pm_am_plans ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
+          await db.execute(
+            'ALTER TABLE pm_am_plans ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)',
+          );
         }
-        final wpTableInfo = await db.rawQuery('PRAGMA table_info(work_permits)');
+        final wpTableInfo = await db.rawQuery(
+          'PRAGMA table_info(work_permits)',
+        );
         if (!wpTableInfo.any((col) => col['name'] == 'snapshot_id')) {
           _log.i('Migration: Adding snapshot_id to work_permits...');
-          await db.execute('ALTER TABLE work_permits ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)');
+          await db.execute(
+            'ALTER TABLE work_permits ADD COLUMN snapshot_id TEXT REFERENCES machine_snapshots(snapshot_id)',
+          );
         }
-
-        final machinesTableInfo = await db.rawQuery('PRAGMA table_info(machines)');
-        if (!machinesTableInfo.any((col) => col['name'] == 'handover_conclusion')) {
+        if (!wpTableInfo.any((col) => col['name'] == 'wo_id')) {
+          _log.i('Migration: Adding wo_id to work_permits...');
+          await db.execute(
+            'ALTER TABLE work_permits ADD COLUMN wo_id TEXT REFERENCES work_orders(wo_id) ON DELETE SET NULL',
+          );
+        }
+        if (!wpTableInfo.any((col) => col['name'] == 'pm_am_id')) {
+          _log.i('Migration: Adding pm_am_id to work_permits...');
+          await db.execute(
+            'ALTER TABLE work_permits ADD COLUMN pm_am_id TEXT REFERENCES pm_am_plans(plan_id) ON DELETE SET NULL',
+          );
+        }
+        if (!wpTableInfo.any((col) => col['name'] == 'required_equipments')) {
+          _log.i('Migration: Adding required_equipments to work_permits...');
+          await db.execute(
+            'ALTER TABLE work_permits ADD COLUMN required_equipments TEXT',
+          );
+        }
+        if (!wpTableInfo.any((col) => col['name'] == 'approval_remarks')) {
+          _log.i('Migration: Adding approval_remarks to work_permits...');
+          await db.execute(
+            'ALTER TABLE work_permits ADD COLUMN approval_remarks TEXT',
+          );
+        }
+        final machinesTableInfo = await db.rawQuery(
+          'PRAGMA table_info(machines)',
+        );
+        if (!machinesTableInfo.any(
+          (col) => col['name'] == 'handover_conclusion',
+        )) {
           _log.i('Migration: Adding handover_conclusion to machines...');
-          await db.execute('ALTER TABLE machines ADD COLUMN handover_conclusion TEXT');
+          await db.execute(
+            'ALTER TABLE machines ADD COLUMN handover_conclusion TEXT',
+          );
         }
 
         // 8. Add layout background columns (Added 2026-04-21)
         // 8. Add layout background columns (Added 2026-04-21)
-        final List<Map<String, dynamic>> layoutsInfo = await db.rawQuery('PRAGMA table_info(factory_layouts)');
-        
-        final bool hasBgPath = layoutsInfo.any((col) => col['name'] == 'background_path');
+        final List<Map<String, dynamic>> layoutsInfo = await db.rawQuery(
+          'PRAGMA table_info(factory_layouts)',
+        );
+
+        final bool hasBgPath = layoutsInfo.any(
+          (col) => col['name'] == 'background_path',
+        );
         if (!hasBgPath) {
-           _log.i('Migration: Adding background_path to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_path TEXT');
-        }
-        
-        final bool hasBgOpacity = layoutsInfo.any((col) => col['name'] == 'background_opacity');
-        if (!hasBgOpacity) {
-           _log.i('Migration: Adding background_opacity to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0');
-        }
-        
-        final bool hasWidth = layoutsInfo.any((col) => col['name'] == 'width_m');
-        if (!hasWidth) {
-           _log.i('Migration: Adding width_m to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN width_m REAL DEFAULT 32.0');
-        }
-        
-        final bool hasHeight = layoutsInfo.any((col) => col['name'] == 'height_m');
-        if (!hasHeight) {
-           _log.i('Migration: Adding height_m to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN height_m REAL DEFAULT 20.0');
-        }
-        
-        final bool hasBgScale = layoutsInfo.any((col) => col['name'] == 'background_scale');
-        if (!hasBgScale) {
-           _log.i('Migration: Adding background_scale to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN background_scale REAL DEFAULT 1.0');
-        }
-        
-        final bool hasBgOffsetX = layoutsInfo.any((col) => col['name'] == 'bg_offset_x');
-        if (!hasBgOffsetX) {
-           _log.i('Migration: Adding bg_offset_x to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN bg_offset_x REAL DEFAULT 0.0');
-        }
-        
-        final bool hasBgOffsetY = layoutsInfo.any((col) => col['name'] == 'bg_offset_y');
-        if (!hasBgOffsetY) {
-           _log.i('Migration: Adding bg_offset_y to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN bg_offset_y REAL DEFAULT 0.0');
+          _log.i('Migration: Adding background_path to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN background_path TEXT',
+          );
         }
 
-        final bool hasApproved = layoutsInfo.any((col) => col['name'] == 'is_approved');
+        final bool hasBgOpacity = layoutsInfo.any(
+          (col) => col['name'] == 'background_opacity',
+        );
+        if (!hasBgOpacity) {
+          _log.i('Migration: Adding background_opacity to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN background_opacity REAL DEFAULT 1.0',
+          );
+        }
+
+        final bool hasWidth = layoutsInfo.any(
+          (col) => col['name'] == 'width_m',
+        );
+        if (!hasWidth) {
+          _log.i('Migration: Adding width_m to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN width_m REAL DEFAULT 100.0',
+          );
+        }
+
+        // 9. Check for work_order_outsource (Added 2026-08)
+        final outsourceTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'work_order_outsource'],
+        );
+        if (outsourceTable.isEmpty) {
+          _log.i('Migration: Creating work_order_outsource table...');
+          await db.execute('''
+            CREATE TABLE work_order_outsource (
+              outsource_id      TEXT PRIMARY KEY,
+              wo_id             TEXT NOT NULL UNIQUE REFERENCES work_orders(wo_id) ON DELETE CASCADE,
+              vendor_name       TEXT NOT NULL,
+              repair_details    TEXT,
+              replaced_parts    TEXT,
+              gate_pass_no      TEXT,
+              expected_return_date DATETIME,
+              actual_return_date DATETIME,
+              inspector_id      TEXT REFERENCES users(user_id),
+              notes             TEXT,
+              created_by        TEXT REFERENCES users(user_id),
+              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
+
+        final bool hasHeight = layoutsInfo.any(
+          (col) => col['name'] == 'height_m',
+        );
+        if (!hasHeight) {
+          _log.i('Migration: Adding height_m to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN height_m REAL DEFAULT 20.0',
+          );
+        }
+
+        // 9. Make machine_id nullable in work_orders
+        final woTableInfo3 = await db.rawQuery(
+          'PRAGMA table_info(work_orders)',
+        );
+        final machineIdCol = woTableInfo3.firstWhere(
+          (col) => col['name'] == 'machine_id',
+          orElse: () => {},
+        );
+        if (machineIdCol.isNotEmpty && machineIdCol['notnull'] == 1) {
+          _log.i('Migration: Making machine_id nullable in work_orders...');
+          await db.execute('PRAGMA foreign_keys=OFF;');
+          await db.execute(
+            'ALTER TABLE work_orders RENAME TO work_orders_old;',
+          );
+          await db.execute('''
+            CREATE TABLE work_orders (
+              wo_id             TEXT PRIMARY KEY,
+              wo_no             TEXT UNIQUE NOT NULL,
+              machine_id        TEXT,
+              snapshot_id       TEXT REFERENCES machine_snapshots(snapshot_id),
+              status            TEXT NOT NULL DEFAULT 'pending',
+              priority          TEXT NOT NULL DEFAULT 'normal',
+              title             TEXT NOT NULL,
+              description       TEXT,
+              failure_symptom   TEXT,
+              failure_cause     TEXT,
+              assigned_to       TEXT REFERENCES users(user_id),
+              approved_by       TEXT REFERENCES users(user_id),
+              estimated_hours   REAL,
+              actual_hours      REAL,
+              closure_notes     TEXT,
+              started_at        DATETIME,
+              completed_at      DATETIME,
+              approved_at       DATETIME,
+              created_by        TEXT NOT NULL REFERENCES users(user_id),
+              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              attachments       TEXT
+            )
+          ''');
+          await db.execute(
+            'INSERT INTO work_orders SELECT * FROM work_orders_old;',
+          );
+          await db.execute('DROP TABLE work_orders_old;');
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_work_orders_machine ON work_orders(machine_id);',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_work_orders_status ON work_orders(status);',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_work_orders_assigned_to ON work_orders(assigned_to);',
+          );
+          await db.execute('PRAGMA foreign_keys=ON;');
+        }
+
+        // 10. Add attachments to work_orders
+        final woTableInfo4 = await db.rawQuery('PRAGMA table_info(work_orders)');
+        final bool hasAttachments = woTableInfo4.any(
+          (col) => col['name'] == 'attachments',
+        );
+        if (!hasAttachments) {
+          _log.i('Migration: Adding attachments to work_orders...');
+          await db.execute(
+            'ALTER TABLE work_orders ADD COLUMN attachments TEXT',
+          );
+        }
+
+        final bool hasBgScale = layoutsInfo.any(
+          (col) => col['name'] == 'background_scale',
+        );
+        if (!hasBgScale) {
+          _log.i('Migration: Adding background_scale to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN background_scale REAL DEFAULT 1.0',
+          );
+        }
+
+        final bool hasBgOffsetX = layoutsInfo.any(
+          (col) => col['name'] == 'bg_offset_x',
+        );
+        if (!hasBgOffsetX) {
+          _log.i('Migration: Adding bg_offset_x to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN bg_offset_x REAL DEFAULT 0.0',
+          );
+        }
+
+        final bool hasBgOffsetY = layoutsInfo.any(
+          (col) => col['name'] == 'bg_offset_y',
+        );
+        if (!hasBgOffsetY) {
+          _log.i('Migration: Adding bg_offset_y to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN bg_offset_y REAL DEFAULT 0.0',
+          );
+        }
+
+        final bool hasApproved = layoutsInfo.any(
+          (col) => col['name'] == 'is_approved',
+        );
         if (!hasApproved) {
-           _log.i('Migration: Adding is_approved to factory_layouts...');
-           await db.execute('ALTER TABLE factory_layouts ADD COLUMN is_approved INTEGER DEFAULT 0');
+          _log.i('Migration: Adding is_approved to factory_layouts...');
+          await db.execute(
+            'ALTER TABLE factory_layouts ADD COLUMN is_approved INTEGER DEFAULT 0',
+          );
+        }
+
+        // 9. PM/AM Parameter Support (Added 2026-04-23)
+        final pmTasksInfo = await db.rawQuery('PRAGMA table_info(pm_am_tasks)');
+        if (!pmTasksInfo.any((col) => col['name'] == 'param_type')) {
+          _log.i('Migration: Adding param_type to pm_am_tasks...');
+          await db.execute(
+            'ALTER TABLE pm_am_tasks ADD COLUMN param_type TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE pm_am_tasks ADD COLUMN param_unit TEXT',
+          );
+        }
+
+        final pmExecInfo = await db.rawQuery(
+          'PRAGMA table_info(pm_am_executions)',
+        );
+        if (!pmExecInfo.any((col) => col['name'] == 'actual_value')) {
+          _log.i('Migration: Adding actual_value to pm_am_executions...');
+          await db.execute(
+            'ALTER TABLE pm_am_executions ADD COLUMN actual_value TEXT',
+          );
+        }
+
+        final pmPlansInfo = await db.rawQuery('PRAGMA table_info(pm_am_plans)');
+        if (!pmPlansInfo.any((col) => col['name'] == 'frequency_months')) {
+          _log.i('Migration: Adding frequency_months to pm_am_plans...');
+          await db.execute(
+            'ALTER TABLE pm_am_plans ADD COLUMN frequency_months INTEGER',
+          );
+        }
+
+        // 10. Add usage_logs table
+        final usageLogsTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'usage_logs'],
+        );
+        if (usageLogsTable.isEmpty) {
+          _log.i('Migration: Creating usage_logs table...');
+          await db.execute('''
+            CREATE TABLE usage_logs (
+              log_id        TEXT PRIMARY KEY,
+              user_id       TEXT,
+              username      TEXT,
+              action        TEXT NOT NULL,
+              details       TEXT,
+              created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
         }
       }
 
@@ -187,7 +440,7 @@ class DbInitializer {
         'work_orders',
         'machine_running_hours',
         'machines',
-        'machine_snapshots'
+        'machine_snapshots',
       ];
       for (final table in tables) {
         try {

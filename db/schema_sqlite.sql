@@ -252,7 +252,8 @@ CREATE TABLE work_orders (
   approved_at       DATETIME,
   created_by        TEXT NOT NULL REFERENCES users(user_id),
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  attachments       TEXT
 );
 
 CREATE INDEX idx_work_orders_machine ON work_orders(machine_id);

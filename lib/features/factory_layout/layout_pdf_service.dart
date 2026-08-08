@@ -1,16 +1,21 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:intl/intl.dart';
 import 'layout_models.dart';
+import '../settings/settings_provider.dart';
 
 class LayoutPdfService {
   static Future<void> generateMachineTag({
     required FactoryLayout layout,
     required MachinePosition machine,
+    required AppSettingsState settings,
+    required String userName,
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
@@ -19,178 +24,194 @@ class LayoutPdfService {
       ),
     );
 
-    // 1. Prepare Background Image (Handle both Image and PDF)
+    final logoBase64 = settings.get(AppSettingKeys.orgLogo);
+    final docRef = settings.get(AppSettingKeys.docMachineTagRef, defaultValue: 'F-MA-18 Rev1');
+
+    // 1. Prepare Background Image
     pw.ImageProvider? bgImage;
     try {
       if (layout.backgroundPath != null) {
         final file = File(layout.backgroundPath!);
         if (await file.exists()) {
           final bytes = await file.readAsBytes();
-          
           if (layout.backgroundPath!.toLowerCase().endsWith('.pdf')) {
-            // Convert PDF page to Image for embedding
-            await for (final page in Printing.raster(bytes, pages: [0], dpi: 200)) {
+            await for (final page in Printing.raster(bytes, pages: [0], dpi: 150)) {
               final pngBytes = await page.toPng();
               bgImage = pw.MemoryImage(pngBytes);
-              break; // Use the first page
+              break;
             }
           } else {
-            // Standard Image (PNG/JPG)
             bgImage = pw.MemoryImage(bytes);
           }
         }
       }
     } catch (e) {
-      // Log error and proceed without background if failed
       debugPrint('PDF Export Error (Background Image): $e');
     }
 
-    // 2. Load Logo or Assets (optional, using default text for now)
-    // final logo = await imageFromAssetBundle('assets/images/logo.png');
+    pw.MemoryImage? logoImage;
+    if (logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(base64Decode(logoBase64));
+      } catch (e) {
+        debugPrint('Logo decode error: $e');
+      }
+    }
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(20),
         build: (pw.Context context) {
-          return pw.Row(
+          return pw.Column(
             children: [
-              // --- LEFT: PLAN AREA (75%) ---
               pw.Expanded(
-                flex: 3,
-                child: pw.Container(
-                  padding: const pw.EdgeInsets.all(10),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                  ),
-                  child: pw.Stack(
-                    children: [
-                      // Floor Plan Image
-                      if (bgImage != null)
-                        pw.Center(child: pw.Image(bgImage, fit: pw.BoxFit.contain)),
-                      
-                      // Overlay Arrow pointing to machine
-                      pw.LayoutBuilder(builder: (context, constraints) {
-                        // Calculate drawing Rect for the floor plan inside the container
-                        // (Mimic the aspect ratio logic from the painter)
-                        double canvasW = layout.canvasSize.width;
-                        double canvasH = layout.canvasSize.height;
-                        
-                        double containerW = constraints!.maxWidth;
-                        double containerH = constraints.maxHeight;
-                        
-                        double imgAspect = canvasW / canvasH;
-                        double containerAspect = containerW / containerH;
-                        
-                        double drawW, drawH;
-                        double offsetX = 0, offsetY = 0;
-                        
-                        if (imgAspect > containerAspect) {
-                          drawW = containerW;
-                          drawH = containerW / imgAspect;
-                          offsetY = (containerH - drawH) / 2;
-                        } else {
-                          drawH = containerH;
-                          drawW = containerH * imgAspect;
-                          offsetX = (containerW - drawW) / 2;
-                        }
+                child: pw.Row(
+                  children: [
+                    // --- LEFT: PLAN AREA ---
+                    pw.Expanded(
+                      flex: 3,
+                      child: pw.Container(
+                        padding: const pw.EdgeInsets.all(10),
+                        decoration: pw.BoxDecoration(
+                          border: pw.Border.all(color: PdfColors.grey300),
+                        ),
+                        child: pw.ClipRect(
+                          child: pw.Stack(
+                            children: [
+                              pw.LayoutBuilder(builder: (context, constraints) {
+                                double canvasW = layout.canvasSize.width;
+                                double canvasH = layout.canvasSize.height;
+                                double containerW = constraints!.maxWidth;
+                                double containerH = constraints.maxHeight;
+                                double gridAspect = canvasW / canvasH;
+                                double containerAspect = containerW / containerH;
+                                double drawW, drawH;
+                                double offsetX = 0, offsetY = 0;
+                                
+                                if (gridAspect > containerAspect) {
+                                  drawW = containerW;
+                                  drawH = containerW / gridAspect;
+                                  offsetY = (containerH - drawH) / 2;
+                                } else {
+                                  drawH = containerH;
+                                  drawW = containerH * gridAspect;
+                                  offsetX = (containerW - drawW) / 2;
+                                }
 
-                        // Map machine position (1600x1000) to PDF points
-                        final px = offsetX + (machine.position.dx / canvasW) * drawW;
-                        final py = offsetY + (machine.position.dy / canvasH) * drawH;
+                                final double scaleFactor = drawW / canvasW;
 
-                        return pw.Stack(
-                          children: [
-                            // Arrow
-                            pw.Positioned(
-                              left: px - 20,
-                              top: py - 60,
-                              child: pw.Transform.rotate(
-                                angle: 0,
-                                child: pw.Column(
+                                pw.Widget? alignedImage;
+                                if (bgImage is pw.MemoryImage) {
+                                  final double imgW = bgImage.width!.toDouble();
+                                  final double imgH = bgImage.height!.toDouble();
+                                  final double pdfImgX = offsetX + (layout.backgroundOffset.dx * scaleFactor);
+                                  final double pdfImgY = offsetY + (layout.backgroundOffset.dy * scaleFactor);
+                                  final double pdfImgW = imgW * layout.backgroundScale * scaleFactor;
+                                  final double pdfImgH = imgH * layout.backgroundScale * scaleFactor;
+
+                                  alignedImage = pw.Positioned(
+                                    left: pdfImgX,
+                                    top: pdfImgY,
+                                    child: pw.SizedBox(
+                                      width: pdfImgW,
+                                      height: pdfImgH,
+                                      child: pw.Image(bgImage),
+                                    ),
+                                  );
+                                }
+
+                                final px = offsetX + (machine.position.dx * scaleFactor);
+                                final py = offsetY + (machine.position.dy * scaleFactor);
+
+                                return pw.Stack(
                                   children: [
-                                    pw.Container(
-                                      width: 40,
-                                      height: 60,
-                                      child: pw.CustomPaint(
-                                        painter: (canvas, size) {
-                                          canvas.setFillColor(PdfColors.red);
-                                          
-                                          // Draw Arrow Body
-                                          canvas.drawRect(size.x / 2 - 4, 15, 8, size.y - 15);
-                                          canvas.fillPath();
-                                          
-                                          // Draw Arrow Head
-                                          canvas.moveTo(0, 15);
-                                          canvas.lineTo(size.x, 15);
-                                          canvas.lineTo(size.x / 2, 0);
-                                          canvas.closePath();
-                                          canvas.fillPath();
-                                        },
+                                    alignedImage ?? pw.SizedBox(),
+                                    pw.Positioned(
+                                      left: px - 20,
+                                      top: py - 60,
+                                      child: pw.Container(
+                                        width: 40,
+                                        height: 60,
+                                        child: pw.CustomPaint(
+                                          painter: (canvas, size) {
+                                            canvas.setFillColor(PdfColors.red);
+                                            canvas.drawRect(size.x / 2 - 4, 15, 8, size.y - 15);
+                                            canvas.fillPath();
+                                            canvas.moveTo(0, 15);
+                                            canvas.lineTo(size.x, 15);
+                                            canvas.lineTo(size.x / 2, 0);
+                                            canvas.closePath();
+                                            canvas.fillPath();
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                    pw.Positioned(
+                                      left: px - 5,
+                                      top: py - 5,
+                                      child: pw.Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: const pw.BoxDecoration(
+                                          color: PdfColors.red,
+                                          shape: pw.BoxShape.circle,
+                                        ),
                                       ),
                                     ),
                                   ],
-                                ),
-                              ),
-                            ),
-                            
-                            // Pulse dot at target
-                            pw.Positioned(
-                              left: px - 5,
-                              top: py - 5,
-                              child: pw.Container(
-                                width: 10,
-                                height: 10,
-                                decoration: const pw.BoxDecoration(
-                                  color: PdfColors.red,
-                                  shape: pw.BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-
-              // --- RIGHT: DETAILS AREA (25%) ---
-              pw.Container(
-                width: 200,
-                padding: const pw.EdgeInsets.all(20),
-                decoration: const pw.BoxDecoration(
-                  color: PdfColors.blueGrey50,
-                  border: pw.Border(left: pw.BorderSide(color: PdfColors.blueGrey100, width: 2)),
-                ),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('ป้ายกำกับเครื่องจักร', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
-                    pw.Text(layout.name, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey500)),
-                    pw.Divider(color: PdfColors.blueGrey200),
-                    pw.SizedBox(height: 20),
-                    
-                    _buildDetail('รหัสเครื่องจักร', machine.machineNo),
-                    _buildDetail('ยี่ห้อ', machine.brand ?? '-'),
-                    _buildDetail('รุ่น', machine.model ?? '-'),
-                    _buildDetail('โซน', machine.zoneId.isEmpty ? '-' : machine.zoneId),
-                    _buildDetail('ตำแหน่ง', '(${machine.position.dx.toInt()}, ${machine.position.dy.toInt()})'),
-                    _buildDetail('สถานะ', machine.status.label),
-                    
-                    pw.Spacer(),
-                    
-                    // QR Code placeholder logic (could use qr_flutter to image if needed)
-                    pw.Container(
-                      height: 100,
-                      width: 100,
-                      decoration: const pw.BoxDecoration(color: PdfColors.white),
-                      child: pw.Center(child: pw.Text('QR CODE', style: const pw.TextStyle(color: PdfColors.grey500, fontSize: 10))),
+                                );
+                              }),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
-                    pw.SizedBox(height: 10),
-                    pw.Text('วันที่ออกรายงาน:', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
-                    pw.Text(DateTime.now().toString().substring(0, 16), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+
+                    // --- RIGHT: DETAILS AREA ---
+                    pw.Container(
+                      width: 200,
+                      padding: const pw.EdgeInsets.all(15),
+                      decoration: const pw.BoxDecoration(
+                        color: PdfColors.blueGrey50,
+                        border: pw.Border(left: pw.BorderSide(color: PdfColors.blueGrey100, width: 2)),
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          if (logoImage != null)
+                            pw.Container(
+                              height: 40,
+                              alignment: pw.Alignment.centerLeft,
+                              child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                            ),
+                          pw.SizedBox(height: 10),
+                          pw.Text('ป้ายกำกับเครื่องจักร', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.blueGrey800)),
+                          pw.Text(layout.name, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey500)),
+                          pw.Divider(color: PdfColors.blueGrey200),
+                          pw.SizedBox(height: 15),
+                          
+                          _buildDetail('รหัสเครื่องจักร', machine.machineNo),
+                          _buildDetail('ยี่ห้อ', machine.brand ?? '-'),
+                          _buildDetail('รุ่น', machine.model ?? '-'),
+                          _buildDetail('โซน', machine.zoneId.isEmpty ? '-' : machine.zoneId),
+                          _buildDetail('ตำแหน่ง', '(${machine.position.dx.toInt()}, ${machine.position.dy.toInt()})'),
+                          _buildDetail('สถานะ', machine.status.label),
+                          
+                          pw.Spacer(),
+                          pw.Text(userName, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
+                          pw.Text('ผู้ออกรายงาน:', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                          pw.Text(DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()), style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
+              ),
+              pw.SizedBox(height: 5),
+              pw.Container(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text(docRef, style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey500)),
               ),
             ],
           );
@@ -198,12 +219,129 @@ class LayoutPdfService {
       ),
     );
 
-    // 3. Save and Open in browser/default viewer
     final output = await getTemporaryDirectory();
     final file = File("${output.path}/MachineTag_${machine.machineNo}.pdf");
     await file.writeAsBytes(await pdf.save());
-    
     await OpenFilex.open(file.path);
+  }
+
+  static Future<void> generateAreaRegistryPdf({
+    required List<FactoryLayout> layouts,
+    required AppSettingsState settings,
+    required String userName,
+  }) async {
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: await PdfGoogleFonts.sarabunRegular(),
+        bold: await PdfGoogleFonts.sarabunBold(),
+      ),
+    );
+
+    final logoBase64 = settings.get(AppSettingKeys.orgLogo);
+    final companyName = settings.get(AppSettingKeys.orgName, defaultValue: 'โรงงานของเรา');
+    final docRef = settings.get(AppSettingKeys.docAreaRegistryRef, defaultValue: 'F-MA-17 Rev1');
+
+    pw.MemoryImage? logoImage;
+    if (logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(base64Decode(logoBase64));
+      } catch (e) {
+        debugPrint('Logo decode error: $e');
+      }
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(40),
+        header: (context) => pw.Column(
+          children: [
+            pw.Row(
+              children: [
+                if (logoImage != null)
+                  pw.Container(height: 50, child: pw.Image(logoImage)),
+                pw.SizedBox(width: 15),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('ทะเบียนพื้นที่โรงงาน (Areas Registry)', style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+                    pw.Text(companyName, style: const pw.TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+            pw.Divider(thickness: 2),
+            pw.SizedBox(height: 20),
+          ],
+        ),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          margin: const pw.EdgeInsets.only(top: 20),
+          child: pw.Text('$docRef | หน้า ${context.pageNumber} ของ ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+        ),
+        build: (context) => [
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300),
+            columnWidths: {
+              0: const pw.FlexColumnWidth(3),
+              1: const pw.FixedColumnWidth(80),
+              2: const pw.FixedColumnWidth(80),
+              3: const pw.FixedColumnWidth(100),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.blueGrey100),
+                children: [
+                  _cell('ชื่อพื้นที่ (Area Name)', bold: true),
+                  _cell('กว้าง (m)', bold: true),
+                  _cell('ยาว (m)', bold: true),
+                  _cell('สถานะ', bold: true),
+                ],
+              ),
+              ...layouts.map((l) => pw.TableRow(
+                children: [
+                  _cell(l.name),
+                  _cell(l.widthM.toStringAsFixed(1)),
+                  _cell(l.heightM.toStringAsFixed(1)),
+                  _cell(l.isApproved ? 'อนุมัติแล้ว' : 'รอการจัดผัง'),
+                ],
+              )),
+            ],
+          ),
+          pw.SizedBox(height: 40),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.end,
+            children: [
+              pw.Column(
+                children: [
+                  pw.Container(width: 150, decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide()))),
+                  pw.SizedBox(height: 5),
+                  pw.Text(userName, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('ผู้ออกรายงาน', style: const pw.TextStyle(fontSize: 8)),
+                  pw.Text(DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final output = await getTemporaryDirectory();
+    final file = File("${output.path}/AreasRegistry_${DateTime.now().millisecondsSinceEpoch}.pdf");
+    await file.writeAsBytes(await pdf.save());
+    await OpenFilex.open(file.path);
+  }
+
+  static pw.Widget _cell(String text, {bool bold = false}) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.all(8),
+      child: pw.Text(
+        text,
+        style: pw.TextStyle(fontSize: 10, fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal),
+      ),
+    );
   }
 
   static pw.Widget _buildDetail(String label, String value) {
@@ -212,9 +350,9 @@ class LayoutPdfService {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(label, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey400, fontWeight: pw.FontWeight.bold)),
-          pw.SizedBox(height: 2),
-          pw.Text(value, style: pw.TextStyle(fontSize: 14, color: PdfColors.black, fontWeight: pw.FontWeight.bold)),
+          pw.Text(label, style: pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey400, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 1),
+          pw.Text(value, style: pw.TextStyle(fontSize: 12, color: PdfColors.black, fontWeight: pw.FontWeight.bold)),
         ],
       ),
     );

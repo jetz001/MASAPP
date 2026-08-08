@@ -124,44 +124,45 @@ class _SplashScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0F1117),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 72, height: 72,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Background Image
+          Image.asset(
+            'assets/images/splash.jpg',
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => const SizedBox(),
+          ),
+          
+          // Loading Indicator overlay at the bottom
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 36, height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3.0,
+                    color: Color(0xFF2563EB),
+                  ),
                 ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(Icons.precision_manufacturing_rounded,
-                  color: Colors.white, size: 40),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text('กำลังเชื่อมต่อฐานข้อมูล...',
+                      style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500)),
+                ),
+              ],
             ),
-            const SizedBox(height: 24),
-            const Text('MASAPP',
-                style: TextStyle(
-                  fontSize: 28, fontWeight: FontWeight.w700, color: Colors.white,
-                )),
-            const SizedBox(height: 8),
-            const Text('Maintenance Super App',
-                style: TextStyle(fontSize: 14, color: Colors.white38)),
-            const SizedBox(height: 32),
-            const SizedBox(
-              width: 32, height: 32,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: Color(0xFF2563EB),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text('กำลังเชื่อมต่อฐานข้อมูล...',
-                style: TextStyle(fontSize: 12, color: Colors.white38)),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

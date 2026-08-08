@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -6,10 +6,12 @@ import 'package:empty_view/empty_view.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/database/db_helper.dart';
 import '../../core/utils/app_utils.dart';
 import '../../features/auth/auth_provider.dart';
 import 'work_order_models.dart';
 import 'work_order_provider.dart';
+import 'work_order_pdf_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Work Order List Screen
@@ -34,6 +36,7 @@ class _WorkOrderListScreenState extends ConsumerState<WorkOrderListScreen>
     ('รอดำเนินการ', 'pending'),
     ('อนุมัติแล้ว', 'approved'),
     ('กำลังซ่อม', 'in_progress'),
+    ('ส่งซ่อมภายนอก', 'outsourced'),
     ('เสร็จสิ้น', 'completed'),
     ('ยกเลิก', 'cancelled'),
   ];
@@ -92,7 +95,7 @@ class _WorkOrderListScreenState extends ConsumerState<WorkOrderListScreen>
                 child: TextField(
                   controller: _searchCtrl,
                   decoration: InputDecoration(
-                    hintText: 'ค้นหาใบสั่งงาน...',
+                    hintText: 'ค้นหาใบแจ้งซ่อม...',
                     prefixIcon: Padding(
                       padding: EdgeInsets.all(12),
                       child: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -166,7 +169,7 @@ class _WoPageHeader extends StatelessWidget {
                   const HugeIcon(icon: HugeIcons.strokeRoundedTask01,
                       color: AppColors.primary, size: 24),
                   const SizedBox(width: AppSpacing.sm),
-                  Text('ใบสั่งงานซ่อมบำรุง',
+                  Text('ใบแจ้งซ่อม',
                       style: AppTextStyles.headlineLarge),
                 ],
               ),
@@ -182,7 +185,7 @@ class _WoPageHeader extends StatelessWidget {
             ElevatedButton.icon(
               onPressed: onNew,
               icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18),
-              label: const Text('สร้างใบสั่งงาน'),
+              label: const Text('สร้างใบแจ้งซ่อม'),
             ),
         ],
       ),
@@ -230,6 +233,8 @@ class _WoTable extends StatelessWidget {
                 _H('ช่างผู้รับผิดชอบ', flex: 3),
                 _H('วันที่แจ้ง', flex: 2),
                 _H('สถานะ', flex: 2),
+                if (user?.role == 'admin' || user?.isSafetyOrAbove == true)
+                  _H('', flex: 1),
               ],
             ),
           ),
@@ -245,7 +250,11 @@ class _WoTable extends StatelessWidget {
                       .withValues(alpha: 0.3)),
               itemBuilder: (context, i) {
                 final wo = orders[i];
-                return _WoRow(wo: wo, onTap: () => onTap(wo.woId));
+                return _WoRow(
+                  wo: wo, 
+                  user: user,
+                  onTap: () => onTap(wo.woId),
+                );
               },
             ),
           ),
@@ -272,10 +281,11 @@ class _H extends StatelessWidget {
   }
 }
 
-class _WoRow extends StatelessWidget {
+class _WoRow extends ConsumerWidget {
   final WorkOrder wo;
+  final UserSession? user;
   final VoidCallback onTap;
-  const _WoRow({required this.wo, required this.onTap});
+  const _WoRow({required this.wo, this.user, required this.onTap});
 
   Color get _statusColor {
     switch (wo.status) {
@@ -290,6 +300,8 @@ class _WoRow extends StatelessWidget {
         return AppColors.machineOffline;
       case WorkOrderStatus.approved:
         return AppColors.info;
+      case WorkOrderStatus.outsourced:
+        return AppColors.warning;
     }
   }
 
@@ -307,7 +319,7 @@ class _WoRow extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -325,7 +337,7 @@ class _WoRow extends StatelessWidget {
               ),
               Expanded(
                 flex: 2,
-                child: Text(wo.machineNo, style: AppTextStyles.bodySmall),
+                child: Text(wo.machineNo ?? 'อาคารสถานที่ / ทั่วไป', style: AppTextStyles.bodySmall),
               ),
               Expanded(
                 flex: 4,
@@ -390,6 +402,44 @@ class _WoRow extends StatelessWidget {
                           fontWeight: FontWeight.w600)),
                 ),
               ),
+              if (user?.role == 'admin' || user?.isSafetyOrAbove == true)
+                Expanded(
+                  flex: 1,
+                  child: PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 20),
+                    onSelected: (val) async {
+                      if (val == 'edit') {
+                        context.push('/work-orders/new', extra: wo);
+                      } else if (val == 'delete') {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('ยืนยันการลบ'),
+                            content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบใบแจ้งซ่อมนี้? การดำเนินการนี้ไม่สามารถเรียกคืนได้'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ลบ', style: TextStyle(color: Colors.red))),
+                            ],
+                          )
+                        );
+                        if (confirm == true) {
+                          // Handle Delete
+                          await DbHelper.execute('UPDATE work_permits SET wo_id = NULL WHERE wo_id = @id', params: {'id': wo.woId});
+                          await DbHelper.execute('DELETE FROM work_order_labor WHERE wo_id = @id', params: {'id': wo.woId});
+                          await DbHelper.execute('DELETE FROM work_orders WHERE wo_id = @id', params: {'id': wo.woId});
+                          ref.invalidate(workOrderListProvider);
+                        }
+                      } else if (val == 'print') {
+                        await WorkOrderPdfService.generateAndOpen(woId: wo.woId);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('แก้ไข')])),
+                      const PopupMenuItem(value: 'print', child: Row(children: [Icon(Icons.print, size: 18), SizedBox(width: 8), Text('พิมพ์ใบแจ้งซ่อม')])),
+                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('ลบ', style: TextStyle(color: Colors.red))])),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
@@ -405,10 +455,11 @@ class _EmptyWoState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return EmptyView(
-      title: 'ไม่มีใบสั่งงาน',
-      description: 'กดปุ่ม "สร้างใบสั่งงาน" เพื่อแจ้งซ่อม',
+      title: 'ไม่มีใบแจ้งซ่อม',
+      description: 'กดปุ่ม "สร้างใบแจ้งซ่อม" เพื่อแจ้งซ่อม',
       onButtonTap: onNew,
-      buttonText: 'สร้างใบสั่งงาน',
+      buttonText: 'สร้างใบแจ้งซ่อม',
     );
   }
 }
+

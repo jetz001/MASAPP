@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:go_router/go_router.dart';
@@ -415,7 +415,7 @@ class _WoTrendCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text('ใบสั่งงาน 7 วันล่าสุด',
+                Text('ใบแจ้งซ่อม 7 วันล่าสุด',
                     style: AppTextStyles.titleMedium),
                 const Spacer(),
                 Container(
@@ -703,7 +703,7 @@ class _RecentWorkOrdersCard extends StatelessWidget {
                 HugeIcon(icon: HugeIcons.strokeRoundedTask01,
                      size: 18, color: Theme.of(context).colorScheme.primary),
                  const SizedBox(width: AppSpacing.sm),
-                 Text('ใบสั่งงานล่าสุด', style: AppTextStyles.titleMedium),
+                 Text('ใบแจ้งซ่อมล่าสุด', style: AppTextStyles.titleMedium),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: () {},
@@ -723,7 +723,7 @@ class _RecentWorkOrdersCard extends StatelessWidget {
           if (orders.isEmpty)
             const Padding(
               padding: EdgeInsets.all(32),
-              child: Text('ไม่มีข้อมูลใบสั่งงาน'),
+              child: Text('ไม่มีข้อมูลใบแจ้งซ่อม'),
             )
           else
             ...orders.map((o) {
@@ -845,3 +845,4 @@ class _RecentWorkOrdersCard extends StatelessWidget {
     );
   }
 }
+

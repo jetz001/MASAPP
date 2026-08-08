@@ -1,3 +1,4 @@
+﻿import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
@@ -7,6 +8,8 @@ import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
 import '../../core/utils/crypto_utils.dart';
 import 'package:intl/intl.dart';
+import '../settings/settings_provider.dart';
+import 'work_permit_pdf_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
@@ -77,6 +80,11 @@ class WorkPermit {
   final String? authorizedBy;
   final DateTime? authorizedAt;
   final String status;
+  final String? woId;
+  final String? woNo;
+  final String? pmAmId;
+  final String? pmAmCode;
+  final List<String> requiredEquipments;
   final DateTime createdAt;
 
   bool get isExpired {
@@ -97,6 +105,11 @@ class WorkPermit {
     this.authorizedBy,
     this.authorizedAt,
     required this.status,
+    this.woId,
+    this.woNo,
+    this.pmAmId,
+    this.pmAmCode,
+    this.requiredEquipments = const [],
     required this.createdAt,
   });
 
@@ -113,6 +126,13 @@ class WorkPermit {
             ? DateTime.tryParse(m['authorized_at'] as String)
             : null,
         status: m['status'] as String? ?? 'pending',
+        woId: m['wo_id'] as String?,
+        woNo: m['wo_no'] as String?,
+        pmAmId: m['pm_am_id'] as String?,
+        pmAmCode: m['plan_code'] as String?,
+        requiredEquipments: m['required_equipments'] != null
+            ? List<String>.from(jsonDecode(m['required_equipments'] as String))
+            : [],
         createdAt: DateTime.parse(m['created_at'] as String),
       );
 }
@@ -126,10 +146,13 @@ final workPermitListProvider =
   try {
     final rows = await DbHelper.query(
       '''SELECT wp.*, s.machine_no,
-                u1.full_name as authorized_by_name
+                u1.full_name as authorized_by_name,
+                wo.wo_no, pm.plan_code
          FROM work_permits wp
          LEFT JOIN machine_snapshots s ON s.snapshot_id = wp.snapshot_id
          LEFT JOIN users u1 ON u1.user_id = wp.authorized_by
+         LEFT JOIN work_orders wo ON wo.wo_id = wp.wo_id
+         LEFT JOIN pm_am_plans pm ON pm.plan_id = wp.pm_am_id
          ORDER BY wp.created_at DESC
          LIMIT 100''',
     );
@@ -260,78 +283,143 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
 
   void _showApproveDialog(BuildContext context, WorkPermit permit) {
     final pinCtrl = TextEditingController();
+    final remarksCtrl = TextEditingController();
+    
+    final equipmentOptions = _getEquipmentOptions(permit.permitType);
+    final selectedEquipments = <String>{};
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('อนุมัติใบอนุญาต — Digital Sign-off'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('ใบอนุญาต: ${permit.permitNo}',
-                style: AppTextStyles.labelMedium),
-            const SizedBox(height: 4),
-            Text(permit.description,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('อนุมัติใบอนุญาต — Digital Sign-off'),
+            content: SizedBox(
+              width: 400,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('ใบอนุญาต: ${permit.permitNo}',
+                        style: AppTextStyles.labelMedium),
+                    const SizedBox(height: 4),
+                    Text(permit.description,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            )),
+                    const SizedBox(height: 16),
+                    Text('อุปกรณ์ความปลอดภัยที่บังคับใช้', style: AppTextStyles.labelMedium.copyWith(color: AppColors.error)),
+                    const SizedBox(height: 8),
+                    ...equipmentOptions.map((eq) => CheckboxListTile(
+                      title: Text(eq, style: const TextStyle(fontSize: 13)),
+                      value: selectedEquipments.contains(eq),
+                      dense: true,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (val) {
+                        setState(() {
+                          if (val == true) {
+                            selectedEquipments.add(eq);
+                          } else {
+                            selectedEquipments.remove(eq);
+                          }
+                        });
+                      },
                     )),
-            const SizedBox(height: 20),
-            TextField(
-              controller: pinCtrl,
-              obscureText: true,
-              maxLength: 6,
-              decoration: const InputDecoration(
-                labelText: 'กรอก PIN อนุมัติ (จป./วิศวกร)',
-                hintText: '••••••',
-                prefixIcon: Icon(Icons.pin_rounded),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: remarksCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'หมายเหตุ (ตัวเลือก)',
+                        hintText: 'ระบุข้อความเพิ่มเติมเพื่อแจ้งให้ทีมช่างทราบ...',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: pinCtrl,
+                      obscureText: true,
+                      maxLength: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'กรอก PIN อนุมัติ (จป./วิศวกร)',
+                        hintText: '••••',
+                        prefixIcon: Icon(Icons.pin_rounded),
+                      ),
+                      keyboardType: TextInputType.number,
+                    ),
+                  ],
+                ),
               ),
-              keyboardType: TextInputType.number,
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('ยกเลิก')),
-          ElevatedButton(
-            onPressed: () async {
-              if (pinCtrl.text.length < 4) return;
-              
-              // 1. Verify PIN
-              final currentUser = ref.read(authProvider);
-              if (currentUser == null) return;
-              
-              final userData = await DbHelper.queryOne(
-                'SELECT approval_pin_hash FROM users WHERE user_id = @uid',
-                params: {'uid': currentUser.userId},
-              );
-              
-              final storedHash = userData?['approval_pin_hash'] as String?;
-              if (storedHash == null || !CryptoUtils.verifyPassword(pinCtrl.text, storedHash)) {
-                if (ctx.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('รหัส PIN ไม่ถูกต้อง')),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('ยกเลิก')),
+              ElevatedButton(
+                onPressed: () async {
+                  if (pinCtrl.text.length < 4) return;
+                  
+                  // 1. Verify PIN
+                  final currentUser = ref.read(authProvider);
+                  if (currentUser == null) return;
+                  
+                  final userData = await DbHelper.queryOne(
+                    'SELECT approval_pin_hash FROM users WHERE user_id = @uid',
+                    params: {'uid': currentUser.userId},
                   );
-                }
-                return;
-              }
+                  
+                  final storedHash = userData?['approval_pin_hash'] as String?;
+                  if (storedHash == null || !CryptoUtils.verifyPassword(pinCtrl.text, storedHash)) {
+                    if (ctx.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('รหัส PIN ไม่ถูกต้อง')),
+                      );
+                    }
+                    return;
+                  }
 
-              // 2. Approve permit
-              await DbHelper.execute(
-                '''UPDATE work_permits SET status='approved',
-                   authorized_by=@uid, authorized_at=CURRENT_TIMESTAMP 
-                   WHERE permit_id=@pid''',
-                params: {'pid': permit.permitId, 'uid': currentUser.userId},
-              );
-              
-              ref.invalidate(workPermitListProvider);
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('ยืนยันอนุมัติ'),
-          ),
-        ],
+                  // 2. Approve permit
+                  await DbHelper.execute(
+                    '''UPDATE work_permits SET status='approved',
+                       authorized_by=@uid, authorized_at=CURRENT_TIMESTAMP,
+                       required_equipments=@eq, approval_remarks=@rem
+                       WHERE permit_id=@pid''',
+                    params: {
+                      'pid': permit.permitId, 
+                      'uid': currentUser.userId,
+                      'eq': jsonEncode(selectedEquipments.toList()),
+                      'rem': remarksCtrl.text.trim().isEmpty ? null : remarksCtrl.text.trim(),
+                    },
+                  );
+                  
+                  ref.invalidate(workPermitListProvider);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                },
+                child: const Text('ยืนยันอนุมัติ'),
+              ),
+            ],
+          );
+        }
       ),
     );
+  }
+
+  List<String> _getEquipmentOptions(PermitType type) {
+    switch (type) {
+      case PermitType.hotWork:
+        return ['ถังดับเพลิง (Fire Extinguisher)', 'ถุงมือกันความร้อน', 'แว่นตากันแสงเชื่อม', 'ผ้าใบกันไฟ'];
+      case PermitType.confSpace:
+        return ['เครื่องวัดก๊าซ (Gas Detector)', 'พัดลมระบายอากาศ', 'ชุดช่วยหายใจ (SCBA)', 'สายรัดตัว (Harness)'];
+      case PermitType.electrical:
+        return ['ถุงมือกันไฟฟ้า', 'รองเท้าเซฟตี้กันไฟฟ้า', 'ป้ายเตือน (LOTO)', 'แว่นตานิรภัย'];
+      case PermitType.heights:
+        return ['เข็มขัดนิรภัย (Safety Harness)', 'หมวกนิรภัย', 'นั่งร้านที่ได้มาตรฐาน', 'เชือกช่วยชีวิต (Lifeline)'];
+      case PermitType.energyIsolation:
+        return ['กุญแจล็อค (Padlock)', 'ป้ายแท็ก (Tagout)', 'อุปกรณ์ตัดไฟ', 'ถุงมือเซฟตี้'];
+    }
   }
 }
 
@@ -408,7 +496,7 @@ class _PermitTypeCard extends StatelessWidget {
 // Permit List
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _PermitList extends StatelessWidget {
+class _PermitList extends ConsumerWidget {
   final List<WorkPermit> permits;
   final UserSession? user;
   final void Function(WorkPermit) onApprove;
@@ -417,7 +505,7 @@ class _PermitList extends StatelessWidget {
       {required this.permits, this.user, required this.onApprove});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       child: ListView.separated(
         itemCount: permits.length,
@@ -509,7 +597,7 @@ class _PermitList extends StatelessWidget {
                 // Status
                 _StatusBadge(status: p.status),
                 const SizedBox(width: AppSpacing.md),
-                // Approve button
+                // Actions
                 if (p.status == 'pending' && (user?.isSafetyOrAbove ?? false))
                   ElevatedButton(
                     onPressed: () => onApprove(p),
@@ -520,8 +608,57 @@ class _PermitList extends StatelessWidget {
                     ),
                     child: const Text('อนุมัติ'),
                   )
+                else if (p.status == 'approved' || p.status == 'completed' || p.isExpired)
+                  IconButton(
+                    icon: const Icon(Icons.print_rounded, size: 20),
+                    tooltip: 'พิมพ์ใบอนุญาต',
+                    color: Theme.of(context).colorScheme.primary,
+                    onPressed: () async {
+                      final settings = ref.read(appSettingsProvider).valueOrNull ?? AppSettingsState();
+                      await WorkPermitPdfService.generateAndOpen(
+                        permit: p,
+                        settings: settings,
+                      );
+                    },
+                  )
                 else
-                  const SizedBox(width: 72),
+                  const SizedBox(width: 32),
+                if (user?.role == 'admin' || user?.isSafetyOrAbove == true)
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, size: 20),
+                    onSelected: (val) async {
+                      if (val == 'edit') {
+                        showDialog(
+                          context: context,
+                          builder: (c) => _NewPermitDialog(
+                            permit: p,
+                            onSaved: () => ref.invalidate(workPermitListProvider),
+                          ),
+                        );
+                      } else if (val == 'delete') {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('ยืนยันการลบ'),
+                            content: const Text('คุณแน่ใจหรือไม่ว่าต้องการลบใบอนุญาตทำงานนี้? การดำเนินการนี้ไม่สามารถเรียกคืนได้'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('ลบ', style: TextStyle(color: Colors.red))),
+                            ],
+                          )
+                        );
+                        if (confirm == true) {
+                          await DbHelper.execute('DELETE FROM permit_safety_checks WHERE permit_id = @pid', params: {'pid': p.permitId});
+                          await DbHelper.execute('DELETE FROM work_permits WHERE permit_id = @pid', params: {'pid': p.permitId});
+                          ref.invalidate(workPermitListProvider);
+                        }
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 18), SizedBox(width: 8), Text('แก้ไข')])),
+                      const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, color: Colors.red, size: 18), SizedBox(width: 8), Text('ลบ', style: TextStyle(color: Colors.red))])),
+                    ],
+                  ),
               ],
             ),
           );
@@ -580,7 +717,8 @@ class _StatusBadge extends StatelessWidget {
 
 class _NewPermitDialog extends ConsumerStatefulWidget {
   final VoidCallback onSaved;
-  const _NewPermitDialog({required this.onSaved});
+  final WorkPermit? permit;
+  const _NewPermitDialog({required this.onSaved, this.permit});
 
   @override
   ConsumerState<_NewPermitDialog> createState() => _NewPermitDialogState();
@@ -591,12 +729,50 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
   final _descCtrl = TextEditingController();
   final _durationCtrl = TextEditingController(text: '4');
   bool _saving = false;
+  
+  String _refType = 'none'; // 'none', 'wo', 'pm'
+  String? _selectedRefId;
+  List<Map<String, dynamic>> _refOptions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.permit != null) {
+      _type = widget.permit!.permitType;
+      _descCtrl.text = widget.permit!.description;
+      _durationCtrl.text = widget.permit!.durationHours?.toString() ?? '4';
+      if (widget.permit!.woId != null) {
+        _refType = 'wo';
+        _selectedRefId = widget.permit!.woId;
+        _loadOptions('wo');
+      } else if (widget.permit!.pmAmId != null) {
+        _refType = 'pm';
+        _selectedRefId = widget.permit!.pmAmId;
+        _loadOptions('pm');
+      }
+    }
+  }
+
+  Future<void> _loadOptions(String refType) async {
+    List<Map<String, dynamic>> results = [];
+    if (refType == 'wo') {
+      results = await DbHelper.query(
+          "SELECT wo_id as id, wo_no as title, description as subtitle FROM work_orders WHERE status IN ('pending', 'in_progress') ORDER BY created_at DESC");
+    } else if (refType == 'pm') {
+      results = await DbHelper.query(
+          "SELECT plan_id as id, plan_code as title, plan_name as subtitle FROM pm_am_plans WHERE status = 'active'");
+    }
+    setState(() {
+      _refOptions = results;
+      _selectedRefId = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider);
     return AlertDialog(
-      title: const Text('สร้างใบอนุญาตทำงานใหม่'),
+      title: Text(widget.permit != null ? 'แก้ไขใบอนุญาตทำงาน' : 'สร้างใบอนุญาตทำงานใหม่'),
       content: SizedBox(
         width: 480,
         child: Column(
@@ -652,6 +828,39 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
               }).toList(),
             ),
             const SizedBox(height: 16),
+            Text('อ้างอิงเอกสาร', style: AppTextStyles.labelMedium),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _refType,
+              decoration: const InputDecoration(labelText: 'ประเภทการอ้างอิง'),
+              items: const [
+                DropdownMenuItem(value: 'none', child: Text('ไม่มี')),
+                DropdownMenuItem(value: 'wo', child: Text('อ้างอิงใบแจ้งซ่อม (Work Order)')),
+                DropdownMenuItem(value: 'pm', child: Text('อ้างอิงแผนซ่อมบำรุง (PM/AM)')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _refType = val);
+                  if (val != 'none') _loadOptions(val);
+                }
+              },
+            ),
+            if (_refType != 'none') ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedRefId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'เลือกรายการอ้างอิง *'),
+                items: _refOptions.map((opt) {
+                  return DropdownMenuItem<String>(
+                    value: opt['id'].toString(),
+                    child: Text('${opt['title']} - ${opt['subtitle']}'),
+                  );
+                }).toList(),
+                onChanged: (val) => setState(() => _selectedRefId = val),
+              ),
+            ],
+            const SizedBox(height: 16),
             TextField(
               controller: _descCtrl,
               decoration: const InputDecoration(
@@ -677,34 +886,61 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
               ? null
               : () async {
                   if (_descCtrl.text.trim().isEmpty) return;
+                  if (_refType != 'none' && _selectedRefId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('กรุณาเลือกรายการอ้างอิง')),
+                    );
+                    return;
+                  }
                   setState(() => _saving = true);
                   try {
-                    final id =
-                        'WP-${DateTime.now().millisecondsSinceEpoch}';
-                    await DbHelper.execute(
-                      '''INSERT INTO work_permits
-                         (permit_id, permit_no, permit_type, description,
-                          duration_hours, requestor, requester_name, status, created_at, updated_at)
-                         VALUES (@pid, @pno, @type, @desc, @dur, @req, @rname, 'pending',
-                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''',
-                      params: {
-                        'pid': id,
-                        'pno': 'WP-${DateTime.now().year}-${id.substring(id.length - 5)}',
-                        'type': _type.dbValue,
-                        'desc': _descCtrl.text.trim(),
-                        'dur': int.tryParse(_durationCtrl.text) ?? 4,
-                        'req': user?.userId ?? 'SYSTEM',
-                        'rname': user?.fullName ?? 'Unknown',
-                      },
-                    );
+                    if (widget.permit != null) {
+                      await DbHelper.execute(
+                        '''UPDATE work_permits SET
+                            permit_type = @type, description = @desc, duration_hours = @dur,
+                            wo_id = @wo, pm_am_id = @pm, updated_at = CURRENT_TIMESTAMP
+                           WHERE permit_id = @pid''',
+                        params: {
+                          'pid': widget.permit!.permitId,
+                          'type': _type.dbValue,
+                          'desc': _descCtrl.text.trim(),
+                          'dur': int.tryParse(_durationCtrl.text) ?? 4,
+                          'wo': _refType == 'wo' ? _selectedRefId : null,
+                          'pm': _refType == 'pm' ? _selectedRefId : null,
+                        },
+                      );
+                    } else {
+                      final id =
+                          'WP-${DateTime.now().millisecondsSinceEpoch}';
+                      await DbHelper.execute(
+                        '''INSERT INTO work_permits
+                           (permit_id, permit_no, permit_type, description,
+                            duration_hours, requestor, requester_name, status,
+                            wo_id, pm_am_id, created_at, updated_at)
+                           VALUES (@pid, @pno, @type, @desc, @dur, @req, @rname, 'pending',
+                                   @wo, @pm, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''',
+                        params: {
+                          'pid': id,
+                          'pno': 'WP-${DateTime.now().year}-${id.substring(id.length - 5)}',
+                          'type': _type.dbValue,
+                          'desc': _descCtrl.text.trim(),
+                          'dur': int.tryParse(_durationCtrl.text) ?? 4,
+                          'req': user?.userId ?? 'SYSTEM',
+                          'rname': user?.fullName ?? 'Unknown',
+                          'wo': _refType == 'wo' ? _selectedRefId : null,
+                          'pm': _refType == 'pm' ? _selectedRefId : null,
+                        },
+                      );
+                    }
                     widget.onSaved();
                   } finally {
                     if (mounted) setState(() => _saving = false);
                   }
                 },
-          child: const Text('สร้างใบอนุญาต'),
+          child: Text(widget.permit != null ? 'บันทึก' : 'สร้างใบอนุญาต'),
         ),
       ],
     );
   }
 }
+

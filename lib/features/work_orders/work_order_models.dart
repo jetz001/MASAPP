@@ -1,5 +1,6 @@
-/// Work order domain models
 library;
+
+import 'dart:convert';
 
 enum WorkOrderStatus {
   pending, // Created, waiting for approval
@@ -8,6 +9,7 @@ enum WorkOrderStatus {
   completed, // Work finished
   cancelled, // Cancelled
   rejected, // Rejected by supervisor
+  outsourced, // Sent to external vendor
 }
 
 extension WorkOrderStatusExt on WorkOrderStatus {
@@ -25,6 +27,8 @@ extension WorkOrderStatusExt on WorkOrderStatus {
         return 'ยกเลิก';
       case WorkOrderStatus.rejected:
         return 'ปฏิเสธ';
+      case WorkOrderStatus.outsourced:
+        return 'ส่งซ่อมภายนอก';
     }
   }
 
@@ -42,6 +46,8 @@ extension WorkOrderStatusExt on WorkOrderStatus {
         return 'cancelled';
       case WorkOrderStatus.rejected:
         return 'rejected';
+      case WorkOrderStatus.outsourced:
+        return 'outsourced';
     }
   }
 
@@ -57,6 +63,8 @@ extension WorkOrderStatusExt on WorkOrderStatus {
         return WorkOrderStatus.cancelled;
       case 'rejected':
         return WorkOrderStatus.rejected;
+      case 'outsourced':
+        return WorkOrderStatus.outsourced;
       default:
         return WorkOrderStatus.pending;
     }
@@ -110,9 +118,9 @@ extension WorkOrderPriorityExt on WorkOrderPriority {
 class WorkOrder {
   final String woId;
   final String woNo; // Sequential work order number
-  final String machineId;
+  final String? machineId;
   final String? snapshotId;
-  final String machineNo;
+  final String? machineNo;
   final String? machineBrand;
   final String? machineModel;
   final String? zone;
@@ -124,6 +132,7 @@ class WorkOrder {
   final WorkOrderStatus status;
   final WorkOrderPriority priority;
   final String? approvedBy; // Supervisor user ID
+  final String? approvedByName;
   final DateTime? approvedAt;
   final String? assignedTo; // Technician user ID
   final String? assignedToName;
@@ -139,13 +148,14 @@ class WorkOrder {
   // Related data
   final List<WorkOrderLabor>? laborEntries;
   final RootCauseAnalysis? rca;
+  final List<String>? attachments;
 
   const WorkOrder({
     required this.woId,
     required this.woNo,
-    required this.machineId,
+    this.machineId,
     this.snapshotId,
-    required this.machineNo,
+    this.machineNo,
     this.machineBrand,
     this.machineModel,
     this.zone,
@@ -157,6 +167,7 @@ class WorkOrder {
     this.status = WorkOrderStatus.pending,
     this.priority = WorkOrderPriority.normal,
     this.approvedBy,
+    this.approvedByName,
     this.approvedAt,
     this.assignedTo,
     this.assignedToName,
@@ -170,6 +181,7 @@ class WorkOrder {
     required this.updatedAt,
     this.laborEntries,
     this.rca,
+    this.attachments,
   });
 
   factory WorkOrder.fromMap(Map<String, dynamic> map) {
@@ -182,9 +194,9 @@ class WorkOrder {
     return WorkOrder(
       woId: map['wo_id'] as String,
       woNo: map['wo_no'] as String,
-      machineId: map['machine_id'] as String,
+      machineId: map['machine_id'] as String?,
       snapshotId: map['snapshot_id'] as String?,
-      machineNo: (map['machine_no'] ?? '') as String,
+      machineNo: map['machine_no'] as String?,
       machineBrand: map['machine_brand'] as String?,
       machineModel: map['machine_model'] as String?,
       zone: map['zone'] as String?,
@@ -196,6 +208,7 @@ class WorkOrder {
       status: WorkOrderStatusExt.fromDb(map['status'] as String?),
       priority: WorkOrderPriorityExt.fromDb(map['priority'] as String?),
       approvedBy: map['approved_by'] as String?,
+      approvedByName: map['approved_by_name'] as String?,
       approvedAt: map['approved_at'] != null
           ? DateTime.tryParse(map['approved_at'] as String)
           : null,
@@ -213,6 +226,9 @@ class WorkOrder {
       closureNotes: map['closure_notes'] as String?,
       createdAt: DateTime.parse(createdAtStr ?? now),
       updatedAt: DateTime.parse(updatedAtStr ?? now),
+      attachments: map['attachments'] != null
+          ? List<String>.from(jsonDecode(map['attachments'] as String))
+          : null,
     );
   }
 
@@ -233,6 +249,7 @@ class WorkOrder {
     WorkOrderStatus? status,
     WorkOrderPriority? priority,
     String? approvedBy,
+    String? approvedByName,
     DateTime? approvedAt,
     String? assignedTo,
     String? assignedToName,
@@ -246,6 +263,7 @@ class WorkOrder {
     DateTime? updatedAt,
     List<WorkOrderLabor>? laborEntries,
     RootCauseAnalysis? rca,
+    List<String>? attachments,
   }) {
     return WorkOrder(
       woId: woId ?? this.woId,
@@ -264,6 +282,7 @@ class WorkOrder {
       status: status ?? this.status,
       priority: priority ?? this.priority,
       approvedBy: approvedBy ?? this.approvedBy,
+      approvedByName: approvedByName ?? this.approvedByName,
       approvedAt: approvedAt ?? this.approvedAt,
       assignedTo: assignedTo ?? this.assignedTo,
       assignedToName: assignedToName ?? this.assignedToName,
@@ -277,6 +296,7 @@ class WorkOrder {
       updatedAt: updatedAt ?? this.updatedAt,
       laborEntries: laborEntries ?? this.laborEntries,
       rca: rca ?? this.rca,
+      attachments: attachments ?? this.attachments,
     );
   }
 }

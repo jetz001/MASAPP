@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:convert';
+import 'package:path/path.dart' as p;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
@@ -32,48 +35,72 @@ class WorkOrderRepository {
     required String? failureSymptom,
     required WorkOrderPriority priority,
     double? estimatedHours,
+    List<String>? attachments,
   }) async {
-    return await DbHelper.transaction((tx) async {
-      final woId = uuid.v4();
-      final woNo = await getNextWoNo();
-      final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
-      final now = DateTime.now().toIso8601String();
+    final woId = uuid.v4();
+    final woNo = await getNextWoNo();
+    final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+    final now = DateTime.now().toIso8601String();
 
-      // 1. Get/Create Machine Snapshot (Clone to Dummy)
-      final snapshotId = await MachineRepository().getOrCreateSnapshot(machineId);
+    // 1. Get/Create Machine Snapshot (Clone to Dummy)
+    String? snapshotId;
+    if (machineId.isNotEmpty) {
+      snapshotId = await MachineRepository().getOrCreateSnapshot(machineId);
+    }
 
+    // Process attachments
+    List<String>? savedAttachments;
+    if (attachments != null && attachments.isNotEmpty) {
+      savedAttachments = [];
+      final baseDir = Directory(p.join(File(DbHelper.dbPath).parent.path, 'attachments', woId));
+      if (!await baseDir.exists()) {
+        await baseDir.create(recursive: true);
+      }
+      for (final path in attachments) {
+        final file = File(path);
+        if (await file.exists()) {
+          final fileName = p.basename(path);
+          final destPath = p.join(baseDir.path, fileName);
+          await file.copy(destPath);
+          savedAttachments.add(destPath);
+        }
+      }
+    }
+
+    await DbHelper.transaction((tx) async {
       await DbHelper.txExecute(
         tx,
         '''INSERT INTO work_orders
-           (wo_id, wo_no, machine_id, snapshot_id, description, failure_symptom,
-            priority, status, reported_by, reported_at, created_at, updated_at)
-           VALUES (@wo_id, @wo_no, @machine_id, @snapshot_id, @description, @failure_symptom,
-                   @priority, 'pending', @reported_by, @reported_at, @created_at, @updated_at)''',
+           (wo_id, wo_no, machine_id, snapshot_id, title, description, failure_symptom,
+            priority, status, created_by, created_at, updated_at, attachments)
+           VALUES (@wo_id, @wo_no, @machine_id, @snapshot_id, @title, @description, @failure_symptom,
+                   @priority, 'pending', @created_by, @created_at, @updated_at, @attachments)''',
         params: {
           'wo_id': woId,
           'wo_no': woNo,
-          'machine_id': machineId,
+          'machine_id': machineId.isNotEmpty ? machineId : null,
           'snapshot_id': snapshotId,
+          'title': description ?? 'Untitled',
           'description': description,
           'failure_symptom': failureSymptom,
           'priority': priority.dbValue,
-          'reported_by': userId,
-          'reported_at': now,
+          'created_by': userId,
           'created_at': now,
           'updated_at': now,
+          'attachments': savedAttachments != null ? jsonEncode(savedAttachments) : null,
         },
       );
-
-      // Audit log
-      await AuditService.logInsert('work_orders', woId, {
-        'wo_no': woNo,
-        'machine_id': machineId,
-        'status': 'pending',
-        'priority': priority.label,
-      });
-
-      return woId;
     });
+
+    // Audit log
+    await AuditService.logInsert('work_orders', woId, {
+      'wo_no': woNo,
+      'machine_id': machineId,
+      'status': 'pending',
+      'priority': priority.label,
+    });
+
+    return woId;
   }
 
   /// Get work order by ID with related data
@@ -81,11 +108,12 @@ class WorkOrderRepository {
     try {
       final row = await DbHelper.queryOne(
         '''SELECT wo.*, s.machine_no, s.brand as machine_brand, s.model as machine_model,
-                  u1.full_name as reported_by_name, u2.full_name as assigned_to_name
+                  u1.full_name as reported_by_name, u2.full_name as assigned_to_name, u3.full_name as approved_by_name
            FROM work_orders wo
            LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
-           LEFT JOIN users u1 ON u1.user_id = wo.reported_by
+           LEFT JOIN users u1 ON u1.user_id = wo.created_by
            LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
+           LEFT JOIN users u3 ON u3.user_id = wo.approved_by
            WHERE wo.wo_id = @wo_id''',
         params: {'wo_id': woId},
       );
@@ -103,13 +131,14 @@ class WorkOrderRepository {
 
       // Get RCA if exists
       final rcaRow = await DbHelper.queryOne(
-        'SELECT * FROM root_cause_analysis WHERE wo_id = @wo_id',
+        'SELECT * FROM work_order_rca WHERE wo_id = @wo_id',
         params: {'wo_id': woId},
       );
       final rca = rcaRow != null ? RootCauseAnalysis.fromMap(rcaRow) : null;
 
       return WorkOrder.fromMap(row).copyWith(laborEntries: labors, rca: rca);
-    } catch (e) {
+    } catch (e, stack) {
+      print('ERROR in getWorkOrder: $e\n$stack');
       return null;
     }
   }
@@ -141,13 +170,14 @@ class WorkOrderRepository {
 
       final rows = await DbHelper.query(
         '''SELECT wo.*, s.machine_no, s.brand, s.model,
-                  u1.full_name as reported_by_name, u2.full_name as assigned_to_name
+                  u1.full_name as reported_by_name, u2.full_name as assigned_to_name, u3.full_name as approved_by_name
            FROM work_orders wo
            LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
-           LEFT JOIN users u1 ON u1.user_id = wo.reported_by
+           LEFT JOIN users u1 ON u1.user_id = wo.created_by
            LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
+           LEFT JOIN users u3 ON u3.user_id = wo.approved_by
            WHERE ${where.join(' AND ')}
-           ORDER BY wo.reported_at DESC
+           ORDER BY wo.created_at DESC
            LIMIT @limit''',
         params: {...params, 'limit': limit},
       );
@@ -159,9 +189,9 @@ class WorkOrderRepository {
   }
 
   /// Approve work order
-  Future<bool> approveWorkOrder(String woId) async {
+  Future<bool> approveWorkOrder(String woId, {String? approvedBy}) async {
     try {
-      final userId = AuthService.currentUser?.userId;
+      final userId = approvedBy ?? AuthService.currentUser?.userId;
       if (userId == null) return false;
 
       final now = DateTime.now().toIso8601String();
@@ -187,6 +217,34 @@ class WorkOrderRepository {
 
       return true;
     } catch (e) {
+      return false;
+    }
+  }
+
+  /// Reject work order
+  Future<bool> rejectWorkOrder(String woId) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      await DbHelper.execute(
+        '''UPDATE work_orders
+           SET status = 'rejected', updated_at = @updated_at
+           WHERE wo_id = @wo_id''',
+        params: {
+          'wo_id': woId,
+          'updated_at': now,
+        },
+      );
+      
+      await AuditService.logUpdate(
+        'work_orders',
+        woId,
+        {'status': 'pending'},
+        {'status': 'rejected'},
+      );
+
+      return true;
+    } catch (e) {
+      print('Error rejecting work order: $e');
       return false;
     }
   }
@@ -238,7 +296,8 @@ class WorkOrderRepository {
         );
 
         return true;
-      } catch (e) {
+      } catch (e, stack) {
+        print('ERROR in startWorkOrder: $e\n$stack');
         return false;
       }
     });
@@ -279,7 +338,7 @@ class WorkOrderRepository {
         if (isBreakdown) {
           await DbHelper.txExecute(
             tx,
-            '''INSERT INTO root_cause_analysis
+            '''INSERT INTO work_order_rca
                (rca_id, wo_id, why_1, why_2, why_3, why_4, why_5)
                VALUES (@rca_id, @wo_id, '', '', '', '', '')''',
             params: {'rca_id': uuid.v4(), 'wo_id': woId},
@@ -297,6 +356,119 @@ class WorkOrderRepository {
 
         return true;
       } catch (e) {
+        return false;
+      }
+    });
+  }
+
+  /// Mark work order as outsourced and save details
+  Future<bool> outsourceWorkOrder({
+    required String woId,
+    required String vendorName,
+    required String repairDetails,
+    required String replacedParts,
+    required String rootCause,
+    String? gatePassNo,
+    DateTime? expectedReturnDate,
+  }) async {
+    return await DbHelper.transaction((tx) async {
+      try {
+        final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+        final now = DateTime.now().toIso8601String();
+        const uuidInstance = Uuid();
+
+        // 0. Upsert RCA
+        final existingRca = await DbHelper.queryOne('SELECT rca_id FROM work_order_rca WHERE wo_id = @id', params: {'id': woId});
+        if (existingRca != null) {
+          await DbHelper.txExecute(
+            tx,
+            'UPDATE work_order_rca SET root_cause = @rc, updated_at = @updated_at WHERE wo_id = @id',
+            params: {'rc': rootCause, 'updated_at': now, 'id': woId},
+          );
+        } else {
+          await DbHelper.txExecute(
+            tx,
+            '''INSERT INTO work_order_rca
+               (rca_id, wo_id, why_1, why_2, why_3, why_4, why_5, root_cause, created_at, updated_at)
+               VALUES (@rca_id, @wo_id, '', '', '', '', '', @rc, @created_at, @updated_at)''',
+            params: {'rca_id': uuidInstance.v4(), 'wo_id': woId, 'rc': rootCause, 'created_at': now, 'updated_at': now},
+          );
+        }
+
+        // 1. Insert outsource record
+        await DbHelper.txExecute(
+          tx,
+          '''INSERT INTO work_order_outsource 
+             (outsource_id, wo_id, vendor_name, repair_details, replaced_parts, 
+              gate_pass_no, expected_return_date, created_by, created_at)
+             VALUES (@id, @wo_id, @vendor, @repair, @parts, @gate_pass, @expected_date, @created_by, @created_at)''',
+          params: {
+            'id': uuidInstance.v4(),
+            'wo_id': woId,
+            'vendor': vendorName,
+            'repair': repairDetails,
+            'parts': replacedParts,
+            'gate_pass': gatePassNo ?? '',
+            'expected_date': expectedReturnDate?.toIso8601String(),
+            'created_by': userId,
+            'created_at': now,
+          },
+        );
+
+        // 2. Update status
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE work_orders
+             SET status = 'outsourced', updated_at = @updated_at
+             WHERE wo_id = @wo_id''',
+          params: {'wo_id': woId, 'updated_at': now},
+        );
+
+        return true;
+      } catch (e) {
+        print('Error in outsourceWorkOrder: $e');
+        return false;
+      }
+    });
+  }
+
+  /// Accept outsourced work order
+  Future<bool> acceptOutsourceWorkOrder({
+    required String woId,
+    required DateTime actualReturnDate,
+    required String notes,
+  }) async {
+    return await DbHelper.transaction((tx) async {
+      try {
+        final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+        final now = DateTime.now().toIso8601String();
+
+        // 1. Update outsource record
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE work_order_outsource
+             SET actual_return_date = @actual_date, inspector_id = @inspector_id, notes = @notes
+             WHERE wo_id = @wo_id''',
+          params: {
+            'actual_date': actualReturnDate.toIso8601String(),
+            'inspector_id': userId,
+            'notes': notes,
+            'wo_id': woId,
+          },
+        );
+
+        // 2. Update status
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE work_orders
+             SET status = 'completed', updated_at = @updated_at
+             WHERE wo_id = @wo_id''',
+          params: {'wo_id': woId, 'updated_at': now},
+        );
+
+        return true;
+      } catch (e) {
+        print('Error in acceptOutsourceWorkOrder: $e');
         return false;
       }
     });
@@ -354,7 +526,7 @@ class WorkOrderRepository {
       final now = DateTime.now().toIso8601String();
 
       await DbHelper.execute(
-        '''UPDATE root_cause_analysis
+        '''UPDATE work_order_rca
            SET why_1 = @why_1, why_2 = @why_2, why_3 = @why_3, why_4 = @why_4, why_5 = @why_5,
                root_cause = @root_cause, correction_action = @correction_action,
                preventive_action = @preventive_action, completed_by = @completed_by,
@@ -514,7 +686,7 @@ final workOrderListProvider =
     final rows = await DbHelper.query(
       '''SELECT wo.wo_id, wo.wo_no, wo.machine_id, wo.snapshot_id, wo.status, wo.priority,
                 wo.title, wo.description, wo.failure_symptom,
-                wo.reported_by, wo.created_by, wo.assigned_to,
+                wo.created_by, wo.assigned_to,
                 wo.approved_by, wo.estimated_hours, wo.actual_hours,
                 wo.started_at, wo.completed_at, wo.approved_at,
                 wo.created_at, wo.updated_at,
@@ -523,7 +695,7 @@ final workOrderListProvider =
                 u2.full_name as assigned_to_name
          FROM work_orders wo
          LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id
-         LEFT JOIN users u1 ON u1.user_id = wo.reported_by
+         LEFT JOIN users u1 ON u1.user_id = wo.created_by
          LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
          WHERE ${where.join(' AND ')}
          ORDER BY wo.created_at DESC

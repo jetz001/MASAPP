@@ -47,4 +47,9 @@ class AppSettingKeys {
   static const orgPhone = 'org_phone';
   static const orgTaxId = 'org_tax_id';
   static const docIntakeRef = 'doc_intake_ref';
+  static const docPmAmRef = 'doc_pm_am_ref';
+  static const docAreaRegistryRef = 'doc_area_registry_ref';
+  static const docMachineTagRef = 'doc_machine_tag_ref';
+  static const docWorkOrderRef = 'doc_work_order_ref';
+  static const docGatePassRef = 'doc_gate_pass_ref';
 }

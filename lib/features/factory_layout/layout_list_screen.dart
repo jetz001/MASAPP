@@ -12,6 +12,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
 import '../dashboard/dashboard_screen.dart';
+import 'layout_pdf_service.dart';
+import '../settings/settings_provider.dart';
 
 class LayoutListScreen extends ConsumerWidget {
   const LayoutListScreen({super.key});
@@ -30,10 +32,25 @@ class LayoutListScreen extends ConsumerWidget {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add Area'),
-              onPressed: () => _showAddLayoutDialog(context, ref),
+            child: IconButton(
+              icon: const Icon(Icons.print_outlined),
+              tooltip: 'พิมพ์ทะเบียนพื้นที่ (Print Registry)',
+              onPressed: () async {
+                final layouts = layoutListAsync.valueOrNull ?? [];
+                final settings = ref.read(appSettingsProvider).valueOrNull;
+                final user = ref.read(authProvider);
+                if (layouts.isNotEmpty && settings != null) {
+                  await LayoutPdfService.generateAreaRegistryPdf(
+                    layouts: layouts,
+                    settings: settings,
+                    userName: user?.fullName ?? 'System User',
+                  );
+                } else if (settings == null) {
+                   ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('กำลังโหลดข้อมูลการตั้งค่า...')),
+                  );
+                }
+              },
             ),
           ),
         ],

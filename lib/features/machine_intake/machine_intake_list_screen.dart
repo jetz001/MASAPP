@@ -369,7 +369,7 @@ class _MachineTable extends StatelessWidget {
             child: Row(
               children: [
                 _HeaderCell('รหัสเครื่อง', flex: 2),
-                _HeaderCell('ยี่ห้อ / รุ่น', flex: 3),
+                _HeaderCell('ชื่อเครื่องจักร', flex: 3),
                 _HeaderCell('Serial', flex: 1),
                 _HeaderCell('ตำแหน่ง', flex: 1),
                 _HeaderCell('สถานะ', flex: 2),
@@ -468,7 +468,7 @@ class _MachineRow extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(machine.brand ?? '-', style: AppTextStyles.bodyMedium),
+                    Text(machine.machineName ?? machine.brand ?? '-', style: AppTextStyles.bodyMedium),
                     if (machine.model != null)
                       Text(
                         machine.model!,

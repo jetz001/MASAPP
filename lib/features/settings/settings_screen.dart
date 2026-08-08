@@ -349,7 +349,12 @@ class _DocumentSystemTab extends ConsumerStatefulWidget {
 }
 
 class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
-  late TextEditingController _docRefCtrl;
+  late TextEditingController _docIntakeCtrl;
+  late TextEditingController _docPmAmCtrl;
+  late TextEditingController _docAreaCtrl;
+  late TextEditingController _docTagCtrl;
+  late TextEditingController _docWorkOrderCtrl;
+  late TextEditingController _docGatePassCtrl;
   bool _isDirty = false;
   bool _isSaved = false;
 
@@ -357,22 +362,38 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
   void initState() {
     super.initState();
     final settings = ref.read(appSettingsProvider).valueOrNull;
-    _docRefCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docIntakeRef, defaultValue: 'FM-MA-001') ?? 'FM-MA-001');
+    _docIntakeCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docIntakeRef, defaultValue: 'F-MA-15 Rev1') ?? 'F-MA-15 Rev1');
+    _docPmAmCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docPmAmRef, defaultValue: 'F-MA-16 Rev1') ?? 'F-MA-16 Rev1');
+    _docAreaCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docAreaRegistryRef, defaultValue: 'F-MA-17 Rev1') ?? 'F-MA-17 Rev1');
+    _docTagCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docMachineTagRef, defaultValue: 'F-MA-18 Rev1') ?? 'F-MA-18 Rev1');
+    _docWorkOrderCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docWorkOrderRef, defaultValue: 'F-MA-06 Rev2') ?? 'F-MA-06 Rev2');
+    _docGatePassCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docGatePassRef, defaultValue: 'F-MA-07 Rev1') ?? 'F-MA-07 Rev1');
   }
 
   @override
   void dispose() {
-    _docRefCtrl.dispose();
+    _docIntakeCtrl.dispose();
+    _docPmAmCtrl.dispose();
+    _docAreaCtrl.dispose();
+    _docTagCtrl.dispose();
+    _docWorkOrderCtrl.dispose();
+    _docGatePassCtrl.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
-    await ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.docIntakeRef, _docRefCtrl.text);
+    final notifier = ref.read(appSettingsProvider.notifier);
+    await notifier.updateSetting(AppSettingKeys.docIntakeRef, _docIntakeCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docPmAmRef, _docPmAmCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docAreaRegistryRef, _docAreaCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docMachineTagRef, _docTagCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docWorkOrderRef, _docWorkOrderCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docGatePassRef, _docGatePassCtrl.text);
+    
     setState(() {
       _isDirty = false;
       _isSaved = true;
     });
-    // Reset saved state after a few seconds
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) setState(() => _isSaved = false);
     });
@@ -390,49 +411,64 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
           Text('ตั้งค่ารหัสควบคุมเอกสารประจำฟอร์มต่างๆ', style: AppTextStyles.bodySmall),
           const SizedBox(height: 32),
 
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('แบบฟอร์มตรวจรับเครื่องจักร (Machine Intake)', style: AppTextStyles.titleMedium),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _docRefCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'รหัสควบคุมเอกสาร (Document Ref. Code)',
-                      hintText: 'เช่น FM-MA-001',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (val) => setState(() {
-                      _isDirty = true;
-                      _isSaved = false;
-                    }),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('รหัสนี้จะปรากฏที่มุมขวาล่างของรายงาน PDF ทุกหน้า', style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
-                  const SizedBox(height: 24),
-                  
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _isDirty ? _save : null,
-                      icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
-                      label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกการเปลี่ยนแปลง'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
-                        foregroundColor: _isDirty ? Colors.white : Colors.grey,
-                        elevation: _isDirty ? 2 : 0,
-                      ),
-                    ),
-                  ),
-                ],
+          _buildDocField('แบบฟอร์มตรวจรับเครื่องจักร (Machine Intake)', _docIntakeCtrl),
+          _buildDocField('แบบฟอร์มบำรุงรักษา PM / AM', _docPmAmCtrl),
+          _buildDocField('แบบฟอร์มทะเบียนพื้นที่โรงงาน (Area Registry)', _docAreaCtrl),
+          _buildDocField('แบบฟอร์มป้ายกำกับเครื่องจักร (Machine Tag)', _docTagCtrl),
+          _buildDocField('แบบฟอร์มใบแจ้งซ่อม (Work Order)', _docWorkOrderCtrl),
+          _buildDocField('แบบฟอร์มใบนำของออก/เข้า (Gate Pass)', _docGatePassCtrl),
+
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton.icon(
+              onPressed: _isDirty ? _save : null,
+              icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
+              label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกการเปลี่ยนแปลงทั้งหมด'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
+                foregroundColor: _isDirty ? Colors.white : Colors.grey,
+                elevation: _isDirty ? 2 : 0,
               ),
             ),
           ),
+          const SizedBox(height: 48),
         ],
+      ),
+    );
+  }
+
+  Widget _buildDocField(String title, TextEditingController controller) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: AppTextStyles.titleMedium),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'รหัสควบคุมเอกสาร (Document Ref. Code)',
+                  hintText: 'เช่น FM-MA-001',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (val) => setState(() {
+                  _isDirty = true;
+                  _isSaved = false;
+                }),
+              ),
+              const SizedBox(height: 8),
+              Text('รหัสนี้จะปรากฏที่มุมขวาล่างของรายงาน PDF สำหรับแบบฟอร์มนี้', 
+                  style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
+            ],
+          ),
+        ),
       ),
     );
   }

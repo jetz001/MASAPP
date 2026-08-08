@@ -64,14 +64,13 @@ class FactoryLayoutPainter extends CustomPainter {
       canvas.clipRect(fixedLayoutRect);
     }
 
-    // 3. Grid Lines (Fixed to layout rect)
-    // Draw if exploring is set to visible, or if explicitly aligning
+    // 3. Activity Zones
+    _drawZones(canvas);
+
+    // 4. Grid Lines (Fixed to layout rect) - Now drawn AFTER zones for visibility
     if (showGrid || isAligning) {
        _drawGrid(canvas, fixedLayoutRect, isOverlay: isAligning);
     }
-
-    // 4. Activity Zones
-    _drawZones(canvas);
 
     // 5. Machines & Status Labels
     _drawMachines(canvas);
@@ -82,9 +81,6 @@ class FactoryLayoutPainter extends CustomPainter {
 
     // 6. Alignment Overlays
     if (isAligning) {
-      // Draw grid ON TOP of everything during alignment for maximum visibility
-      _drawGrid(canvas, fixedLayoutRect, isOverlay: true);
-      
       // Draw a boundary around the fixed layout area
       final borderPaint = Paint()
         ..color = Colors.blue.withAlpha(200)
@@ -125,16 +121,18 @@ class FactoryLayoutPainter extends CustomPainter {
   }
 
   void _drawGrid(Canvas canvas, Rect rect, {bool isOverlay = false}) {
+    // 100% Blue as requested, with much thicker strokes
     final gridPaint = Paint()
-      ..color = Colors.blue.withAlpha(isOverlay ? 100 : 80)
-      ..strokeWidth = isOverlay ? 1.5 : 1.0;
+      ..color = const Color(0xFF2196F3) // Colors.blue
+      ..strokeWidth = 4.0 // Extra thick for major grid
+      ..style = PaintingStyle.stroke;
 
     const gridSize = 250.0; // 5 meters = 250 pixels (1m = 50px)
     
     // Draw minor grid (1m)
     final minorPaint = Paint()
-      ..color = Colors.blue.withAlpha(isOverlay ? 30 : 20)
-      ..strokeWidth = 0.5;
+      ..color = const Color(0xFF2196F3).withValues(alpha: 0.5) // Slightly lighter but still very visible
+      ..strokeWidth = 2.0; // Thick for minor grid
     
     const minorSize = 50.0; // 1 meter = 50 pixels
     for (double x = rect.left; x <= rect.right; x += minorSize) {

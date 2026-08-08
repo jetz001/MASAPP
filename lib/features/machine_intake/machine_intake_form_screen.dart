@@ -1,11 +1,14 @@
 import 'package:file_picker/file_picker.dart';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:open_filex/open_filex.dart';
-
+import 'package:intl/intl.dart';
+import 'package:logger/logger.dart';
+import '../dashboard/dashboard_screen.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
@@ -15,7 +18,8 @@ import 'machine_provider.dart';
 import 'utils/machine_form_utils.dart';
 import 'utils/asset_tag_utils.dart';
 import 'widgets/approval_dialog.dart';
-import '../dashboard/dashboard_screen.dart';
+
+final _log = Logger();
 
 /// 3-stage machine intake stepper form
 class MachineIntakeFormScreen extends ConsumerStatefulWidget {
@@ -266,10 +270,10 @@ class _MachineIntakeFormScreenState
         for (final doc in docs) {
           final item = {
             'attachment_id': doc['attachment_id'],
-            'name': doc['file_name'],
-            'path': doc['file_path'],
-            'size': doc['file_size'],
-            'type': doc['mime_type'],
+            'file_name': doc['file_name'],
+            'file_path': doc['file_path'],
+            'file_size': doc['file_size'],
+            'mime_type': doc['mime_type'],
           };
           _attachments.add(item);
           _initialAttachments.add(Map.from(item));
@@ -415,7 +419,7 @@ class _MachineIntakeFormScreenState
 
   Future<void> _downloadAttachment(Map<String, dynamic> file) async {
     try {
-      final path = file['path'] as String?;
+      final path = file['file_path'] as String? ?? file['path'] as String?;
       if (path == null || path.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ไม่พบที่อยู่ไฟล์')));
         return;
@@ -427,14 +431,15 @@ class _MachineIntakeFormScreenState
         return;
       }
 
+      final fileName = file['file_name'] ?? file['name'] ?? 'downloaded_file';
       // Allow user to pick a folder on Windows
       final String? selectedDirectory = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'เลือกโฟลเดอร์สำหรับบันทึกไฟล์: ${file['name']}',
+        dialogTitle: 'เลือกโฟลเดอร์สำหรับบันทึกไฟล์: $fileName',
       );
 
       if (selectedDirectory == null) return; // User canceled
 
-      final newPath = '$selectedDirectory\\${file['name']}';
+      final newPath = '$selectedDirectory\\$fileName';
       await originalFile.copy(newPath);
 
       if (mounted) {
@@ -454,6 +459,35 @@ class _MachineIntakeFormScreenState
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('เกิดข้อผิดพลาดในการดาวน์โหลด: $e'), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
+  Future<void> _openFile(Map<String, dynamic> file) async {
+    try {
+      final path = file['file_path'] as String? ?? file['path'] as String?;
+      if (path == null || path.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ไม่พบที่อยู่ไฟล์')));
+        return;
+      }
+
+      final originalFile = File(path);
+      if (!await originalFile.exists()) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ไฟล์ต้นฉบับไม่อยู่ในตำแหน่งเดิมแล้ว')));
+        return;
+      }
+
+      final result = await OpenFilex.open(path);
+      if (result.type != ResultType.done && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ไม่สามารถเปิดไฟล์ได้: ${result.message}'), backgroundColor: AppColors.error),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เปิดไฟล์ไม่สำเร็จ: $e'), backgroundColor: AppColors.error),
         );
       }
     }
@@ -505,10 +539,20 @@ class _MachineIntakeFormScreenState
     if (_savedMachineId == null) return;
     
     setState(() => _saving = true);
+    _log.i('Starting _saveStage for step $currentStep (Machine: $_savedMachineId)');
+    
     try {
       final repo = ref.read(machineRepositoryProvider);
       final user = ref.read(authProvider);
-      final machine = await repo.fetchById(_savedMachineId!);
+      
+      _log.d('Fetching machine data...');
+      final machine = await repo.fetchById(_savedMachineId!).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          _log.e('Timeout fetching machine data');
+          throw TimeoutException('เชื่อมต่อฐานข้อมูลล่าช้าเกินกำหนด (Timeout)');
+        },
+      );
       
       HandoverInfo? stageInfo;
       List<_ChecklistItem>? items;
@@ -532,8 +576,12 @@ class _MachineIntakeFormScreenState
         stageEnum = HandoverStage.stage3;
       }
       
-      if (stageInfo?.handoverId == null) return;
+      if (stageInfo?.handoverId == null) {
+        _log.e('Handover ID is missing for stage $stageEnum');
+        throw Exception('ไม่พบข้อมูล Handover สำหรับเครื่องจักรนี้ กรุณาติดต่อผู้ดูแลระบบ');
+      }
 
+      _log.i('Saving checklist results for handover: ${stageInfo!.handoverId!}');
       // 1. Save results
       final results = items.map((item) => {
         'item_name': item.title,
@@ -545,8 +593,15 @@ class _MachineIntakeFormScreenState
       await repo.saveChecklistResults(
         handoverId: stageInfo!.handoverId!,
         results: results,
+      ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          _log.e('Timeout saving checklist results');
+          throw TimeoutException('บันทึกข้อมูลล่าช้าเกินกำหนด (Timeout)');
+        },
       );
       
+      _log.i('Updating handover stage status');
       // 2. Update stage status
       final allPassed = items.every((item) => item.status == 1 || item.status == 3);
       await repo.updateHandoverStage(
@@ -556,7 +611,14 @@ class _MachineIntakeFormScreenState
          performedBy: user?.userId ?? 'system',
          notes: notes.text,
          handoverConclusion: currentStep == 4 ? _handoverConclusion : null,
-       );
+       ).timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          _log.e('Timeout updating handover stage');
+          throw TimeoutException('อัปเดตสถานะล่าช้าเกินกำหนด (Timeout)');
+        },
+      );
+      _log.i('Successfully saved stage $currentStep');
       
       // Update initial results for this stage
       if (currentStep == 2) {
@@ -580,10 +642,15 @@ class _MachineIntakeFormScreenState
         ref.invalidate(dashboardStatsProvider);
       }
     } catch (e) {
+      _log.e('Error in _saveStage: $e');
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('บันทึกผิดพลาด: $e')),
+          SnackBar(
+            content: Text('บันทึกผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     }
@@ -641,8 +708,18 @@ class _MachineIntakeFormScreenState
   }
 
   Future<void> _printManualForm() async {
+    // Convert UI checklist items back to ChecklistResult
+    List<ChecklistResult> mapItemsToResults(List<_ChecklistItem> items) {
+      return items.map((item) => ChecklistResult(
+        itemName: item.title,
+        result: item.status == 1 ? 'pass' : (item.status == 2 ? 'fail' : (item.status == 3 ? 'na' : null)),
+        remarks: item.comment,
+      )).toList();
+    }
+
     // Create a temporary model from current form state
     final tempMachine = MachineModel(
+      machineId: _savedMachineId ?? 'temp',
       machineNo: _machineNoCtrl.text,
       machineName: _machineNameCtrl.text,
       assetNo: _assetNoCtrl.text,
@@ -656,6 +733,18 @@ class _MachineIntakeFormScreenState
         voltageV: double.tryParse(_voltCtrl.text),
         capacity: double.tryParse(_capacityCtrl.text),
         capacityUnit: _capacityUnitCtrl.text,
+      ),
+      stage1: HandoverInfo(
+        stage: HandoverStage.stage1,
+        results: mapItemsToResults(_stage1Items),
+      ),
+      stage2: HandoverInfo(
+        stage: HandoverStage.stage2,
+        results: mapItemsToResults(_stage2Items),
+      ),
+      stage3: HandoverInfo(
+        stage: HandoverStage.stage3,
+        results: mapItemsToResults(_stage3Items),
       ),
     );
 
@@ -1008,14 +1097,18 @@ class _MachineIntakeFormScreenState
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
             itemBuilder: (context, i) {
               final file = _attachments[i];
-              return Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+              return Ink(
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   border: Border.all(color: Theme.of(context).dividerColor),
                 ),
-                child: Row(
+                child: InkWell(
+                  onTap: () => _openFile(file),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                    child: Row(
                   children: [
                     Icon(Icons.description_outlined,
                         color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -1045,8 +1138,10 @@ class _MachineIntakeFormScreenState
                       ),
                   ],
                 ),
-              );
-            },
+              ),
+            ),
+          );
+        },
           ),
         ],
         const SizedBox(height: AppSpacing.xl),
@@ -1141,7 +1236,7 @@ class _MachineIntakeFormScreenState
             ),
             const SizedBox(width: AppSpacing.md),
             ElevatedButton(
-              onPressed: _saving ? null : () async {
+              onPressed: (_saving || (_initialMachine?.stage3Status == HandoverStatus.approved)) ? null : () async {
                 if (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true) {
                   await _saveStage(4);
                   _showApprovalDialog();
@@ -1149,18 +1244,30 @@ class _MachineIntakeFormScreenState
                   await _saveStage(_currentStep);
                 }
               },
+              style: _currentStep == 4 ? ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ) : null,
               child: _saving 
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       if (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true) ...[
-                        const HugeIcon(icon: HugeIcons.strokeRoundedStamp, size: 18, color: Colors.white),
+                        HugeIcon(
+                          icon: HugeIcons.strokeRoundedStamp, 
+                          size: 20, 
+                          color: (_initialMachine?.stage3Status == HandoverStatus.approved) ? Colors.grey : Colors.white
+                        ),
                         const SizedBox(width: 8),
                       ],
-                      Text((_isReceivedMachine && _currentStep == 4)
-                        ? 'ส่งตรวจรับใหม่'
-                        : (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true ? 'ยืนยันการตรวจรับขั้นตอนที่ 3' : 'ถัดไป')),
+                      Text(
+                        _currentStep == 4 
+                          ? ((_initialMachine?.stage3Status == HandoverStatus.approved) ? 'อนุมัติเรียบร้อยแล้ว' : 'ยืนยันการตรวจรับ') 
+                          : 'ถัดไป'
+                      ),
                     ],
                   ),
             ),

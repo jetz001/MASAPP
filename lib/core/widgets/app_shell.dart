@@ -129,10 +129,17 @@ const _navItems = [
     route: '/pm-am',
   ),
   _NavItem(
-    label: 'ใบสั่งงาน',
+    label: 'ใบแจ้งซ่อม',
     icon: HugeIcons.strokeRoundedTask01,
     iconSelected: HugeIcons.strokeRoundedTask01,
     route: '/work-orders',
+  ),
+  _NavItem(
+    label: 'ทะเบียนผู้รับเหมา',
+    icon: HugeIcons.strokeRoundedBuilding01,
+    iconSelected: HugeIcons.strokeRoundedBuilding01,
+    route: '/outsource-vendors',
+    roles: ['engineer', 'admin'],
   ),
   _NavItem(
     label: 'ใบอนุญาตทำงาน',
@@ -231,10 +238,13 @@ class _Sidebar extends ConsumerWidget {
                                       height: 32,
                                       decoration: BoxDecoration(
                                         color: AppColors.primary,
-                                        borderRadius: BorderRadius.circular(AppRadius.sm),
+                                        borderRadius: BorderRadius.circular(
+                                          AppRadius.sm,
+                                        ),
                                       ),
                                       child: const HugeIcon(
-                                        icon: HugeIcons.strokeRoundedDashboardSquare01,
+                                        icon: HugeIcons
+                                            .strokeRoundedDashboardSquare01,
                                         color: Colors.white,
                                         size: 18,
                                       ),
@@ -249,7 +259,8 @@ class _Sidebar extends ConsumerWidget {
                                     const Spacer(),
                                     IconButton(
                                       icon: const HugeIcon(
-                                        icon: HugeIcons.strokeRoundedArrowLeft01,
+                                        icon:
+                                            HugeIcons.strokeRoundedArrowLeft01,
                                         size: 20,
                                       ),
                                       onPressed: onToggle,
@@ -359,7 +370,8 @@ class _NavTile extends ConsumerWidget {
                 scrollDirection: Axis.horizontal,
                 physics: const NeverScrollableScrollPhysics(),
                 child: SizedBox(
-                  width: 200, // Fixed width for navigation items to prevent overflow during sidebar animation
+                  width:
+                      200, // Fixed width for navigation items to prevent overflow during sidebar animation
                   child: Row(
                     children: [
                       HugeIcon(
@@ -423,26 +435,6 @@ class _TopBar extends StatefulWidget {
 }
 
 class _TopBarState extends State<_TopBar> {
-  bool _isMaximized = false;
-
-  @override
-  void initState() {
-    super.initState();
-    windowManager.isMaximized().then((maximized) {
-      if (!mounted) return;
-      setState(() => _isMaximized = maximized);
-    });
-  }
-
-  Future<void> _toggleMaximizeRestore() async {
-    if (_isMaximized) {
-      await windowManager.unmaximize();
-    } else {
-      await windowManager.maximize();
-    }
-    if (!mounted) return;
-    setState(() => _isMaximized = !_isMaximized);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -524,14 +516,6 @@ class _TopBarState extends State<_TopBar> {
               ),
             ),
 
-            const SizedBox(width: AppSpacing.md),
-
-            _WindowControlButtons(
-              isMaximized: _isMaximized,
-              onMinimize: () => windowManager.minimize(),
-              onMaximizeRestore: _toggleMaximizeRestore,
-              onClose: () => windowManager.close(),
-            ),
           ],
         ),
       ),
@@ -539,84 +523,6 @@ class _TopBarState extends State<_TopBar> {
   }
 }
 
-class _WindowControlButtons extends StatelessWidget {
-  final bool isMaximized;
-  final VoidCallback onMinimize;
-  final VoidCallback onMaximizeRestore;
-  final VoidCallback onClose;
-
-  const _WindowControlButtons({
-    required this.isMaximized,
-    required this.onMinimize,
-    required this.onMaximizeRestore,
-    required this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        _WindowButton(
-          icon: Icons.minimize,
-          tooltip: 'ย่อหน้าต่าง',
-          onTap: onMinimize,
-          iconColor: colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 6),
-        _WindowButton(
-          icon: isMaximized ? Icons.crop_square : Icons.open_in_full,
-          tooltip: isMaximized ? 'คืนขนาดหน้าต่าง' : 'ขยายหน้าต่าง',
-          onTap: onMaximizeRestore,
-          iconColor: colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(width: 6),
-        _WindowButton(
-          icon: Icons.close,
-          tooltip: 'ปิดแอป',
-          onTap: onClose,
-          iconColor: AppColors.error,
-        ),
-      ],
-    );
-  }
-}
-
-class _WindowButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onTap;
-  final Color iconColor;
-
-  const _WindowButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onTap,
-    required this.iconColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: IconButton(
-        icon: Icon(icon, size: 18, color: iconColor),
-        onPressed: onTap,
-        style: IconButton.styleFrom(
-          backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            side: BorderSide(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-          padding: const EdgeInsets.all(8),
-          minimumSize: const Size(32, 32),
-        ),
-      ),
-    );
-  }
-}
 
 class _TopBarButton extends StatelessWidget {
   final dynamic icon;
@@ -741,3 +647,4 @@ class _ThemeToggleButton extends ConsumerWidget {
     );
   }
 }
+

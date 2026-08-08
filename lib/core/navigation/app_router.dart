@@ -7,7 +7,10 @@ import '../../features/auth/db_setup_screen.dart';
 import '../../features/machine_intake/machine_intake_list_screen.dart';
 import '../../features/machine_intake/machine_intake_form_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
-import '../../features/work_orders/work_order_list_screen.dart';
+import 'package:masapp/features/work_orders/work_order_list_screen.dart';
+import 'package:masapp/features/work_orders/work_order_detail_screen.dart';
+import '../../features/work_orders/work_order_form_screen.dart';
+import '../../features/work_orders/work_order_models.dart';
 import '../../features/spare_parts/spare_parts_screen.dart';
 import '../../features/pm_am/pm_am_screen.dart';
 import '../../features/work_permit/work_permit_screen.dart';
@@ -17,6 +20,7 @@ import '../../features/factory_layout/factory_layout_screen.dart';
 import '../../features/factory_layout/layout_list_screen.dart';
 import '../../features/analytics/analytics_dashboard_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/outsource_vendors/outsource_vendor_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -39,33 +43,26 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       // Root redirect
-      GoRoute(
-        path: '/',
-        redirect: (_, _) => '/dashboard',
-      ),
+      GoRoute(path: '/', redirect: (_, _) => '/dashboard'),
 
       // DB Setup (first launch)
       GoRoute(
         path: '/setup',
-        builder: (context, state) => DbSetupScreen(
-          onConnected: () => context.go('/login'),
-        ),
+        builder: (context, state) =>
+            DbSetupScreen(onConnected: () => context.go('/login')),
       ),
 
       // Login
       GoRoute(
         path: '/login',
-        builder: (context, state) => LoginScreen(
-          onLoggedIn: () => context.go('/dashboard'),
-        ),
+        builder: (context, state) =>
+            LoginScreen(onLoggedIn: () => context.go('/dashboard')),
       ),
 
       // Main shell with sidebar
       ShellRoute(
-        builder: (context, state, child) => AppShell(
-          currentRoute: state.matchedLocation,
-          child: child,
-        ),
+        builder: (context, state, child) =>
+            AppShell(currentRoute: state.matchedLocation, child: child),
         routes: [
           // Dashboard
           GoRoute(
@@ -113,6 +110,24 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/work-orders',
             builder: (context, state) => const WorkOrderListScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (context, state) =>
+                    WorkOrderFormScreen(workOrder: state.extra as WorkOrder?),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (context, state) =>
+                    WorkOrderDetailScreen(woId: state.pathParameters["id"]!),
+              ),
+            ],
+          ),
+
+          // Outsource contractor registry
+          GoRoute(
+            path: '/outsource-vendors',
+            builder: (context, state) => const OutsourceVendorScreen(),
           ),
 
           // Work Permit
@@ -163,8 +178,11 @@ final routerProvider = Provider<GoRouter>((ref) {
 class PlaceholderScreen extends StatelessWidget {
   final String title;
   final String module;
-  const PlaceholderScreen(
-      {super.key, required this.title, required this.module});
+  const PlaceholderScreen({
+    super.key,
+    required this.title,
+    required this.module,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -172,29 +190,31 @@ class PlaceholderScreen extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.construction_rounded,
-              size: 64,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.15)),
+          Icon(
+            Icons.construction_rounded,
+            size: 64,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.15),
+          ),
           const SizedBox(height: 16),
-          Text(title,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineMedium
-                  ?.copyWith(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.7))),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
           const SizedBox(height: 8),
-          Text('กำลังพัฒนา',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.4))),
+          Text(
+            'กำลังพัฒนา',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.4),
+            ),
+          ),
         ],
       ),
     );

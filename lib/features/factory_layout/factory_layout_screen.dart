@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -7,9 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'layout_models.dart';
 import 'layout_painter.dart';
 import 'layout_provider.dart';
@@ -20,6 +16,7 @@ import '../dashboard/dashboard_screen.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/theme/app_colors.dart';
 import 'layout_pdf_service.dart';
+import '../settings/settings_provider.dart';
 
 final _machineSearchProvider = StateProvider<String>((ref) => '');
 final _selectedMachinesProvider = StateProvider<Set<String>>((ref) => {});
@@ -233,7 +230,6 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
               child: _LayoutControlBanner(
                 layout: layoutAsync.valueOrNull,
                 onAddMachine: (layout) => _showAddMachineMarkerDialog(context, ref, layout),
-                onAddArea: () => _showAddLayoutDialog(context, ref),
               ),
             ),
           ),
@@ -430,148 +426,6 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
             ],
           );
         },
-      ),
-    );
-  }
-
-  void _showAddLayoutDialog(BuildContext context, WidgetRef ref) {
-    final nameCtrl = TextEditingController();
-    String? selectedFilePath;
-    String? selectedFileName;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text('เพิ่มพื้นที่โรงงานใหม่'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'ชื่อพื้นที่',
-                    hintText: 'เช่น อาคาร A, คลังสินค้า 1',
-                  ),
-                  autofocus: true,
-                ),
-                const SizedBox(height: 16),
-                // Dimensions removed as requested - will be calculated from file
-                const SizedBox(height: 24),
-                // Background Picker
-                const Text('รูปผังพื้น (ไม่บังคับ)', 
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                    borderRadius: BorderRadius.circular(8),
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  ),
-                  child: Column(
-                    children: [
-                      if (selectedFileName != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.file_present_rounded, size: 16, color: Colors.blue),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(selectedFileName!, 
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close_rounded, size: 16),
-                                onPressed: () => setState(() {
-                                  selectedFilePath = null;
-                                  selectedFileName = null;
-                                }),
-                              ),
-                            ],
-                          ),
-                        ),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.upload_file_rounded, size: 18),
-                          label: Text(selectedFileName == null ? 'Select PDF or Image' : 'Change File'),
-                          onPressed: () async {
-                            final result = await FilePicker.platform.pickFiles(
-                              type: FileType.custom,
-                              allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
-                            );
-                            if (result != null && result.files.single.path != null) {
-                              setState(() {
-                                selectedFilePath = result.files.single.path;
-                                selectedFileName = result.files.single.name;
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (nameCtrl.text.isEmpty) return;
-
-                final repo = ref.read(layoutRepositoryProvider);
-                final user = ref.read(authProvider);
-
-                String? finalBgPath;
-                const double widthM = 32.0; // Fixed default
-                const double heightM = 20.0; // Fixed default
-
-                if (selectedFilePath != null) {
-                  // Copy file to app directory
-                  final appDir = await getApplicationDocumentsDirectory();
-                  final layoutsDir = Directory(p.join(appDir.path, 'layouts'));
-                  if (!await layoutsDir.exists()) await layoutsDir.create();
-                  
-                  final extension = p.extension(selectedFilePath!);
-                  final newFileName = 'bg_${DateTime.now().millisecondsSinceEpoch}$extension';
-                  final targetPath = p.join(layoutsDir.path, newFileName);
-                  
-                  await File(selectedFilePath!).copy(targetPath);
-                  finalBgPath = targetPath;
-                }
-                
-                final id = await repo.createLayout(
-                  name: nameCtrl.text,
-                  widthM: widthM,
-                  heightM: heightM,
-                  backgroundPath: finalBgPath,
-                  createdBy: user?.userId,
-                );
-
-                ref.invalidate(layoutListProvider);
-                ref.read(selectedLayoutIdProvider.notifier).state = id;
-                ref.read(selectedMachineProvider.notifier).state = null;
-
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('สร้างพื้นที่ใหม่แล้ว: ${nameCtrl.text} (${widthM.toStringAsFixed(1)}ม. x ${heightM.toStringAsFixed(1)}ม.)')),
-                  );
-                }
-              },
-              child: const Text('สร้างพื้นที่'),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -859,10 +713,14 @@ class _MachineDetailPanel extends ConsumerWidget {
               ),
               onPressed: () async {
                 final layout = ref.read(currentLayoutProvider).value;
-                if (layout != null) {
+                final settings = ref.read(appSettingsProvider).valueOrNull;
+                final user = ref.read(authProvider);
+                if (layout != null && settings != null) {
                   await LayoutPdfService.generateMachineTag(
                     layout: layout,
                     machine: machine,
+                    settings: settings,
+                    userName: user?.fullName ?? 'System User',
                   );
                 }
               },
@@ -986,9 +844,8 @@ class _DetailRow extends StatelessWidget {
 class _LayoutControlBanner extends ConsumerWidget {
   final FactoryLayout? layout;
   final Function(FactoryLayout)? onAddMachine;
-  final VoidCallback? onAddArea;
 
-  const _LayoutControlBanner({this.layout, this.onAddMachine, this.onAddArea});
+  const _LayoutControlBanner({this.layout, this.onAddMachine});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1135,18 +992,6 @@ class _LayoutControlBanner extends ConsumerWidget {
                     backgroundColor: Colors.orange.withAlpha(40),
                     foregroundColor: Colors.orange[900],
                     elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('Add Area', style: TextStyle(fontSize: 12)),
-                  onPressed: () => onAddArea?.call(),
-                   style: ElevatedButton.styleFrom(
-                    elevation: 0,
-                    backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                   ),
                 ),

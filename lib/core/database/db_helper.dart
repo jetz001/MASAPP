@@ -5,6 +5,7 @@ import 'db_connection.dart';
 /// Maps PostgreSQL-style named parameters (@param) to SQLite positional (?) parameters.
 class DbHelper {
   static Database get _db => DbConnection.instance.db;
+  static String get dbPath => _db.path;
 
   /// Helper to convert "@param" syntax to "?" and return ordered arguments.
   static (String, List<Object?>) _prepare(String sql, Map<String, dynamic>? params) {
