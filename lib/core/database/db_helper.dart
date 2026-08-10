@@ -86,4 +86,14 @@ class DbHelper {
     final (sqliteSql, args) = _prepare(sql, params);
     return await txn.rawQuery(sqliteSql, args);
   }
+
+  /// Query one or null inside transaction.
+  static Future<Map<String, dynamic>?> txQueryOne(
+    Transaction txn,
+    String sql, {
+    Map<String, dynamic>? params,
+  }) async {
+    final rows = await txQuery(txn, sql, params: params);
+    return rows.isEmpty ? null : rows.first;
+  }
 }

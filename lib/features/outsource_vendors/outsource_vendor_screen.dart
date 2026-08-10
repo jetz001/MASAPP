@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import 'package:go_router/go_router.dart';
 import '../../core/database/db_helper.dart';
+import 'outsource_vendor_log_sheet_pdf_service.dart';
 
 class OutsourceVendorScreen extends StatefulWidget {
   const OutsourceVendorScreen({super.key});
@@ -281,6 +283,12 @@ class _OutsourceVendorScreenState extends State<OutsourceVendorScreen> {
                 ),
               ),
               FilledButton.icon(
+                onPressed: () => OutsourceVendorLogSheetPdfService.generateAndOpen(keyword: _searchController.text.trim()),
+                icon: const Icon(Icons.print_outlined),
+                label: const Text('พิมพ์ทะเบียน'),
+              ),
+              const SizedBox(width: 12),
+              FilledButton.icon(
                 onPressed: () => _showForm(),
                 icon: const Icon(Icons.add),
                 label: const Text('เพิ่มผู้รับเหมา'),
@@ -325,6 +333,7 @@ class _OutsourceVendorScreenState extends State<OutsourceVendorScreen> {
                             '${vendor['service_scope'] ?? '-'}\n${vendor['contact_name'] ?? '-'}  ${vendor['phone'] ?? ''}',
                           ),
                           isThreeLine: true,
+                          onTap: () => context.push('/outsource-vendors/${vendor['supplier_id']}').then((_) => _load()),
                           trailing: Wrap(
                             spacing: 8,
                             crossAxisAlignment: WrapCrossAlignment.center,

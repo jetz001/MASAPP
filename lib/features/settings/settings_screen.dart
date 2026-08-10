@@ -355,6 +355,7 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
   late TextEditingController _docTagCtrl;
   late TextEditingController _docWorkOrderCtrl;
   late TextEditingController _docGatePassCtrl;
+  late TextEditingController _docWorkOrderLogSheetCtrl;
   bool _isDirty = false;
   bool _isSaved = false;
 
@@ -368,6 +369,7 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
     _docTagCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docMachineTagRef, defaultValue: 'F-MA-18 Rev1') ?? 'F-MA-18 Rev1');
     _docWorkOrderCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docWorkOrderRef, defaultValue: 'F-MA-06 Rev2') ?? 'F-MA-06 Rev2');
     _docGatePassCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docGatePassRef, defaultValue: 'F-MA-07 Rev1') ?? 'F-MA-07 Rev1');
+    _docWorkOrderLogSheetCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docWorkOrderLogSheetRef, defaultValue: 'F-MA-19 Rev1') ?? 'F-MA-19 Rev1');
   }
 
   @override
@@ -378,6 +380,7 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
     _docTagCtrl.dispose();
     _docWorkOrderCtrl.dispose();
     _docGatePassCtrl.dispose();
+    _docWorkOrderLogSheetCtrl.dispose();
     super.dispose();
   }
 
@@ -389,6 +392,7 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
     await notifier.updateSetting(AppSettingKeys.docMachineTagRef, _docTagCtrl.text);
     await notifier.updateSetting(AppSettingKeys.docWorkOrderRef, _docWorkOrderCtrl.text);
     await notifier.updateSetting(AppSettingKeys.docGatePassRef, _docGatePassCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.docWorkOrderLogSheetRef, _docWorkOrderLogSheetCtrl.text);
     
     setState(() {
       _isDirty = false;
@@ -417,6 +421,7 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
           _buildDocField('แบบฟอร์มป้ายกำกับเครื่องจักร (Machine Tag)', _docTagCtrl),
           _buildDocField('แบบฟอร์มใบแจ้งซ่อม (Work Order)', _docWorkOrderCtrl),
           _buildDocField('แบบฟอร์มใบนำของออก/เข้า (Gate Pass)', _docGatePassCtrl),
+          _buildDocField('รายงานใบแจ้งซ่อม (Work Order Log Sheet)', _docWorkOrderLogSheetCtrl),
 
           const SizedBox(height: 16),
           SizedBox(

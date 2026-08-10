@@ -56,11 +56,43 @@ class WorkOrderPdfService {
       } catch (_) {}
     }
 
-    final outsourceRow = await DbHelper.queryOne(
-        'SELECT * FROM work_order_outsource WHERE wo_id = @id ORDER BY created_at DESC LIMIT 1',
+    final outsourceRows = await DbHelper.query(
+        '''SELECT o.*, u.full_name, i.full_name as inspector_name 
+           FROM work_order_outsource o
+           LEFT JOIN users u ON u.user_id = o.created_by
+           LEFT JOIN users i ON i.user_id = o.inspector_id
+           WHERE o.wo_id = @id ORDER BY o.created_at ASC''',
         params: {'id': woId});
+        
+    final outsource1 = outsourceRows.isNotEmpty ? outsourceRows[0] : null;
+    final outsource2 = outsourceRows.length > 1 ? outsourceRows[1] : null;
+    
+    // Use the latest one for general info (Section 2 & 3)
+    final outsourceRow = outsourceRows.isNotEmpty ? outsourceRows.last : null;
+
     final vendorName = outsourceRow?['vendor_name'] as String? ?? '';
     final repairDetails = outsourceRow?['repair_details'] as String? ?? '';
+    
+    final outsourcerName = outsourceRow != null && outsourceRow['full_name'] != null 
+        ? outsourceRow['full_name'] as String
+        : null;
+    final outsourceDate = outsourceRow?['created_at'] != null 
+        ? DateTime.tryParse(outsourceRow!['created_at'].toString()) 
+        : null;
+        
+    final o1ActualReturn = outsource1?['actual_return_date'] != null ? DateTime.tryParse(outsource1!['actual_return_date'].toString()) : null;
+    final o1Passed = outsource1?['is_passed_inspection'] == 1;
+
+    final o2ActualReturn = outsource2?['actual_return_date'] != null ? DateTime.tryParse(outsource2!['actual_return_date'].toString()) : null;
+    final o2Passed = outsource2?['is_passed_inspection'] == 1;
+
+    // Use latest return for the signature block
+    final actualReturnDate = outsourceRow?['actual_return_date'] != null
+        ? DateTime.tryParse(outsourceRow!['actual_return_date'].toString())
+        : null;
+        
+    // Keep inspector for Section 4 signature from the latest return
+    final inspectorName = outsourceRow?['inspector_name'] as String?;
 
     // Load attachments
     final attachmentImages = <pw.MemoryImage>[];
@@ -78,10 +110,14 @@ class WorkOrderPdfService {
 
     pw.Widget _checkbox(bool checked) {
       return pw.Container(
-        width: 10,
-        height: 10,
-        decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5)),
-        child: checked ? pw.Center(child: pw.Text('/', style: const pw.TextStyle(fontSize: 8))) : null,
+        width: 12,
+        height: 12,
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(width: 1, color: checked ? PdfColor.fromHex('#1E3A8A') : PdfColors.grey600),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(2)),
+          color: checked ? PdfColor.fromHex('#EFF6FF') : null,
+        ),
+        child: checked ? pw.Center(child: pw.Text('/', style: pw.TextStyle(fontSize: 9, color: PdfColor.fromHex('#1E3A8A'), fontWeight: pw.FontWeight.bold))) : null,
       );
     }
 
@@ -89,19 +125,29 @@ class WorkOrderPdfService {
       return pw.Container(
         width: double.infinity,
         decoration: pw.BoxDecoration(
-          color: isSubHeader ? PdfColors.grey200 : PdfColors.grey300,
-          border: const pw.Border(bottom: pw.BorderSide(width: 0.5)),
+          color: isSubHeader ? PdfColor.fromHex('#E5E7EB') : PdfColor.fromHex('#1E3A8A'),
+          border: pw.Border(
+            bottom: pw.BorderSide(width: 0.5, color: isSubHeader ? PdfColors.grey400 : PdfColor.fromHex('#1E3A8A')),
+          ),
         ),
-        padding: const pw.EdgeInsets.symmetric(vertical: 4),
-        child: pw.Text(title, textAlign: pw.TextAlign.center, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+        padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+        child: pw.Text(
+          title, 
+          textAlign: isSubHeader ? pw.TextAlign.left : pw.TextAlign.center, 
+          style: pw.TextStyle(
+            fontWeight: pw.FontWeight.bold, 
+            fontSize: isSubHeader ? 10 : 12,
+            color: isSubHeader ? PdfColors.black : PdfColors.white,
+          )
+        ),
       );
     }
 
     pw.Widget _buildBorderedRow(List<pw.Widget> children, {List<int>? flex}) {
       return pw.Table(
-        border: const pw.TableBorder(
-          bottom: pw.BorderSide(width: 0.5),
-          verticalInside: pw.BorderSide(width: 0.5),
+        border: pw.TableBorder(
+          bottom: const pw.BorderSide(width: 0.5, color: PdfColors.grey400),
+          verticalInside: const pw.BorderSide(width: 0.5, color: PdfColors.grey300),
         ),
         columnWidths: flex != null 
           ? { for (int i = 0; i < flex.length; i++) i: pw.FlexColumnWidth(flex[i].toDouble()) }
@@ -110,7 +156,7 @@ class WorkOrderPdfService {
           pw.TableRow(
             children: children.map((child) {
               return pw.Container(
-                padding: const pw.EdgeInsets.all(4),
+                padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
                 child: child,
               );
             }).toList(),
@@ -121,16 +167,18 @@ class WorkOrderPdfService {
 
     pw.Widget _buildDottedRow(String label, String text, {int lines = 3}) {
       return pw.Container(
-        decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(width: 0.5))),
-        padding: const pw.EdgeInsets.all(4),
+        width: double.infinity,
+        decoration: const pw.BoxDecoration(
+          border: pw.Border(bottom: pw.BorderSide(width: 0.5, color: PdfColors.grey400)),
+        ),
+        padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.start,
           children: [
-            pw.Text('$label $text', style: const pw.TextStyle(fontSize: 10)),
-            for (int i = 1; i < lines; i++) ...[
-              pw.SizedBox(height: 14),
-              pw.Divider(borderStyle: pw.BorderStyle.dashed, thickness: 0.5, color: PdfColors.grey500),
-            ]
+            pw.Text(label, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.grey700)),
+            pw.SizedBox(height: 4),
+            pw.Text(text.isEmpty ? '-' : text, style: const pw.TextStyle(fontSize: 10)),
+            pw.SizedBox(height: 4),
           ],
         ),
       );
@@ -150,25 +198,25 @@ class WorkOrderPdfService {
                 children: [
                   // Header
                   pw.Table(
-                    border: const pw.TableBorder(bottom: pw.BorderSide(width: 0.5)),
+                    border: const pw.TableBorder(bottom: pw.BorderSide(width: 1, color: PdfColors.black)),
                     columnWidths: {
-                      0: const pw.FlexColumnWidth(2),
-                      1: const pw.FlexColumnWidth(8),
+                      0: const pw.FlexColumnWidth(3),
+                      1: const pw.FlexColumnWidth(7),
                     },
                     children: [
                       pw.TableRow(
                         children: [
                           pw.Container(
-                            padding: const pw.EdgeInsets.all(4),
-                            decoration: const pw.BoxDecoration(border: pw.Border(right: pw.BorderSide(width: 0.5))),
+                            padding: const pw.EdgeInsets.all(8),
+                            decoration: const pw.BoxDecoration(border: pw.Border(right: pw.BorderSide(width: 0.5, color: PdfColors.grey400))),
                             child: pw.Center(
-                              child: logoImage != null ? pw.Image(logoImage, height: 35, fit: pw.BoxFit.contain) : pw.SizedBox(height: 35),
+                              child: logoImage != null ? pw.Image(logoImage, height: 40, fit: pw.BoxFit.contain) : pw.SizedBox(height: 40),
                             )
                           ),
                           pw.Table(
                             border: const pw.TableBorder(
-                              horizontalInside: pw.BorderSide(width: 0.5),
-                              verticalInside: pw.BorderSide(width: 0.5),
+                              horizontalInside: pw.BorderSide(width: 0.5, color: PdfColors.grey400),
+                              verticalInside: pw.BorderSide(width: 0.5, color: PdfColors.grey400),
                             ),
                             columnWidths: {
                               0: const pw.FlexColumnWidth(2),
@@ -178,19 +226,20 @@ class WorkOrderPdfService {
                             },
                             children: [
                               pw.TableRow(
+                                decoration: pw.BoxDecoration(color: PdfColor.fromHex('#F9FAFB')), // Light gray bg for header
                                 children: [
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('ระดับเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('ชื่อเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('สถานะเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('รหัสเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 6), child: pw.Text('ระดับเอกสาร', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 6), child: pw.Text('ชื่อเอกสาร', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 6), child: pw.Text('สถานะเอกสาร', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 6), child: pw.Text('รหัสเอกสาร', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey800))),
                                 ],
                               ),
                               pw.TableRow(
                                 children: [
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('ฟอร์มเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text('ใบแจ้งซ่อม', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text(docRev, textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
-                                  pw.Container(padding: const pw.EdgeInsets.all(4), child: pw.Text(docCode, textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 8), child: pw.Text('ฟอร์มเอกสาร', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 8), child: pw.Text('ใบแจ้งซ่อม', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A')))), // Accent color for title
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 8), child: pw.Text(docRev, textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
+                                  pw.Container(padding: const pw.EdgeInsets.symmetric(vertical: 8), child: pw.Text(docCode, textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10))),
                                 ],
                               ),
                             ]
@@ -203,8 +252,8 @@ class WorkOrderPdfService {
                   // Section 1
                   _sectionHeader('1. ส่วนผู้แจ้งซ่อม'),
                   _buildBorderedRow([
-                    pw.Text('ชื่อเครื่อง: ${wo.machineBrand ?? ''}', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('รหัสเครื่อง M/C NO.: ${wo.machineNo ?? ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('ชื่อเครื่อง: ${wo.machineBrand ?? ''}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('รหัสเครื่อง M/C NO.: ${wo.machineNo ?? ''}', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                   ], flex: [1, 1]),
                   _buildDottedRow('อาการเสียที่พบ/สิ่งที่ต้องการให้ดำเนินการ:', wo.failureSymptom ?? wo.description ?? '', lines: 3),
                   _buildBorderedRow([
@@ -234,13 +283,13 @@ class WorkOrderPdfService {
                     pw.Text('ชื่อ/บริษัท ที่ส่งซ่อม: $vendorName', style: const pw.TextStyle(fontSize: 10)),
                   ]),
                   _buildBorderedRow([
-                    pw.Text('ลงชื่อ ช่างซ่อมบำรุง: ${wo.assignedToName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('วันที่: ${wo.completedAt != null ? DateFormat('dd/MM/yyyy').format(wo.completedAt!) : ''}', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('เวลา: ${wo.completedAt != null ? DateFormat('HH:mm').format(wo.completedAt!) : ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('ลงชื่อ ช่างซ่อมบำรุง: ${wo.assignedToName ?? outsourcerName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่: ${wo.completedAt != null ? DateFormat('dd/MM/yyyy').format(wo.completedAt!) : outsourceDate != null ? DateFormat('dd/MM/yyyy').format(outsourceDate) : ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('เวลา: ${wo.completedAt != null ? DateFormat('HH:mm').format(wo.completedAt!) : outsourceDate != null ? DateFormat('HH:mm').format(outsourceDate) : ''}', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [4, 2, 2]),
                   _buildBorderedRow([
-                    pw.Text('ลงชื่อ ผู้อนุมัติซ่อม: ${wo.approvedByName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('วันที่: ${wo.approvedAt != null ? DateFormat('dd/MM/yyyy').format(wo.approvedAt!) : ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('ลงชื่อ ผู้อนุมัติซ่อม: ${wo.approvedByName ?? outsourcerName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่: ${wo.approvedAt != null ? DateFormat('dd/MM/yyyy').format(wo.approvedAt!) : outsourceDate != null ? DateFormat('dd/MM/yyyy').format(outsourceDate) : ''}', style: const pw.TextStyle(fontSize: 10)),
                     pw.Text('', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [4, 2, 2]),
 
@@ -248,22 +297,36 @@ class WorkOrderPdfService {
                   _sectionHeader('3. ส่งซ่อมภายนอก'),
                   _sectionHeader('รายการนำออกเพื่อส่งซ่อม', isSubHeader: true),
                   _buildBorderedRow([
-                    pw.Text('No', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.Text('รายการ', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.Text('จำนวน', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                    pw.Text('หมายเหตุ', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('No', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A'))),
+                    pw.Text('รายการ', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A'))),
+                    pw.Text('จำนวน', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A'))),
+                    pw.Text('หมายเหตุ', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A'))),
                   ], flex: [1, 5, 2, 3]),
-                  for (int i = 1; i <= 4; i++)
-                    _buildBorderedRow([
-                      pw.Text('$i', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
-                      pw.Text(i == 1 ? repairDetails : '', style: const pw.TextStyle(fontSize: 10)),
-                      pw.Text('', style: const pw.TextStyle(fontSize: 10)),
-                      pw.Text('', style: const pw.TextStyle(fontSize: 10)),
-                    ], flex: [1, 5, 2, 3]),
+                  ...() {
+                    final items = repairDetails.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                    if (items.isEmpty) {
+                      return [
+                        _buildBorderedRow([
+                          pw.Text('1', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                          pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                        ], flex: [1, 5, 2, 3])
+                      ];
+                    }
+                    return List.generate(items.length, (index) {
+                      return _buildBorderedRow([
+                        pw.Text('${index + 1}', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text(items[index], style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                      ], flex: [1, 5, 2, 3]);
+                    });
+                  }(),
                   _buildBorderedRow([
-                    pw.Text('ช่างซ่อมบำรุง: ${wo.assignedToName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('วันที่ส่งซ่อม: ____________', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('เวลา: ____________', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('ช่างซ่อมบำรุง: ${wo.assignedToName ?? outsourcerName ?? ''}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่ส่งซ่อม: ${outsourceDate != null ? DateFormat('dd/MM/yyyy').format(outsourceDate) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('เวลา: ${outsourceDate != null ? DateFormat('HH:mm').format(outsourceDate) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [4, 2, 2]),
 
                   // Section 4
@@ -271,25 +334,25 @@ class WorkOrderPdfService {
                   _buildBorderedRow([
                     pw.Text('ผลการซ่อมครั้งที่ 1', style: const pw.TextStyle(fontSize: 10)),
                     pw.Row(children: [
-                      _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
+                      _checkbox(o1ActualReturn != null && o1Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
                       pw.SizedBox(width: 24),
-                      _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
+                      _checkbox(o1ActualReturn != null && !o1Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
                     ]),
-                    pw.Text('วันที่: ____________', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่: ${o1ActualReturn != null ? DateFormat('dd/MM/yyyy').format(o1ActualReturn) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [2, 5, 2]),
                   _buildBorderedRow([
                     pw.Text('ผลการซ่อมครั้งที่ 2', style: const pw.TextStyle(fontSize: 10)),
                     pw.Row(children: [
-                      _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
+                      _checkbox(o2ActualReturn != null && o2Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
                       pw.SizedBox(width: 24),
-                      _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
+                      _checkbox(o2ActualReturn != null && !o2Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
                     ]),
-                    pw.Text('วันที่: ____________', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่: ${o2ActualReturn != null ? DateFormat('dd/MM/yyyy').format(o2ActualReturn) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [2, 5, 2]),
                   _buildBorderedRow([
-                    pw.Text('ลงชื่อ ช่างซ่อมบำรุง: ____________', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('วันที่รับคืน: ____________', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Text('เวลา: ____________', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('ลงชื่อ ช่างซ่อมบำรุง: ${inspectorName ?? '____________'}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('วันที่รับคืน: ${actualReturnDate != null ? DateFormat('dd/MM/yyyy').format(actualReturnDate) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
+                    pw.Text('เวลา: ${actualReturnDate != null ? DateFormat('HH:mm').format(actualReturnDate) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
                   ], flex: [4, 2, 2]),
                 ],
               ),

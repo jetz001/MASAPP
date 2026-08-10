@@ -148,6 +148,7 @@ class WorkOrder {
   // Related data
   final List<WorkOrderLabor>? laborEntries;
   final RootCauseAnalysis? rca;
+  final WorkOrderOutsource? outsource;
   final List<String>? attachments;
 
   const WorkOrder({
@@ -181,6 +182,7 @@ class WorkOrder {
     required this.updatedAt,
     this.laborEntries,
     this.rca,
+    this.outsource,
     this.attachments,
   });
 
@@ -226,6 +228,9 @@ class WorkOrder {
       closureNotes: map['closure_notes'] as String?,
       createdAt: DateTime.parse(createdAtStr ?? now),
       updatedAt: DateTime.parse(updatedAtStr ?? now),
+      laborEntries: null, // hydrated separately
+      rca: null, // hydrated separately
+      outsource: null, // hydrated separately
       attachments: map['attachments'] != null
           ? List<String>.from(jsonDecode(map['attachments'] as String))
           : null,
@@ -263,6 +268,7 @@ class WorkOrder {
     DateTime? updatedAt,
     List<WorkOrderLabor>? laborEntries,
     RootCauseAnalysis? rca,
+    WorkOrderOutsource? outsource,
     List<String>? attachments,
   }) {
     return WorkOrder(
@@ -296,6 +302,7 @@ class WorkOrder {
       updatedAt: updatedAt ?? this.updatedAt,
       laborEntries: laborEntries ?? this.laborEntries,
       rca: rca ?? this.rca,
+      outsource: outsource ?? this.outsource,
       attachments: attachments ?? this.attachments,
     );
   }
@@ -386,6 +393,60 @@ class RootCauseAnalysis {
           ? DateTime.parse(map['completed_at'] as String)
           : null,
       completedBy: map['completed_by'] as String?,
+    );
+  }
+}
+
+/// Outsource data for work order
+class WorkOrderOutsource {
+  final String outsourceId;
+  final String woId;
+  final String vendorName;
+  final String? repairDetails;
+  final String? replacedParts;
+  final String? gatePassNo;
+  final DateTime? expectedReturnDate;
+  final DateTime? actualReturnDate;
+  final String? inspectorId;
+  final String? notes;
+  final DateTime? createdAt;
+  final bool isPassedInspection;
+
+  const WorkOrderOutsource({
+    required this.outsourceId,
+    required this.woId,
+    required this.vendorName,
+    this.repairDetails,
+    this.replacedParts,
+    this.gatePassNo,
+    this.expectedReturnDate,
+    this.actualReturnDate,
+    this.inspectorId,
+    this.notes,
+    this.createdAt,
+    this.isPassedInspection = true,
+  });
+
+  factory WorkOrderOutsource.fromMap(Map<String, dynamic> map) {
+    return WorkOrderOutsource(
+      outsourceId: map['outsource_id'] as String,
+      woId: map['wo_id'] as String,
+      vendorName: map['vendor_name'] as String,
+      repairDetails: map['repair_details'] as String?,
+      replacedParts: map['replaced_parts'] as String?,
+      gatePassNo: map['gate_pass_no'] as String?,
+      expectedReturnDate: map['expected_return_date'] != null
+          ? DateTime.tryParse(map['expected_return_date'] as String)
+          : null,
+      actualReturnDate: map['actual_return_date'] != null
+          ? DateTime.tryParse(map['actual_return_date'] as String)
+          : null,
+      inspectorId: map['inspector_id'] as String?,
+      notes: map['notes'] as String?,
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'] as String)
+          : null,
+      isPassedInspection: map['is_passed_inspection'] == 1,
     );
   }
 }

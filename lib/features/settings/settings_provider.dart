@@ -52,4 +52,5 @@ class AppSettingKeys {
   static const docMachineTagRef = 'doc_machine_tag_ref';
   static const docWorkOrderRef = 'doc_work_order_ref';
   static const docGatePassRef = 'doc_gate_pass_ref';
+  static const docWorkOrderLogSheetRef = 'doc_work_order_log_sheet_ref';
 }

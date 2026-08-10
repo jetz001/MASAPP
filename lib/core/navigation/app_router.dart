@@ -21,6 +21,7 @@ import '../../features/factory_layout/layout_list_screen.dart';
 import '../../features/analytics/analytics_dashboard_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_screen.dart';
+import '../../features/outsource_vendors/outsource_vendor_detail_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -128,6 +129,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/outsource-vendors',
             builder: (context, state) => const OutsourceVendorScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (context, state) =>
+                    OutsourceVendorDetailScreen(id: state.pathParameters["id"]!),
+              ),
+            ],
           ),
 
           // Work Permit

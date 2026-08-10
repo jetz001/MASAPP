@@ -228,7 +228,7 @@ class DbInitializer {
           await db.execute('''
             CREATE TABLE work_order_outsource (
               outsource_id      TEXT PRIMARY KEY,
-              wo_id             TEXT NOT NULL UNIQUE REFERENCES work_orders(wo_id) ON DELETE CASCADE,
+              wo_id             TEXT NOT NULL REFERENCES work_orders(wo_id) ON DELETE CASCADE,
               vendor_name       TEXT NOT NULL,
               repair_details    TEXT,
               replaced_parts    TEXT,
@@ -238,9 +238,43 @@ class DbInitializer {
               inspector_id      TEXT REFERENCES users(user_id),
               notes             TEXT,
               created_by        TEXT REFERENCES users(user_id),
-              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              is_passed_inspection INTEGER DEFAULT 1
             )
           ''');
+        } else {
+          final outsourceTableInfo = await db.rawQuery('PRAGMA table_info(work_order_outsource)');
+          if (!outsourceTableInfo.any((col) => col['name'] == 'is_passed_inspection')) {
+            _log.i('Migration: Adding is_passed_inspection to work_order_outsource and removing UNIQUE constraint...');
+            await db.execute('ALTER TABLE work_order_outsource ADD COLUMN is_passed_inspection INTEGER DEFAULT 1');
+            
+            await db.execute('ALTER TABLE work_order_outsource RENAME TO work_order_outsource_old');
+            await db.execute('''
+              CREATE TABLE work_order_outsource (
+                outsource_id      TEXT PRIMARY KEY,
+                wo_id             TEXT NOT NULL REFERENCES work_orders(wo_id) ON DELETE CASCADE,
+                vendor_name       TEXT NOT NULL,
+                repair_details    TEXT,
+                replaced_parts    TEXT,
+                gate_pass_no      TEXT,
+                expected_return_date DATETIME,
+                actual_return_date DATETIME,
+                inspector_id      TEXT REFERENCES users(user_id),
+                notes             TEXT,
+                created_by        TEXT REFERENCES users(user_id),
+                created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                is_passed_inspection INTEGER DEFAULT 1
+              )
+            ''');
+            await db.execute('''
+              INSERT INTO work_order_outsource 
+              SELECT outsource_id, wo_id, vendor_name, repair_details, replaced_parts, gate_pass_no, 
+                     expected_return_date, actual_return_date, inspector_id, notes, created_by, created_at, 
+                     is_passed_inspection 
+              FROM work_order_outsource_old
+            ''');
+            await db.execute('DROP TABLE work_order_outsource_old');
+          }
         }
 
         final bool hasHeight = layoutsInfo.any(
@@ -409,6 +443,24 @@ class DbInitializer {
               created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           ''');
+        }
+
+        // 11. Repair any dangling foreign keys referencing work_orders_old
+        final brokenTables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%work_orders_old%'",
+        );
+        if (brokenTables.isNotEmpty) {
+          _log.w(
+            'Migration: Found tables with broken foreign keys referencing work_orders_old. Repairing...',
+          );
+          await db.execute('PRAGMA writable_schema = ON;');
+          await db.execute(
+            "UPDATE sqlite_master SET sql = replace(sql, 'work_orders_old', 'work_orders') WHERE type='table' AND sql LIKE '%work_orders_old%'",
+          );
+          await db.execute('PRAGMA writable_schema = OFF;');
+          final versionRow = await db.rawQuery('PRAGMA schema_version;');
+          final version = versionRow.first.values.first as int;
+          await db.execute('PRAGMA schema_version = ${version + 1};');
         }
       }
 

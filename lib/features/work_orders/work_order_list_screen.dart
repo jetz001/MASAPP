@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -12,6 +12,7 @@ import '../../features/auth/auth_provider.dart';
 import 'work_order_models.dart';
 import 'work_order_provider.dart';
 import 'work_order_pdf_service.dart';
+import 'work_order_log_sheet_pdf_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Work Order List Screen
@@ -71,6 +72,29 @@ class _WorkOrderListScreenState extends ConsumerState<WorkOrderListScreen>
         _WoPageHeader(
           user: user,
           onNew: () => context.go('/work-orders/new'),
+          onPrintLogSheet: () async {
+            final picked = await showDateRangePicker(
+              context: context,
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2100),
+              builder: (context, child) {
+                return Theme(
+                  data: Theme.of(context).copyWith(
+                    colorScheme: Theme.of(context).colorScheme.copyWith(
+                          primary: AppColors.primary,
+                        ),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+            if (picked != null) {
+              await WorkOrderLogSheetPdfService.generateAndOpen(
+                startDate: picked.start,
+                endDate: picked.end,
+              );
+            }
+          },
         ),
 
         // Tabs
@@ -152,7 +176,13 @@ class _WorkOrderListScreenState extends ConsumerState<WorkOrderListScreen>
 class _WoPageHeader extends StatelessWidget {
   final UserSession? user;
   final VoidCallback onNew;
-  const _WoPageHeader({this.user, required this.onNew});
+  final VoidCallback onPrintLogSheet;
+
+  const _WoPageHeader({
+    this.user,
+    required this.onNew,
+    required this.onPrintLogSheet,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -181,12 +211,19 @@ class _WoPageHeader extends StatelessWidget {
             ],
           ),
           const Spacer(),
-          if (user?.isTechnicianOrAbove ?? false)
+          if (user?.isTechnicianOrAbove ?? false) ...[
+            OutlinedButton.icon(
+              onPressed: onPrintLogSheet,
+              icon: const HugeIcon(icon: HugeIcons.strokeRoundedPrinter, size: 18),
+              label: const Text('พิมพ์ Log Sheet'),
+            ),
+            const SizedBox(width: AppSpacing.md),
             ElevatedButton.icon(
               onPressed: onNew,
               icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18),
               label: const Text('สร้างใบแจ้งซ่อม'),
             ),
+          ],
         ],
       ),
     );
