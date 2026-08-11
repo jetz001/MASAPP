@@ -87,6 +87,9 @@ class PmAmPlanScreen extends ConsumerStatefulWidget {
 class _PmAmPlanScreenState extends ConsumerState<PmAmPlanScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  String _statusFilter = 'all'; // all | draft | pending_approval | active | rejected
 
   static const _tabs = ['PM', 'AM'];
 
@@ -95,11 +98,13 @@ class _PmAmPlanScreenState extends ConsumerState<PmAmPlanScreen>
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
     _tabController.addListener(() => setState(() {}));
+    _searchController.addListener(() => setState(() => _searchQuery = _searchController.text.trim().toLowerCase()));
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -168,7 +173,63 @@ class _PmAmPlanScreenState extends ConsumerState<PmAmPlanScreen>
               const TextStyle(fontWeight: FontWeight.normal, fontSize: 14),
           dividerColor: AppColors.divider,
         ),
-        const SizedBox(height: AppSpacing.lg),
+        const SizedBox(height: AppSpacing.md),
+
+        // Search + Filter bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, 0, AppSpacing.xxl, AppSpacing.md),
+          child: Row(
+            children: [
+              // Search field
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'ค้นหาเครื่องจักร...',
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 16),
+                              onPressed: () => _searchController.clear(),
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Status filter dropdown
+              DropdownButtonHideUnderline(
+                child: Container(
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade400),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: DropdownButton<String>(
+                    value: _statusFilter,
+                    isDense: true,
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('ทุกสถานะ')),
+                      DropdownMenuItem(value: 'no_plan', child: Text('ยังไม่มีแผน')),
+                      DropdownMenuItem(value: 'draft', child: Text('แบบร่าง')),
+                      DropdownMenuItem(value: 'pending_approval', child: Text('รออนุมัติ')),
+                      DropdownMenuItem(value: 'active', child: Text('อนุมัติแล้ว')),
+                      DropdownMenuItem(value: 'rejected', child: Text('ตีกลับ')),
+                    ],
+                    onChanged: (v) => setState(() => _statusFilter = v ?? 'all'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
 
         // Content
         Expanded(
@@ -179,19 +240,39 @@ class _PmAmPlanScreenState extends ConsumerState<PmAmPlanScreen>
               loading: () =>
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
-              data: (plans) => plans.isEmpty
-                  ? EmptyView(
-                      title: 'ไม่มีข้อมูลเครื่องจักร',
-                      description: 'ไม่พบเครื่องจักรในระบบ',
-                      onButtonTap: () => ref.invalidate(pmPlansProvider),
-                    )
-                  : _PlanList(
-                      plans: plans,
-                      currentType: currentType,
-                      onEdit: (m) => _showPlanForm(m, currentType),
-                      onView: (m) => _showPlanView(m, currentType),
-                      onDelete: (m) => _deletePlan(m, currentType),
-                    ),
+              data: (plans) {
+                // Apply search + status filter
+                var filtered = plans.where((p) {
+                  final machineNo = (p.machineNo).toLowerCase();
+                  final brand = (p.machineBrand ?? '').toLowerCase();
+                  final matchSearch = _searchQuery.isEmpty ||
+                      machineNo.contains(_searchQuery) ||
+                      brand.contains(_searchQuery);
+                  final status = p.status ?? 'no_plan';
+                  final matchStatus = _statusFilter == 'all' ||
+                      (_statusFilter == 'no_plan' && p.planCount == 0) ||
+                      (status == _statusFilter && p.planCount > 0);
+                  return matchSearch && matchStatus;
+                }).toList();
+
+                if (filtered.isEmpty) {
+                  return EmptyView(
+                    title: 'ไม่พบข้อมูล',
+                    description: 'ไม่พบเครื่องจักรที่ตรงกับเงื่อนไขการค้นหา',
+                    onButtonTap: () {
+                      _searchController.clear();
+                      setState(() => _statusFilter = 'all');
+                    },
+                  );
+                }
+                return _PlanList(
+                  plans: filtered,
+                  currentType: currentType,
+                  onEdit: (m) => _showPlanForm(m, currentType),
+                  onView: (m) => _showPlanView(m, currentType),
+                  onDelete: (m) => _deletePlan(m, currentType),
+                );
+              },
             ),
           ),
         ),

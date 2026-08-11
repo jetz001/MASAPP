@@ -289,8 +289,9 @@ class _Sidebar extends ConsumerWidget {
                             if (item.roles.isEmpty || item.roles.contains(role))
                               _NavTile(
                                 item: item,
-                                // Use exact match for factory-layout to distinguish from /factory-layout/management
-                                isSelected: item.route == '/factory-layout'
+                                // Use exact match for /pm-am and /factory-layout
+                                // to distinguish from child routes like /pm-am-plans
+                                isSelected: (item.route == '/factory-layout' || item.route == '/pm-am')
                                     ? currentRoute == item.route
                                     : currentRoute.startsWith(item.route),
                                 expanded: expanded,
