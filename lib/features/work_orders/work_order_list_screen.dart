@@ -39,7 +39,7 @@ class _WorkOrderListScreenState extends ConsumerState<WorkOrderListScreen>
     ('กำลังซ่อม', 'in_progress'),
     ('ส่งซ่อมภายนอก', 'outsourced'),
     ('เสร็จสิ้น', 'completed'),
-    ('ยกเลิก', 'cancelled'),
+    ('ยกเลิก/ปฏิเสธ', 'cancelled,rejected'),
   ];
 
   @override

@@ -59,7 +59,7 @@ class WorkOrderGatePassPdfService {
         '${row?['machine_no'] ?? '-'} ${row?['machine_name'] ?? ''}',
       ),
       ('ผู้รับเหมาซ่อม', vendorName),
-      ('รายการที่ส่งออกซ่อม', repairDetails),
+      ('รายการที่ส่งออกซ่อม', _formatRepairDetails(repairDetails)),
       ('กำหนดรับคืน', expectedReturnDate != null ? DateFormat('dd/MM/yyyy').format(expectedReturnDate) : '-'),
       (
         'วันที่ออกเอกสาร',
@@ -73,6 +73,8 @@ class WorkOrderGatePassPdfService {
         build: (_) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
+            pw.Container(height: 8, color: PdfColor.fromHex('#1E3A8A')),
+            pw.SizedBox(height: 24),
             if (orgName.isNotEmpty || logoImage != null)
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -91,79 +93,125 @@ class WorkOrderGatePassPdfService {
                             style: pw.TextStyle(
                               fontSize: 16,
                               fontWeight: pw.FontWeight.bold,
+                              color: PdfColor.fromHex('#1E293B'),
                             ),
                           ),
-                        if (orgAddress.isNotEmpty)
+                        if (orgAddress.isNotEmpty) ...[
+                          pw.SizedBox(height: 4),
                           pw.Text(
                             orgAddress,
-                            style: const pw.TextStyle(fontSize: 12),
+                            style: pw.TextStyle(fontSize: 11, color: PdfColor.fromHex('#475569')),
                           ),
-                        if (orgPhone.isNotEmpty)
+                        ],
+                        if (orgPhone.isNotEmpty) ...[
+                          pw.SizedBox(height: 2),
                           pw.Text(
                             'โทร. $orgPhone',
-                            style: const pw.TextStyle(fontSize: 12),
+                            style: pw.TextStyle(fontSize: 11, color: PdfColor.fromHex('#475569')),
                           ),
+                        ],
                       ],
                     ),
                   ),
                 ],
               ),
-            if (orgName.isNotEmpty || logoImage != null)
-              pw.SizedBox(height: 24),
+            pw.SizedBox(height: 32),
             pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
+                pw.Container(width: 4, height: 28, color: PdfColor.fromHex('#1D4ED8')),
+                pw.SizedBox(width: 12),
                 pw.Text(
                   'ใบผ่านประตู - ส่งซ่อมภายนอก',
                   style: pw.TextStyle(
-                    fontSize: 22,
+                    fontSize: 20,
                     fontWeight: pw.FontWeight.bold,
+                    color: PdfColor.fromHex('#0F172A'),
                   ),
                 ),
-                pw.Text(
-                  'GATE PASS',
-                  style: pw.TextStyle(
-                    fontSize: 14,
-                    fontWeight: pw.FontWeight.bold,
-                    color: PdfColors.blue800,
+                pw.Spacer(),
+                pw.Container(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromHex('#1E3A8A'),
+                    borderRadius: pw.BorderRadius.circular(4),
+                  ),
+                  child: pw.Text(
+                    'GATE PASS',
+                    style: pw.TextStyle(
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.white,
+                      letterSpacing: 1.5,
+                    ),
                   ),
                 ),
               ],
             ),
-            pw.SizedBox(height: 8),
-            pw.Divider(thickness: 2),
-            pw.SizedBox(height: 18),
-            pw.Table(
-              border: pw.TableBorder.all(color: PdfColors.grey500),
-              columnWidths: {0: const pw.FixedColumnWidth(150)},
-              children: fields
-                  .map(
-                    (field) => pw.TableRow(
+            pw.SizedBox(height: 32),
+            pw.Container(
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColor.fromHex('#E2E8F0'), width: 1),
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
+              child: pw.Column(
+                children: List.generate(fields.length, (index) {
+                  final field = fields[index];
+                  final isEven = index % 2 == 0;
+                  return pw.Container(
+                    decoration: pw.BoxDecoration(
+                      color: isEven ? PdfColors.white : PdfColor.fromHex('#F8FAFC'),
+                      borderRadius: index == 0
+                          ? const pw.BorderRadius.vertical(top: pw.Radius.circular(7))
+                          : index == fields.length - 1
+                              ? const pw.BorderRadius.vertical(bottom: pw.Radius.circular(7))
+                              : pw.BorderRadius.zero,
+                    ),
+                    padding: const pw.EdgeInsets.symmetric(vertical: 14, horizontal: 20),
+                    child: pw.Row(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(9),
+                        pw.SizedBox(
+                          width: 140,
                           child: pw.Text(
                             field.$1,
-                            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                            style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColor.fromHex('#475569'),
+                              fontSize: 12,
+                            ),
                           ),
                         ),
-                        pw.Padding(
-                          padding: const pw.EdgeInsets.all(9),
-                          child: pw.Text(field.$2),
+                        pw.Expanded(
+                          child: pw.Text(
+                            field.$2,
+                            style: pw.TextStyle(
+                              color: PdfColor.fromHex('#0F172A'),
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                  )
-                  .toList(),
+                  );
+                }),
+              ),
             ),
-            pw.SizedBox(height: 42),
-            pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                _signature('ผู้ส่งมอบ'),
-                _signature('ผู้รับเหมาขนส่ง/รับของ'),
-                _signature('รปภ. อนุญาตให้ออก'),
-              ],
+            pw.SizedBox(height: 48),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(24),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F1F5F9'),
+                borderRadius: pw.BorderRadius.circular(8),
+              ),
+              child: pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  _signature('ผู้ส่งมอบ'),
+                  _signature('ผู้รับเหมาขนส่ง/รับของ'),
+                  _signature('รปภ. อนุญาตให้ออก'),
+                ],
+              ),
             ),
           ],
         ),
@@ -182,15 +230,34 @@ class WorkOrderGatePassPdfService {
     width: 150,
     child: pw.Column(
       children: [
-        pw.SizedBox(height: 36),
-        pw.Divider(),
+        pw.SizedBox(height: 50),
+        pw.Container(height: 1, color: PdfColor.fromHex('#94A3B8')),
+        pw.SizedBox(height: 8),
         pw.Text(
           label,
           textAlign: pw.TextAlign.center,
-          style: const pw.TextStyle(fontSize: 10),
+          style: pw.TextStyle(fontSize: 11, color: PdfColor.fromHex('#475569')),
         ),
       ],
     ),
   );
+
+  static String _formatRepairDetails(String details) {
+    try {
+      final decoded = jsonDecode(details);
+      if (decoded is List) {
+        return decoded.map((e) {
+          final item = e['item'] ?? '';
+          final qty = e['qty']?.toString().trim() ?? '';
+          final note = e['note']?.toString().trim() ?? '';
+          final parts = <String>[item];
+          if (qty.isNotEmpty) parts.add('($qty)');
+          if (note.isNotEmpty) parts.add('- $note');
+          return parts.join(' ');
+        }).join('\n');
+      }
+    } catch (_) {}
+    return details;
+  }
 }
 

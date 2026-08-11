@@ -123,7 +123,13 @@ const _navItems = [
     roles: ['engineer', 'admin'],
   ),
   _NavItem(
-    label: 'PM / AM',
+    label: 'แผนแม่บท PM/AM',
+    icon: HugeIcons.strokeRoundedBookOpen01,
+    iconSelected: HugeIcons.strokeRoundedBookOpen01,
+    route: '/pm-am-plans',
+  ),
+  _NavItem(
+    label: 'กำหนดการ PM/AM',
     icon: HugeIcons.strokeRoundedCalendar03,
     iconSelected: HugeIcons.strokeRoundedCalendar03,
     route: '/pm-am',

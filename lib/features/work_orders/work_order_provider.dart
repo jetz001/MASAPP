@@ -8,6 +8,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/audit/audit_service.dart';
 import 'work_order_models.dart';
 import '../machine_intake/machine_provider.dart';
+import 'package:intl/intl.dart';
 
 /// Repository for work order operations
 class WorkOrderRepository {
@@ -509,7 +510,8 @@ class WorkOrderRepository {
         if (latestOutsource != null) {
           final existingNotes = latestOutsource['notes'] as String? ?? '';
           final passText = isPassed ? "ผ่าน" : "ตีกลับ";
-          final formattedNote = '[$passText] $notes';
+          final dateStr = DateFormat('dd/MM/yyyy').format(actualReturnDate);
+          final formattedNote = '[$passText][$dateStr] $notes';
           final appendedNotes = existingNotes.isNotEmpty ? '$existingNotes\n$formattedNote' : formattedNote;
 
           await DbHelper.txExecute(
@@ -529,15 +531,21 @@ class WorkOrderRepository {
 
         // 2. Update status (if passed -> completed, if not -> outsourced)
         final newStatus = isPassed ? 'completed' : 'outsourced';
+        final completedAtQuery = isPassed ? ", completed_at = @actual_date" : "";
         
         // If not passed, we append the failure notes to closure_notes or just let them use failure_symptom.
         // Changing status back to outsourced so they can inspect again when it comes back.
         await DbHelper.txExecute(
           tx,
           '''UPDATE work_orders
-             SET status = @status, updated_at = @updated_at
+             SET status = @status, updated_at = @updated_at$completedAtQuery
              WHERE wo_id = @wo_id''',
-          params: {'wo_id': woId, 'updated_at': now, 'status': newStatus},
+          params: {
+             'wo_id': woId, 
+             'updated_at': now, 
+             'status': newStatus,
+             if (isPassed) 'actual_date': actualReturnDate.toIso8601String(),
+          },
         );
 
         return true;
@@ -708,6 +716,61 @@ class WorkOrderRepository {
       }
     });
   }
+
+  Future<bool> updateRepairLog(String woId, String rootCause, String closureNotes) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      
+      await DbHelper.transaction((tx) async {
+        // Update RCA
+        final existingRca = await DbHelper.txQuery(tx, 'SELECT rca_id FROM work_order_rca WHERE wo_id = @id', params: {'id': woId});
+        if (existingRca.isNotEmpty) {
+          await DbHelper.txExecute(tx, 
+            'UPDATE work_order_rca SET root_cause = @rc, updated_at = @now WHERE wo_id = @id', 
+            params: {'rc': rootCause, 'now': now, 'id': woId});
+        } else {
+          await DbHelper.txExecute(tx,
+            '''INSERT INTO work_order_rca (rca_id, wo_id, root_cause, created_at, updated_at) 
+               VALUES (@rid, @wid, @rc, @now, @now)''',
+            params: {'rid': const Uuid().v4(), 'wid': woId, 'rc': rootCause, 'now': now});
+        }
+        
+        // Update WO closure notes
+        await DbHelper.txExecute(tx, 
+          'UPDATE work_orders SET closure_notes = @cn, updated_at = @now WHERE wo_id = @id', 
+          params: {'cn': closureNotes, 'now': now, 'id': woId});
+      });
+      return true;
+    } catch (e) {
+      print('Error updating repair log: $e');
+      return false;
+    }
+  }
+
+  Future<bool> updateOutsourceInfo(String outsourceId, String repairDetails, DateTime? expectedReturnDate, String? notes) async {
+    try {
+      final now = DateTime.now().toIso8601String();
+      await DbHelper.execute(
+        '''UPDATE work_order_outsource 
+           SET repair_details = @details, 
+               expected_return_date = @date, 
+               notes = @notes, 
+               updated_at = @now 
+           WHERE outsource_id = @id''',
+        params: {
+          'details': repairDetails,
+          'date': expectedReturnDate?.toIso8601String(),
+          'notes': notes,
+          'now': now,
+          'id': outsourceId,
+        }
+      );
+      return true;
+    } catch (e) {
+      print('Error updating outsource info: $e');
+      return false;
+    }
+  }
 }
 
 /// Riverpod providers
@@ -775,8 +838,17 @@ final workOrderListProvider =
     final params = <String, dynamic>{};
 
     if (filter.status != null) {
-      where.add('wo.status = @status');
-      params['status'] = filter.status;
+      if (filter.status!.contains(',')) {
+        final statuses = filter.status!.split(',');
+        final placeholders = List.generate(statuses.length, (i) => '@status$i').join(', ');
+        where.add('wo.status IN ($placeholders)');
+        for (int i = 0; i < statuses.length; i++) {
+          params['status$i'] = statuses[i];
+        }
+      } else {
+        where.add('wo.status = @status');
+        params['status'] = filter.status;
+      }
     }
     if (filter.machineId != null) {
       where.add('wo.machine_id = @machine_id');

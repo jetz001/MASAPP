@@ -303,8 +303,22 @@ class WorkOrderPdfService {
                     pw.Text('หมายเหตุ', textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#1E3A8A'))),
                   ], flex: [1, 5, 2, 3]),
                   ...() {
-                    final items = repairDetails.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-                    if (items.isEmpty) {
+                    List<Map<String, String>> parsedItems = [];
+                    try {
+                      final decoded = jsonDecode(repairDetails);
+                      if (decoded is List) {
+                        parsedItems = decoded.map((e) => {
+                          'item': e['item']?.toString() ?? '',
+                          'qty': e['qty']?.toString() ?? '',
+                          'note': e['note']?.toString() ?? '',
+                        }).toList();
+                      }
+                    } catch (_) {
+                      final lines = repairDetails.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                      parsedItems = lines.map((e) => {'item': e, 'qty': '', 'note': ''}).toList();
+                    }
+
+                    if (parsedItems.isEmpty) {
                       return [
                         _buildBorderedRow([
                           pw.Text('1', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
@@ -314,12 +328,13 @@ class WorkOrderPdfService {
                         ], flex: [1, 5, 2, 3])
                       ];
                     }
-                    return List.generate(items.length, (index) {
+                    return List.generate(parsedItems.length, (index) {
+                      final item = parsedItems[index];
                       return _buildBorderedRow([
                         pw.Text('${index + 1}', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
-                        pw.Text(items[index], style: const pw.TextStyle(fontSize: 10)),
-                        pw.Text('', style: const pw.TextStyle(fontSize: 10)),
-                        pw.Text('', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text(item['item'] ?? '', style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text(item['qty'] ?? '', textAlign: pw.TextAlign.center, style: const pw.TextStyle(fontSize: 10)),
+                        pw.Text(item['note'] ?? '', style: const pw.TextStyle(fontSize: 10)),
                       ], flex: [1, 5, 2, 3]);
                     });
                   }(),
@@ -331,24 +346,90 @@ class WorkOrderPdfService {
 
                   // Section 4
                   _sectionHeader('4. รับคืนจากซ่อมภายนอก'),
-                  _buildBorderedRow([
-                    pw.Text('ผลการซ่อมครั้งที่ 1', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Row(children: [
-                      _checkbox(o1ActualReturn != null && o1Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
-                      pw.SizedBox(width: 24),
-                      _checkbox(o1ActualReturn != null && !o1Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
-                    ]),
-                    pw.Text('วันที่: ${o1ActualReturn != null ? DateFormat('dd/MM/yyyy').format(o1ActualReturn) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
-                  ], flex: [2, 5, 2]),
-                  _buildBorderedRow([
-                    pw.Text('ผลการซ่อมครั้งที่ 2', style: const pw.TextStyle(fontSize: 10)),
-                    pw.Row(children: [
-                      _checkbox(o2ActualReturn != null && o2Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
-                      pw.SizedBox(width: 24),
-                      _checkbox(o2ActualReturn != null && !o2Passed), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
-                    ]),
-                    pw.Text('วันที่: ${o2ActualReturn != null ? DateFormat('dd/MM/yyyy').format(o2ActualReturn) : '____________'}', style: const pw.TextStyle(fontSize: 10)),
-                  ], flex: [2, 5, 2]),
+                  ...() {
+                    final List<pw.Widget> resultRows = [];
+                    int globalAttempt = 1;
+                    
+                    for (final row in outsourceRows) {
+                      final actualReturn = row['actual_return_date'] != null ? DateTime.tryParse(row['actual_return_date'].toString()) : null;
+                      final notesStr = (row['notes'] ?? '').toString();
+                      final noteLines = notesStr.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+                      
+                      if (noteLines.isEmpty) {
+                        if (actualReturn != null) {
+                          final passed = row['is_passed_inspection'] == 1;
+                          resultRows.add(_buildBorderedRow([
+                            pw.Text('ผลการซ่อมครั้งที่ $globalAttempt', style: const pw.TextStyle(fontSize: 10)),
+                            pw.Row(children: [
+                              _checkbox(passed), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
+                              pw.SizedBox(width: 24),
+                              _checkbox(!passed), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
+                            ]),
+                            pw.Text('วันที่: ${DateFormat('dd/MM/yyyy').format(actualReturn)}', style: const pw.TextStyle(fontSize: 10)),
+                          ], flex: [2, 5, 2]));
+                          globalAttempt++;
+                        }
+                      } else {
+                        for (int i = 0; i < noteLines.length; i++) {
+                          final line = noteLines[i];
+                          bool isPass = line.startsWith('[ผ่าน]');
+                          bool isReject = line.startsWith('[ตีกลับ]');
+                          
+                          String dateStr = '____________';
+                          final dateMatch = RegExp(r'\[(\d{2}/\d{2}/\d{4})\]').firstMatch(line);
+                          if (dateMatch != null) {
+                            dateStr = dateMatch.group(1)!;
+                          } else if (i == noteLines.length - 1 && actualReturn != null) {
+                             dateStr = DateFormat('dd/MM/yyyy').format(actualReturn);
+                          }
+                          
+                          bool thisPass = false;
+                          bool thisReject = false;
+                          if (isPass) thisPass = true;
+                          else if (isReject) thisReject = true;
+                          else if (i == noteLines.length - 1 && actualReturn != null) {
+                             thisPass = row['is_passed_inspection'] == 1;
+                             thisReject = !thisPass;
+                          }
+
+                          String cleanNote = line.replaceFirst('[ผ่าน]', '').replaceFirst('[ตีกลับ]', '').replaceAll(RegExp(r'\[\d{2}/\d{2}/\d{4}\]'), '').trim();
+                          
+                          resultRows.add(_buildBorderedRow([
+                            pw.Text('ผลการซ่อมครั้งที่ $globalAttempt', style: const pw.TextStyle(fontSize: 10)),
+                            pw.Column(
+                              crossAxisAlignment: pw.CrossAxisAlignment.start,
+                              children: [
+                                pw.Row(children: [
+                                  _checkbox(thisPass), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
+                                  pw.SizedBox(width: 24),
+                                  _checkbox(thisReject), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
+                                ]),
+                                if (cleanNote.isNotEmpty)
+                                  pw.Padding(padding: const pw.EdgeInsets.only(top: 4), child: pw.Text('หมายเหตุ: $cleanNote', style: const pw.TextStyle(fontSize: 10))),
+                              ]
+                            ),
+                            pw.Text('วันที่: $dateStr', style: const pw.TextStyle(fontSize: 10)),
+                          ], flex: [2, 5, 2]));
+                          
+                          globalAttempt++;
+                        }
+                      }
+                    }
+                    
+                    if (resultRows.isEmpty) {
+                       resultRows.add(_buildBorderedRow([
+                         pw.Text('ผลการซ่อมครั้งที่ 1', style: const pw.TextStyle(fontSize: 10)),
+                         pw.Row(children: [
+                           _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานได้ปกติ', style: const pw.TextStyle(fontSize: 10)),
+                           pw.SizedBox(width: 24),
+                           _checkbox(false), pw.SizedBox(width: 8), pw.Text('ใช้งานไม่ได้(ส่งคืนซ่อมใหม่)', style: const pw.TextStyle(fontSize: 10)),
+                         ]),
+                         pw.Text('วันที่: ____________', style: const pw.TextStyle(fontSize: 10)),
+                       ], flex: [2, 5, 2]));
+                    }
+                    
+                    return resultRows;
+                  }(),
                   _buildBorderedRow([
                     pw.Text('ลงชื่อ ช่างซ่อมบำรุง: ${inspectorName ?? '____________'}', style: const pw.TextStyle(fontSize: 10)),
                     pw.Text('วันที่รับคืน: ${actualReturnDate != null ? DateFormat('dd/MM/yyyy').format(actualReturnDate) : '____________'}', style: const pw.TextStyle(fontSize: 10)),

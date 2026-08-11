@@ -13,6 +13,7 @@ import '../../features/work_orders/work_order_form_screen.dart';
 import '../../features/work_orders/work_order_models.dart';
 import '../../features/spare_parts/spare_parts_screen.dart';
 import '../../features/pm_am/pm_am_screen.dart';
+import '../../features/pm_am/pm_am_plan_screen.dart';
 import '../../features/work_permit/work_permit_screen.dart';
 import '../../features/workforce/workforce_screen.dart';
 import '../../features/admin/admin_screen.dart';
@@ -105,6 +106,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/pm-am',
             builder: (context, state) => const PmAmListScreen(),
+          ),
+          GoRoute(
+            path: '/pm-am-plans',
+            builder: (context, state) => const PmAmPlanScreen(),
           ),
 
           // Work Orders

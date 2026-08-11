@@ -378,6 +378,7 @@ CREATE TABLE pm_am_plans (
   estimated_hours   REAL,
   status            TEXT NOT NULL DEFAULT 'active', -- active, suspended, completed
   created_by        TEXT REFERENCES users(user_id),
+  approved_by       TEXT REFERENCES users(user_id),
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

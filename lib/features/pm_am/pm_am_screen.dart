@@ -253,6 +253,7 @@ class _PmAmListScreenState extends ConsumerState<PmAmListScreen>
                       schedules: schedules,
                       user: user,
                       onStartChecklist: _startChecklist,
+                      onDelete: user?.isAdmin == true ? _deleteSchedule : null,
                     ),
             ),
           ),
@@ -266,6 +267,48 @@ class _PmAmListScreenState extends ConsumerState<PmAmListScreen>
       context: context,
       builder: (ctx) => _ChecklistDialog(schedule: schedule),
     );
+  }
+
+  Future<void> _deleteSchedule(PmSchedule schedule) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('ยืนยันการลบ'),
+        content: Text('คุณต้องการลบแผนงาน "${schedule.planName}" ใช่หรือไม่?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('ยกเลิก'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('ลบข้อมูล'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await DbHelper.execute(
+        'DELETE FROM pm_schedules WHERE schedule_id = @id',
+        params: {'id': schedule.scheduleId},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ลบแผนงานสำเร็จ')),
+        );
+        ref.invalidate(pmSchedulesProvider);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาด: $e')),
+        );
+      }
+    }
   }
 
   void _showCreatePlan(BuildContext context) {
@@ -317,11 +360,13 @@ class _ScheduleList extends ConsumerWidget {
   final List<PmSchedule> schedules;
   final UserSession? user;
   final void Function(PmSchedule) onStartChecklist;
+  final void Function(PmSchedule)? onDelete;
 
   const _ScheduleList({
     required this.schedules,
     this.user,
     required this.onStartChecklist,
+    this.onDelete,
   });
 
   @override
@@ -472,23 +517,44 @@ class _ScheduleList extends ConsumerWidget {
                         ),
                         child: const Text('เริ่ม Checklist'),
                       ),
+                      if (onDelete != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                          onPressed: () => onDelete!(s),
+                          tooltip: 'ลบแผนงาน',
+                        ),
+                      ],
                     ],
                   )
                 else if (s.status == 'completed')
-                  IconButton(
-                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedPrinter, size: 20, color: AppColors.primary),
-                    onPressed: () {
-                      final settings = ref.read(appSettingsProvider).valueOrNull;
-                      final user = ref.read(authProvider);
-                      if (settings != null) {
-                        PmAmPdfService.generateChecklistPdf(
-                          schedule: s, 
-                          settings: settings,
-                          userName: user?.fullName ?? 'System User',
-                        );
-                      }
-                    },
-                    tooltip: 'พิมพ์ผลการตรวจ',
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedPrinter, size: 20, color: AppColors.primary),
+                        onPressed: () {
+                          final settings = ref.read(appSettingsProvider).valueOrNull;
+                          final user = ref.read(authProvider);
+                          if (settings != null) {
+                            PmAmPdfService.generateChecklistPdf(
+                              schedule: s, 
+                              settings: settings,
+                              userName: user?.fullName ?? 'System User',
+                            );
+                          }
+                        },
+                        tooltip: 'พิมพ์ผลการตรวจ',
+                      ),
+                      if (onDelete != null) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                          onPressed: () => onDelete!(s),
+                          tooltip: 'ลบแผนงาน',
+                        ),
+                      ],
+                    ],
                   )
                 else
                   const SizedBox(width: 144),

@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
 import '../settings/settings_provider.dart';
+import '../machine_intake/machine_provider.dart';
 import 'work_order_models.dart';
 import 'work_order_provider.dart';
 
@@ -134,10 +135,15 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
         }
         final attachmentsJson = currentAttachments.isNotEmpty ? jsonEncode(currentAttachments) : null;
 
+        String? snapshotId;
+        if (_workType == _WorkType.machine && _selectedMachineId != null) {
+          snapshotId = await MachineRepository().getOrCreateSnapshot(_selectedMachineId!);
+        }
         await DbHelper.execute(
           '''
           UPDATE work_orders SET 
             machine_id = @mid,
+            snapshot_id = @sid,
             title = @desc,
             description = @desc,
             failure_symptom = @sym,
@@ -149,6 +155,7 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
           params: {
             'id': createdId,
             'mid': _workType == _WorkType.machine ? _selectedMachineId : null,
+            'sid': snapshotId,
             'desc': _descCtrl.text,
             'sym': _symptomCtrl.text,
             'prio': _priority.dbValue,

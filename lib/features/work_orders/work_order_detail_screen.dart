@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hugeicons/hugeicons.dart';
@@ -177,6 +178,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ข้อมูลเครื่องจักร',
                           icon: HugeIcons.strokeRoundedSettings01,
+                          onEdit: () => context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'เครื่องจักร',
@@ -192,6 +194,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ผู้เกี่ยวข้อง',
                           icon: HugeIcons.strokeRoundedUserGroup,
+                          onEdit: () => context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'ผู้แจ้ง',
@@ -217,6 +220,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           _buildInfoCard(
                             title: 'บันทึกการซ่อม (ช่างซ่อมบำรุง)',
                             icon: HugeIcons.strokeRoundedWrench01,
+                            onEdit: () => _showEditRepairLogDialog(context, ref, wo),
                             children: [
                               if (wo.rca?.rootCause != null && wo.rca!.rootCause!.isNotEmpty)
                                 _InfoRow(
@@ -236,6 +240,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           _buildInfoCard(
                             title: 'ข้อมูลการส่งซ่อมภายนอก',
                             icon: Icons.local_shipping,
+                            onEdit: () => _showEditOutsourceDialog(context, ref, wo),
                             children: [
                               _InfoRow(
                                 label: 'ผู้รับเหมา',
@@ -249,7 +254,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               if (wo.outsource!.repairDetails != null && wo.outsource!.repairDetails!.isNotEmpty)
                                 _InfoRow(
                                   label: 'อาการ/รายการซ่อม',
-                                  value: wo.outsource!.repairDetails!,
+                                  value: _formatRepairDetailsForView(wo.outsource!.repairDetails!),
                                 ),
                               if (wo.outsource!.expectedReturnDate != null)
                                 _InfoRow(
@@ -286,6 +291,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ความสำคัญ',
                           icon: HugeIcons.strokeRoundedAlert02,
+                          onEdit: () => context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'ระดับ',
@@ -297,6 +303,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'เวลาดำเนินการ',
                           icon: HugeIcons.strokeRoundedTime04,
+                          onEdit: () => context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'เริ่มซ่อม',
@@ -316,6 +323,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'รายการอะไหล่ที่ใช้',
                           icon: Icons.inventory_2_outlined,
+                          onEdit: () => context.push('/work-orders/new', extra: wo),
                           children: [
                             // TODO: Replace with real data from spare parts module
                             const _InfoRow(
@@ -399,6 +407,24 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     );
   }
 
+  String _formatRepairDetailsForView(String details) {
+    try {
+      final decoded = jsonDecode(details);
+      if (decoded is List) {
+        return decoded.map((e) {
+          final item = e['item'] ?? '';
+          final qty = e['qty']?.toString().trim() ?? '';
+          final note = e['note']?.toString().trim() ?? '';
+          final parts = <String>[item];
+          if (qty.isNotEmpty) parts.add('($qty)');
+          if (note.isNotEmpty) parts.add('- $note');
+          return parts.join(' ');
+        }).join('\n');
+      }
+    } catch (_) {}
+    return details;
+  }
+
   String _priorityLabel(WorkOrderPriority p) {
     switch (p) {
       case WorkOrderPriority.low:
@@ -416,6 +442,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     required String title,
     required dynamic icon,
     required List<Widget> children,
+    VoidCallback? onEdit,
   }) {
     return Card(
       child: Padding(
@@ -430,6 +457,15 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                     : HugeIcon(icon: icon, color: AppColors.primary, size: 20),
                 const SizedBox(width: AppSpacing.sm),
                 Text(title, style: AppTextStyles.titleMedium),
+                const Spacer(),
+                if (onEdit != null)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 20),
+                    onPressed: onEdit,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    color: AppColors.primary,
+                  ),
               ],
             ),
             const Divider(height: AppSpacing.xl),
@@ -469,13 +505,6 @@ class WorkOrderDetailScreen extends ConsumerWidget {
 
     if (wo.status == WorkOrderStatus.approved &&
         (user?.isTechnicianOrAbove == true)) {
-      actions.add(
-        OutlinedButton(
-          onPressed: () => _showOutsourceDialog(context, ref, wo),
-          style: OutlinedButton.styleFrom(foregroundColor: AppColors.warning),
-          child: const Text('ส่งซ่อมภายนอก'),
-        ),
-      );
       actions.add(
         ElevatedButton(
           onPressed: () => _updateStatus(context, ref, wo.woId, 'start'),
@@ -838,7 +867,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     if (!context.mounted) return;
     String? selectedVendorId;
     final rootCauseCtrl = TextEditingController(text: wo.rca?.rootCause ?? '');
-    final repairCtrl = TextEditingController();
+    List<Map<String, String>> outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
     final partsCtrl = TextEditingController();
     DateTime? selectedExpectedDate;
     final formKey = GlobalKey<FormState>();
@@ -900,16 +929,69 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               : null,
                         ),
                         const SizedBox(height: AppSpacing.md),
-                        TextFormField(
-                          controller: repairCtrl,
-                          decoration: const InputDecoration(
-                            labelText: 'อาการเสีย/รายการที่ซ่อม *',
-                            border: OutlineInputBorder(),
+                        const SizedBox(height: AppSpacing.md),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('รายการที่ส่งซ่อม *', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        ...outsourceItems.asMap().entries.map((e) {
+                          final index = e.key;
+                          final item = e.value;
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: TextFormField(
+                                    initialValue: item['item'],
+                                    decoration: const InputDecoration(labelText: 'รายการ *', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['item'] = val,
+                                    validator: (v) => v == null || v.trim().isEmpty ? 'ระบุรายการ' : null,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  flex: 1,
+                                  child: TextFormField(
+                                    initialValue: item['qty'],
+                                    decoration: const InputDecoration(labelText: 'จำนวน', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['qty'] = val,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: item['note'],
+                                    decoration: const InputDecoration(labelText: 'หมายเหตุ', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['note'] = val,
+                                  ),
+                                ),
+                                if (outsourceItems.length > 1)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    onPressed: () {
+                                      setState(() => outsourceItems.removeAt(index));
+                                    },
+                                  )
+                                else
+                                  const SizedBox(width: 48),
+                              ],
+                            ),
+                          );
+                        }),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setState(() => outsourceItems.add({'item': '', 'qty': '', 'note': ''}));
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('เพิ่มรายการ'),
                           ),
-                          maxLines: 2,
-                          validator: (v) => v == null || v.trim().isEmpty
-                              ? 'กรุณาระบุรายการซ่อม'
-                              : null,
                         ),
                         const SizedBox(height: AppSpacing.md),
                         TextFormField(
@@ -979,6 +1061,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     if (result == true && context.mounted) {
       final repo = ref.read(workOrderRepositoryProvider);
 
+      final validItems = outsourceItems.where((e) => e['item']!.trim().isNotEmpty).toList();
+      final repairDetailsJson = jsonEncode(validItems);
+
       final success = await repo.outsourceWorkOrder(
         woId: woId,
         vendorName:
@@ -986,7 +1071,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                   (vendor) => vendor['supplier_id'] == selectedVendorId,
                 )['name']
                 as String,
-        repairDetails: repairCtrl.text,
+        repairDetails: repairDetailsJson,
         replacedParts: partsCtrl.text,
         rootCause: rootCauseCtrl.text,
         gatePassNo: null,
@@ -1005,6 +1090,263 @@ class WorkOrderDetailScreen extends ConsumerWidget {
             const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')),
           );
         }
+      }
+    }
+  }
+
+  Future<void> _showEditRepairLogDialog(BuildContext context, WidgetRef ref, WorkOrder wo) async {
+    final rootCauseCtrl = TextEditingController(text: wo.rca?.rootCause ?? '');
+    final correctionCtrl = TextEditingController(text: wo.closureNotes ?? '');
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('แก้ไขบันทึกการซ่อม'),
+          content: SizedBox(
+            width: 500,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: rootCauseCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'สาเหตุของปัญหา (Cause) *',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                      validator: (v) => v == null || v.trim().isEmpty ? 'กรุณาระบุสาเหตุรากเหง้า' : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      controller: correctionCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'วิธีการแก้ไข / รายละเอียดการซ่อม',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('ยกเลิก'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.of(context).pop(true);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.success,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('บันทึกข้อมูล'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true && context.mounted) {
+      final repo = ref.read(workOrderRepositoryProvider);
+      final success = await repo.updateRepairLog(wo.woId, rootCauseCtrl.text, correctionCtrl.text);
+      if (success && context.mounted) {
+        ref.invalidate(workOrderProvider(wo.woId));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('แก้ไขบันทึกการซ่อมสำเร็จ')));
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')));
+      }
+    }
+  }
+
+  Future<void> _showEditOutsourceDialog(BuildContext context, WidgetRef ref, WorkOrder wo) async {
+    final formKey = GlobalKey<FormState>();
+    List<Map<String, dynamic>> outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
+    DateTime? selectedExpectedDate = wo.outsource?.expectedReturnDate;
+    final notesCtrl = TextEditingController(text: wo.outsource?.notes ?? '');
+
+    if (wo.outsource?.repairDetails != null && wo.outsource!.repairDetails!.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(wo.outsource!.repairDetails!);
+        if (decoded is List) {
+          outsourceItems = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+          if (outsourceItems.isEmpty) outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
+        }
+      } catch (_) {}
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('แก้ไขข้อมูลการส่งซ่อมภายนอก'),
+              content: SizedBox(
+                width: 600,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text('รายการที่ส่งซ่อม', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: AppSpacing.sm),
+                        ...List.generate(outsourceItems.length, (index) {
+                          final item = outsourceItems[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: item['item'],
+                                    decoration: const InputDecoration(labelText: 'รายการ *', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['item'] = val,
+                                    validator: (v) => v == null || v.trim().isEmpty ? 'ระบุรายการ' : null,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  flex: 1,
+                                  child: TextFormField(
+                                    initialValue: item['qty'],
+                                    decoration: const InputDecoration(labelText: 'จำนวน', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['qty'] = val,
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                  flex: 2,
+                                  child: TextFormField(
+                                    initialValue: item['note'],
+                                    decoration: const InputDecoration(labelText: 'หมายเหตุ', border: OutlineInputBorder()),
+                                    onChanged: (val) => item['note'] = val,
+                                  ),
+                                ),
+                                if (outsourceItems.length > 1)
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    onPressed: () {
+                                      setState(() => outsourceItems.removeAt(index));
+                                    },
+                                  )
+                                else
+                                  const SizedBox(width: 48),
+                              ],
+                            ),
+                          );
+                        }),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              setState(() => outsourceItems.add({'item': '', 'qty': '', 'note': ''}));
+                            },
+                            icon: const Icon(Icons.add, size: 18),
+                            label: const Text('เพิ่มรายการ'),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        InkWell(
+                          onTap: () async {
+                            final date = await showDatePicker(
+                              context: context,
+                              initialDate: selectedExpectedDate ?? DateTime.now(),
+                              firstDate: DateTime.now().subtract(const Duration(days: 30)),
+                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (date != null) {
+                              setState(() => selectedExpectedDate = date);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'วันที่คาดว่าจะเสร็จ',
+                              border: OutlineInputBorder(),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  selectedExpectedDate != null
+                                      ? DateFormat('dd MMM yyyy', 'th').format(selectedExpectedDate!)
+                                      : 'ยังไม่กำหนด',
+                                ),
+                                const Icon(Icons.calendar_today, size: 18),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        TextFormField(
+                          controller: notesCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'หมายเหตุเพิ่มเติม',
+                            border: OutlineInputBorder(),
+                          ),
+                          maxLines: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (formKey.currentState!.validate()) {
+                      Navigator.of(context).pop(true);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.success,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('บันทึกข้อมูล'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && context.mounted && wo.outsource?.outsourceId != null) {
+      final repo = ref.read(workOrderRepositoryProvider);
+      final validItems = outsourceItems.where((e) => e['item']!.trim().isNotEmpty).toList();
+      final repairDetailsJson = jsonEncode(validItems);
+
+      final success = await repo.updateOutsourceInfo(
+        wo.outsource!.outsourceId,
+        repairDetailsJson,
+        selectedExpectedDate,
+        notesCtrl.text,
+      );
+
+      if (success && context.mounted) {
+        ref.invalidate(workOrderProvider(wo.woId));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('แก้ไขข้อมูลส่งซ่อมสำเร็จ')));
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')));
       }
     }
   }

@@ -287,6 +287,13 @@ class DbInitializer {
           );
         }
 
+        // 10. Check for approved_by in pm_am_plans
+        final pmAmPlansTableInfo = await db.rawQuery('PRAGMA table_info(pm_am_plans)');
+        if (!pmAmPlansTableInfo.any((col) => col['name'] == 'approved_by')) {
+          _log.i('Migration: Adding approved_by to pm_am_plans...');
+          await db.execute('ALTER TABLE pm_am_plans ADD COLUMN approved_by TEXT REFERENCES users(user_id)');
+        }
+
         // 9. Make machine_id nullable in work_orders
         final woTableInfo3 = await db.rawQuery(
           'PRAGMA table_info(work_orders)',
