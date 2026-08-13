@@ -458,7 +458,7 @@ class PmAmPdfService {
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              _signatureBox('ผู้ปฏิบัติงาน'),
+              _signatureBox('ผู้ปฏิบัติงาน', name: schedule.assignedToName),
               pw.Column(
                 children: [
                   pw.Container(width: 150, decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide()))),
@@ -476,6 +476,134 @@ class PmAmPdfService {
 
     final output = await getTemporaryDirectory();
     final file = File("${output.path}/Checklist_${schedule.planCode}_${DateFormat('yyyyMMdd').format(schedule.scheduledDate)}.pdf");
+    await file.writeAsBytes(await pdf.save());
+    await OpenFilex.open(file.path);
+  }
+
+  static Future<void> generateMultipleChecklistsPdf({
+    required List<PmSchedule> schedules,
+    required AppSettingsState settings,
+    required String userName,
+  }) async {
+    if (schedules.isEmpty) return;
+
+    final pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: await PdfGoogleFonts.sarabunRegular(),
+        bold: await PdfGoogleFonts.sarabunBold(),
+      ),
+    );
+
+    final logoBase64 = settings.get(AppSettingKeys.orgLogo);
+    final docRef = settings.get(AppSettingKeys.docPmAmRef, defaultValue: 'F-MA-16 Rev1');
+    final companyName = settings.get(AppSettingKeys.orgName, defaultValue: 'โรงงานของเรา');
+
+    pw.MemoryImage? logoImage;
+    if (logoBase64.isNotEmpty) {
+      try {
+        logoImage = pw.MemoryImage(base64Decode(logoBase64));
+      } catch (e) {
+        debugPrint('Logo decode error: $e');
+      }
+    }
+
+    // Combine headers
+    final types = schedules.map((e) => e.planType).toSet().join('/');
+    final machines = schedules.map((e) => e.machineNo).toSet().join(', ');
+    final planNames = schedules.map((e) => e.planName).toSet().join(', ');
+    final assignees = schedules.map((e) => e.assignedToName ?? '-').where((e) => e != '-').toSet().join(', ');
+    final assigneeText = assignees.isEmpty ? '-' : assignees;
+    final dates = schedules.map((e) => DateFormat('dd/MM/yyyy').format(e.scheduledDate)).toSet().join(', ');
+
+    // Combine tasks
+    final List<Map<String, dynamic>> allTasks = [];
+    for (var schedule in schedules) {
+      final tasks = await DbHelper.query(
+        'SELECT * FROM pm_am_tasks WHERE plan_id = @pid ORDER BY task_order',
+        params: {'pid': schedule.planId},
+      );
+      // Optional: if plan names are different, we can prepend it, but user just wants them merged.
+      allTasks.addAll(tasks);
+    }
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(30),
+        header: (context) => pw.Column(
+          children: [
+            pw.Row(
+              children: [
+                if (logoImage != null)
+                  pw.Container(height: 40, child: pw.Image(logoImage)),
+                pw.SizedBox(width: 15),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'CHECKLIST: $types',
+                      style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(companyName, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+                  ],
+                ),
+              ],
+            ),
+            pw.SizedBox(height: 5),
+            pw.Divider(thickness: 2),
+            pw.SizedBox(height: 10),
+          ],
+        ),
+        footer: (context) => pw.Container(
+          alignment: pw.Alignment.centerRight,
+          margin: const pw.EdgeInsets.only(top: 20),
+          child: pw.Text('$docRef | หน้า ${context.pageNumber} ของ ${context.pagesCount}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+        ),
+        build: (context) => [
+          pw.Row(
+            children: [
+              pw.Expanded(
+                child: _infoItem('ชื่อแผน', planNames),
+              ),
+              pw.Expanded(
+                child: _infoItem('เครื่องจักร', machines),
+              ),
+            ],
+          ),
+          pw.Row(
+            children: [
+              pw.Expanded(
+                child: _infoItem('วันที่กำหนด', dates),
+              ),
+              pw.Expanded(
+                child: _infoItem('ผู้รับผิดชอบ', assigneeText),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 20),
+          _buildTaskTable(allTasks),
+          pw.SizedBox(height: 30),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              _signatureBox('ผู้ปฏิบัติงาน', name: assignees.isEmpty ? null : assignees),
+              pw.Column(
+                children: [
+                  pw.Container(width: 150, decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide()))),
+                  pw.SizedBox(height: 5),
+                  pw.Text(userName, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                  pw.Text('ผู้ตรวจสอบ / หัวหน้างาน', style: const pw.TextStyle(fontSize: 8)),
+                  pw.Text(DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now()), style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600)),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    final output = await getTemporaryDirectory();
+    final file = File("${output.path}/Bulk_Checklists_${DateFormat('yyyyMMdd_HHmmss').format(DateTime.now())}.pdf");
     await file.writeAsBytes(await pdf.save());
     await OpenFilex.open(file.path);
   }
@@ -500,7 +628,7 @@ class PmAmPdfService {
       columnWidths: {
         0: const pw.FixedColumnWidth(30),
         1: const pw.FlexColumnWidth(),
-        2: const pw.FixedColumnWidth(60),
+        2: const pw.FixedColumnWidth(100),
         3: const pw.FixedColumnWidth(80),
         4: const pw.FixedColumnWidth(100),
       },
@@ -510,7 +638,7 @@ class PmAmPdfService {
           children: [
             _cell('No.', bold: true),
             _cell('รายการตรวจสอบ / งาน', bold: true),
-            _cell('ประเภท', bold: true),
+            _cell('มาตรฐานการตรวจ', bold: true),
             _cell('ผลการตรวจ', bold: true),
             _cell('หมายเหตุ / ค่าที่วัดได้', bold: true),
           ],
@@ -522,7 +650,7 @@ class PmAmPdfService {
             children: [
               _cell('${i + 1}'),
               _cell(t['task_name'] as String? ?? '-'),
-              _cell(t['task_type']?.toString().toUpperCase() ?? '-'),
+              _cell(t['expected_result']?.toString() ?? '-'),
               _cell(' [  ] P  [  ] F'),
               _cell(''),
             ],

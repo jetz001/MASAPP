@@ -432,6 +432,15 @@ class DbInitializer {
           );
         }
 
+        // 11. Add attachments to pm_am_schedules (Added 2026-08)
+        final pmSchedulesInfo = await db.rawQuery('PRAGMA table_info(pm_am_schedules)');
+        if (!pmSchedulesInfo.any((col) => col['name'] == 'attachments')) {
+          _log.i('Migration: Adding attachments to pm_am_schedules...');
+          await db.execute(
+            'ALTER TABLE pm_am_schedules ADD COLUMN attachments TEXT',
+          );
+        }
+
         // 10. Add usage_logs table
         final usageLogsTable = await db.query(
           'sqlite_master',
