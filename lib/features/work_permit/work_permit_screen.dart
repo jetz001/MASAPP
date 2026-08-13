@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
@@ -757,10 +757,10 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
     List<Map<String, dynamic>> results = [];
     if (refType == 'wo') {
       results = await DbHelper.query(
-          "SELECT wo_id as id, wo_no as title, description as subtitle FROM work_orders WHERE status IN ('pending', 'in_progress') ORDER BY created_at DESC");
+          "SELECT w.wo_id as id, w.wo_no as title, w.description as subtitle, m.machine_name, m.machine_no FROM work_orders w LEFT JOIN machines m ON w.machine_id = m.machine_id WHERE w.status IN ('pending', 'in_progress') ORDER BY w.created_at DESC");
     } else if (refType == 'pm') {
       results = await DbHelper.query(
-          "SELECT plan_id as id, plan_code as title, plan_name as subtitle FROM pm_am_plans WHERE status = 'active'");
+          "SELECT p.plan_id as id, p.plan_code as title, p.plan_name as subtitle, m.machine_name, m.machine_no FROM pm_am_plans p LEFT JOIN machines m ON p.machine_id = m.machine_id WHERE p.status = 'active'");
     }
     setState(() {
       _refOptions = results;
@@ -857,7 +857,32 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
                     child: Text('${opt['title']} - ${opt['subtitle']}'),
                   );
                 }).toList(),
-                onChanged: (val) => setState(() => _selectedRefId = val),
+                onChanged: (val) {
+                  setState(() => _selectedRefId = val);
+                  if (val != null) {
+                    final opt = _refOptions.firstWhere(
+                        (o) => o['id'].toString() == val,
+                        orElse: () => <String, dynamic>{});
+                    if (opt.isNotEmpty) {
+                      String desc = '';
+                      if (_refType == 'pm') {
+                        desc = 'งาน PM/AM อ้างอิงแผน: ${opt['title']}\nหัวข้อ: ${opt['subtitle']}';
+                      } else if (_refType == 'wo') {
+                        desc = 'อ้างอิงใบแจ้งซ่อม: ${opt['title']}\nปัญหา: ${opt['subtitle']}';
+                      }
+                      
+                      final String? mNo = opt['machine_no']?.toString();
+                      final String? mName = opt['machine_name']?.toString();
+                      if (mNo != null || mName != null) {
+                        desc += '\nเครื่องจักร: ${mNo ?? ''} ${mName ?? ''}'.trim();
+                      }
+                      
+                      setState(() {
+                         _descCtrl.text = desc;
+                      });
+                    }
+                  }
+                },
               ),
             ],
             const SizedBox(height: 16),
