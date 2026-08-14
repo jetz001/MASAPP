@@ -1519,7 +1519,6 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-
 class _WorkOrderPartsCard extends ConsumerWidget {
   final String woId;
 
@@ -1546,13 +1545,13 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                 Icon(Icons.inventory_2_outlined, size: 20, color: AppColors.primary),
                 const SizedBox(width: AppSpacing.sm),
                 const Text(
-                  '√“¬°“√Õ–‰À≈Ë∑’Ë„™È',
+                  '‡∏£‡∏≤‡∏¢‡∏Å‡∏≤‡∏£‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà‡∏ó‡∏µ‡πà‡πÉ‡∏ä‡πâ',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.add_circle_outline, size: 20, color: AppColors.primary),
-                  tooltip: '‡∫‘°Õ–‰À≈Ë‡æ‘Ë¡',
+                  tooltip: '‡πÄ‡∏ö‡∏¥‡∏Å‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà‡πÄ‡∏û‡∏¥‡πà‡∏°',
                   onPressed: () async {
                     final res = await showDialog(
                       context: context,
@@ -1565,7 +1564,7 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                 ),
                 IconButton(
                   icon: const Icon(Icons.print_outlined, size: 20),
-                  tooltip: 'æ‘¡æÏ„∫‡∫‘°Õ–‰À≈Ë',
+                  tooltip: '‡∏û‡∏¥‡∏°‡∏û‡πå‡πÉ‡∏ö‡πÄ‡∏ö‡∏¥‡∏Å‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà',
                   onPressed: () {
                     WorkOrderPdfService.generateSparePartRequisition(woId: woId);
                   },
@@ -1583,7 +1582,7 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                 if (parts.isEmpty) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text('¬—ß‰¡Ë¡’°“√‡∫‘°Õ–‰À≈Ë', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                    child: Text('‡∏¢‡∏±‡∏á‡πÑ‡∏°‡πà‡∏°‡∏µ‡∏Å‡∏≤‡∏£‡πÄ‡∏ö‡∏¥‡∏Å‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
                   );
                 }
                 return Column(
@@ -1599,25 +1598,25 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('$index. ${p.partName ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                Text('(${p.partCode ?? '-'})', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                Text('$index. ${p.partName ?? "-"}', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                Text('(${p.partCode ?? "-"})', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
                               ],
                             ),
                           ),
-                          Text('${p.quantity} ™‘Èπ', style: const TextStyle(fontWeight: FontWeight.w500)),
+                          Text('${p.quantity} ‡∏ä‡∏¥‡πâ‡∏ô', style: const TextStyle(fontWeight: FontWeight.w500)),
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
                               final confirm = await showDialog<bool>(
                                 context: context,
                                 builder: (c) => AlertDialog(
-                                  title: const Text('¬◊π¬—π°“√§◊πÕ–‰À≈Ë?'),
-                                  content: Text('§ÿ≥µÈÕß°“√§◊π ${p.partName} ®”π«π ${p.quantity} ™‘Èπ °≈—∫‡¢È“§≈—ß„™ËÀ√◊Õ‰¡Ë?'),
+                                  title: const Text('‡∏¢‡∏∑‡∏ô‡∏¢‡∏±‡∏ô‡∏Å‡∏≤‡∏£‡∏Ñ‡∏∑‡∏ô‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà?'),
+                                  content: Text('‡∏Ñ‡∏∏‡∏ì‡∏ï‡πâ‡∏≠‡∏á‡∏Å‡∏≤‡∏£‡∏Ñ‡∏∑‡∏ô ${p.partName} ‡∏à‡∏≥‡∏ô‡∏ß‡∏ô ${p.quantity} ‡∏ä‡∏¥‡πâ‡∏ô ‡∏Å‡∏•‡∏±‡∏ö‡πÄ‡∏Ç‡πâ‡∏≤‡∏Ñ‡∏•‡∏±‡∏á‡πÉ‡∏ä‡πà‡∏´‡∏£‡∏∑‡∏≠‡πÑ‡∏°‡πà?'),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('¬°‡≈‘°')),
+                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('‡∏¢‡∏Å‡πÄ‡∏•‡∏¥‡∏Å')),
                                     TextButton(
                                       onPressed: () => Navigator.pop(c, true), 
-                                      child: const Text('¬◊π¬—π§◊πÕ–‰À≈Ë', style: TextStyle(color: Colors.red)),
+                                      child: const Text('‡∏¢‡∏∑‡∏ô‡∏¢‡∏±‡∏ô‡∏Ñ‡∏∑‡∏ô‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà', style: TextStyle(color: Colors.red)),
                                     ),
                                   ],
                                 ),
@@ -1628,7 +1627,7 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                                   ref.invalidate(workOrderPartsProvider(woId));
                                 } else {
                                   if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('‡°‘¥¢ÈÕº‘¥æ≈“¥„π°“√§◊πÕ–‰À≈Ë')));
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('‡πÄ‡∏Å‡∏¥‡∏î‡∏Ç‡πâ‡∏≠‡∏ú‡∏¥‡∏î‡∏û‡∏•‡∏≤‡∏î‡πÉ‡∏ô‡∏Å‡∏≤‡∏£‡∏Ñ‡∏∑‡∏ô‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà')));
                                   }
                                 }
                               }
@@ -1648,3 +1647,5 @@ class _WorkOrderPartsCard extends ConsumerWidget {
     );
   }
 }
+
+
