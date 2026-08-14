@@ -113,6 +113,28 @@ class DbInitializer {
             'ALTER TABLE suppliers ADD COLUMN service_scope TEXT',
           );
         }
+
+        // 6. Create handover_attachments if not exists
+        final haTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'handover_attachments'],
+        );
+        if (haTable.isEmpty) {
+          _log.i('Migration: Creating handover_attachments table...');
+          await db.execute('''
+            CREATE TABLE handover_attachments (
+              attachment_id TEXT PRIMARY KEY,
+              handover_id   TEXT NOT NULL REFERENCES machine_handover(handover_id) ON DELETE CASCADE,
+              file_name     TEXT NOT NULL,
+              file_path     TEXT NOT NULL,
+              file_size     INTEGER,
+              mime_type     TEXT,
+              uploaded_by   TEXT REFERENCES users(user_id),
+              uploaded_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
         if (!supplierTableInfo.any((col) => col['name'] == 'vendor_type')) {
           _log.i('Migration: Adding vendor_type to suppliers...');
           await db.execute(
@@ -334,8 +356,9 @@ class DbInitializer {
               attachments       TEXT
             )
           ''');
+          final oldCols = woTableInfo3.map((c) => c['name'] as String).join(', ');
           await db.execute(
-            'INSERT INTO work_orders SELECT * FROM work_orders_old;',
+            'INSERT INTO work_orders ($oldCols) SELECT $oldCols FROM work_orders_old;',
           );
           await db.execute('DROP TABLE work_orders_old;');
           await db.execute(

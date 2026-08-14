@@ -257,6 +257,7 @@ class MachineModel {
       stage1: stage1 ?? this.stage1,
       stage2: stage2 ?? this.stage2,
       stage3: stage3 ?? this.stage3,
+      stage3Status: this.stage3Status,
       totalRunningHours: totalRunningHours,
       attachments: attachments ?? this.attachments,
     );

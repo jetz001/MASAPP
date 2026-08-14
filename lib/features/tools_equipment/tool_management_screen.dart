@@ -198,7 +198,13 @@ class _ToolRow extends ConsumerWidget {
             flex: 2, 
             child: Row(
               children: [
-                Text(tool.toolCode, style: const TextStyle(fontWeight: FontWeight.w500)),
+                Flexible(
+                  child: Text(
+                    tool.toolCode, 
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
                 if (tool.imagePath != null && tool.imagePath!.isNotEmpty) ...[
                   const SizedBox(width: 4),
                   HoverImageTooltip(imagePath: tool.imagePath),

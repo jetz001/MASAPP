@@ -5,6 +5,8 @@ import '../../core/config/app_config.dart';
 import '../../core/database/db_connection.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/utils/crypto_utils.dart';
+import '../../core/auth/auth_service.dart';
+import '../../core/auth/rbac_models.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model
@@ -105,7 +107,7 @@ class AuthNotifier extends StateNotifier<UserSession?> {
 
       final row = await DbHelper.queryOne(
         '''
-        SELECT user_id, username, full_name, role, dept_id, is_active, password_hash, theme_preference
+        SELECT *
         FROM users
         WHERE LOWER(username) = LOWER(@username)
         ''',
@@ -162,6 +164,9 @@ class AuthNotifier extends StateNotifier<UserSession?> {
         params: {'uid': row['user_id']},
       );
 
+      // Sync the core AuthService so that background repositories (e.g. WorkOrderRepository) have access to the current user
+      AuthService.setCurrentUser(User.fromMap(row));
+
       state = UserSession(
         userId: row['user_id'].toString(),
         username: row['username'].toString(),
@@ -196,6 +201,7 @@ class AuthNotifier extends StateNotifier<UserSession?> {
         );
       } catch (_) {}
     }
+    AuthService.setCurrentUser(null);
     state = null;
   }
 }

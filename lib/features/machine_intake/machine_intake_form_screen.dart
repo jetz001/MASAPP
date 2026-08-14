@@ -681,6 +681,7 @@ class _MachineIntakeFormScreenState
           }
         });
         ref.invalidate(dashboardStatsProvider);
+        ref.invalidate(machineListProvider);
       }
     } catch (e) {
       _log.e('Error in _saveStage: $e');
@@ -1429,7 +1430,7 @@ class _MachineIntakeFormScreenState
                 setState(() => _saving = true);
                 if (_currentStep == 5 && ref.read(authProvider)?.isEngineerOrAbove == true) {
                   await _saveStage(5, moveToNext: false);
-                  _showApprovalDialog();
+                  _showApprovalDialog(isApprover: true);
                 } else {
                   await _saveStage(_currentStep, moveToNext: true);
                 }
@@ -1468,12 +1469,13 @@ class _MachineIntakeFormScreenState
     );
   }
 
-  void _showApprovalDialog() async {
+  void _showApprovalDialog({bool isApprover = false}) async {
     final success = await showDialog<bool>(
       context: context,
       builder: (ctx) => ApprovalDialog(
         machineId: _savedMachineId!,
         title: _isReceivedMachine ? 'การขออนุมัติใหม่ (Re-approval)' : 'การอนุมัติขั้นตอนสุดท้าย (Stage 3)',
+        isApprover: isApprover,
       ),
     );
     if (success == true) {
@@ -1481,6 +1483,8 @@ class _MachineIntakeFormScreenState
         setState(() {
           _currentStep = 6; // Move to completion
         });
+        ref.invalidate(dashboardStatsProvider);
+        ref.invalidate(machineListProvider);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('อนุมัติเรียบร้อยแล้ว')),
         );

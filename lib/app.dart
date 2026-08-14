@@ -9,6 +9,7 @@ import 'core/theme/theme_provider.dart';
 import 'package:circular_theme_reveal/circular_theme_reveal.dart';
 
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'core/theme/ui_scale_provider.dart';
 import 'core/widgets/window_title_bar.dart';
 
@@ -56,10 +57,12 @@ class _MasAppState extends ConsumerState<MasApp> {
       theme: ShadThemeData(
         brightness: Brightness.light,
         colorScheme: const ShadSlateColorScheme.light(),
+        textTheme: ShadTextTheme.fromGoogleFont(GoogleFonts.prompt),
       ),
       darkTheme: ShadThemeData(
         brightness: Brightness.dark,
         colorScheme: const ShadSlateColorScheme.dark(),
+        textTheme: ShadTextTheme.fromGoogleFont(GoogleFonts.prompt),
       ),
       themeMode: themeMode,
       debugShowCheckedModeBanner: false,

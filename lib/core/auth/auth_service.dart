@@ -18,6 +18,10 @@ class AuthService {
   /// Get currently logged-in user
   static User? get currentUser => _currentUser;
   static UserSession? get currentSession => _currentSession;
+  
+  static void setCurrentUser(User? user) {
+    _currentUser = user;
+  }
 
   /// Hash password using SHA-256
   static String hashPassword(String password) {

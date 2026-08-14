@@ -164,6 +164,11 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
         );
       } else {
         // Insert new
+        final user = ref.read(authProvider);
+        if (user == null) {
+          throw Exception('ไม่พบข้อมูลผู้ใช้งาน (Session Expired)');
+        }
+        
         createdId = await WorkOrderRepository().createWorkOrder(
           machineId: _workType == _WorkType.machine ? _selectedMachineId! : '',
           machineNo: _workType == _WorkType.machine ? _selectedMachineId! : '', // createWorkOrder will get proper snapshot
@@ -171,6 +176,7 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
           failureSymptom: _symptomCtrl.text,
           priority: _priority,
           attachments: _attachments,
+          userId: user.userId,
         );
       }
 

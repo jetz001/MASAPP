@@ -9,6 +9,7 @@ import '../../features/auth/auth_provider.dart';
 import '../../core/utils/crypto_utils.dart';
 import 'package:intl/intl.dart';
 import '../settings/settings_provider.dart';
+import '../machine_intake/widgets/pin_keypad.dart';
 import 'work_permit_pdf_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,11 +283,12 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
   }
 
   void _showApproveDialog(BuildContext context, WorkPermit permit) {
-    final pinCtrl = TextEditingController();
     final remarksCtrl = TextEditingController();
     
     final equipmentOptions = _getEquipmentOptions(permit.permitType);
     final selectedEquipments = <String>{};
+    String? errorMessage;
+    String pin = '';
 
     showDialog(
       context: context,
@@ -339,16 +341,60 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
                       maxLines: 2,
                     ),
                     const SizedBox(height: 20),
-                    TextField(
-                      controller: pinCtrl,
-                      obscureText: true,
-                      maxLength: 4,
-                      decoration: const InputDecoration(
-                        labelText: 'กรอก PIN อนุมัติ (จป./วิศวกร)',
-                        hintText: '••••',
-                        prefixIcon: Icon(Icons.pin_rounded),
+                    if (errorMessage != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8.0),
+                        child: Text(
+                          errorMessage!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontSize: 14,
+                          ),
+                        ),
                       ),
-                      keyboardType: TextInputType.number,
+                    Center(
+                      child: Text(
+                        'กรุณาใส่รหัส PIN อนุมัติ (จป./วิศวกร)',
+                        style: AppTextStyles.bodyMedium,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(4, (index) {
+                        final hasChar = index < pin.length;
+                        return Container(
+                          width: 16,
+                          height: 16,
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: hasChar 
+                              ? AppColors.primary 
+                              : Theme.of(context).dividerColor,
+                          ),
+                        );
+                      }),
+                    ),
+                    const SizedBox(height: 24),
+                    PinKeypad(
+                      onKeyTap: (key) {
+                        if (pin.length < 4) {
+                          setState(() {
+                            pin += key;
+                            errorMessage = null;
+                          });
+                        }
+                      },
+                      onBackspace: () {
+                        if (pin.isNotEmpty) {
+                          setState(() {
+                            pin = pin.substring(0, pin.length - 1);
+                            errorMessage = null;
+                          });
+                        }
+                      },
+                      activeColor: AppColors.primary,
                     ),
                   ],
                 ),
@@ -360,7 +406,12 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
                   child: const Text('ยกเลิก')),
               ElevatedButton(
                 onPressed: () async {
-                  if (pinCtrl.text.length < 4) return;
+                  if (pin.length < 4) {
+                    setState(() {
+                      errorMessage = 'กรุณากรอก PIN ให้ครบ 4 หลัก';
+                    });
+                    return;
+                  }
                   
                   // 1. Verify PIN
                   final currentUser = ref.read(authProvider);
@@ -372,12 +423,10 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
                   );
                   
                   final storedHash = userData?['approval_pin_hash'] as String?;
-                  if (storedHash == null || !CryptoUtils.verifyPassword(pinCtrl.text, storedHash)) {
-                    if (ctx.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('รหัส PIN ไม่ถูกต้อง')),
-                      );
-                    }
+                  if (storedHash == null || !CryptoUtils.verifyPassword(pin, storedHash)) {
+                    setState(() {
+                      errorMessage = 'รหัส PIN ไม่ถูกต้อง หรือยังไม่ได้ตั้งค่ารหัส PIN';
+                    });
                     return;
                   }
 

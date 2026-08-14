@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../settings/settings_provider.dart';
 import 'auth_provider.dart';
 import 'db_setup_screen.dart';
 
@@ -298,25 +300,71 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF1D4ED8).withValues(alpha: 0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.precision_manufacturing_rounded, color: Colors.white, size: 40),
+              Consumer(
+                builder: (context, ref, child) {
+                  final settings = ref.watch(appSettingsProvider).valueOrNull;
+                  final orgLogo = settings?.get(AppSettingKeys.orgLogo) ?? '';
+                  
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF1D4ED8).withValues(alpha: 0.3),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: orgLogo.isNotEmpty
+                                ? Image.memory(
+                                    base64Decode(orgLogo),
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (context, error, stackTrace) => 
+                                        Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                                  )
+                                : Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                          ),
+                        ),
+                      ),
+                      if (orgLogo.isNotEmpty)
+                        Positioned(
+                          bottom: -6,
+                          right: -6,
+                          child: Container(
+                            width: 28,
+                            height: 28,
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.2),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                              border: Border.all(color: const Color(0xFF1D4ED8), width: 1.5),
+                            ),
+                            child: ClipOval(
+                              child: Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 32),
               Text(

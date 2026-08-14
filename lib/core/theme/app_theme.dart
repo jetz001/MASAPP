@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'app_colors.dart';
 
@@ -29,7 +28,7 @@ class AppTheme {
       visualDensity: FlexColorScheme.comfortablePlatformDensity,
       useMaterial3: true,
       swapLegacyOnMaterial3: true,
-      fontFamily: GoogleFonts.inter().fontFamily,
+      fontFamily: 'Prompt',
     );
   }
 
@@ -64,7 +63,7 @@ class AppTheme {
       visualDensity: FlexColorScheme.comfortablePlatformDensity,
       useMaterial3: true,
       swapLegacyOnMaterial3: true,
-      fontFamily: GoogleFonts.inter().fontFamily,
+      fontFamily: 'Prompt',
       scaffoldBackground: AppColors.bgBase,
     );
   }

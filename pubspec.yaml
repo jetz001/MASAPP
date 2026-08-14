@@ -84,3 +84,11 @@ flutter:
     - assets/fonts/
     - db/schema_sqlite.sql
     - db/seed_sqlite.sql
+  fonts:
+    - family: Prompt
+      fonts:
+        - asset: assets/fonts/Prompt/Prompt-Regular.ttf
+        - asset: assets/fonts/Prompt/Prompt-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Prompt/Prompt-Bold.ttf
+          weight: 700

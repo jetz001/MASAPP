@@ -205,6 +205,17 @@ CREATE TABLE handover_checklist_results (
   checked_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE handover_attachments (
+  attachment_id TEXT PRIMARY KEY,
+  handover_id   TEXT NOT NULL REFERENCES machine_handover(handover_id) ON DELETE CASCADE,
+  file_name     TEXT NOT NULL,
+  file_path     TEXT NOT NULL,
+  file_size     INTEGER,
+  mime_type     TEXT,
+  uploaded_by   TEXT REFERENCES users(user_id),
+  uploaded_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE machine_snapshots (
   snapshot_id   TEXT PRIMARY KEY,
   machine_id    TEXT NOT NULL,

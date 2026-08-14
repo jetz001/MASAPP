@@ -37,10 +37,10 @@ class WorkOrderRepository {
     required WorkOrderPriority priority,
     double? estimatedHours,
     List<String>? attachments,
+    required String userId, // Added parameter
   }) async {
     final woId = uuid.v4();
     final woNo = await getNextWoNo();
-    final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
     final now = DateTime.now().toIso8601String();
 
     // 1. Get/Create Machine Snapshot (Clone to Dummy)

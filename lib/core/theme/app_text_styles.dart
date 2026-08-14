@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get _base => GoogleFonts.inter();
+  static TextStyle get _base => GoogleFonts.prompt();
 
   // Display
   static TextStyle get displayLarge => _base.copyWith(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5);
