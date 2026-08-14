@@ -577,21 +577,28 @@ class _TopBarButton extends StatelessWidget {
           ),
           if (badge != null)
             Positioned(
-              right: 6,
-              top: 6,
+              right: 2,
+              top: 2,
               child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(
+                constraints: const BoxConstraints(
+                  minWidth: 18,
+                  minHeight: 18,
+                ),
+                decoration: BoxDecoration(
                   color: AppColors.error,
                   shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.5),
                 ),
+                alignment: Alignment.center,
                 child: Text(
                   badge!,
                   style: const TextStyle(
-                    fontSize: 9,
+                    fontSize: 10,
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
+                    height: 1,
                   ),
+                  textAlign: TextAlign.center,
                 ),
               ),
             ),
