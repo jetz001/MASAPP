@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../spare_parts/spare_parts_screen.dart';
+import '../../machine_intake/machine_provider.dart';
 import '../work_order_provider.dart';
 
 class AddWoPartDialog extends ConsumerStatefulWidget {
   final String woId;
+  final String machineId;
 
-  const AddWoPartDialog({super.key, required this.woId});
+  const AddWoPartDialog({super.key, required this.woId, required this.machineId});
 
   @override
   ConsumerState<AddWoPartDialog> createState() => _AddWoPartDialogState();
@@ -25,7 +27,7 @@ class _AddWoPartDialogState extends ConsumerState<AddWoPartDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final partsAsync = ref.watch(sparePartsProvider(_searchQuery.isEmpty ? null : _searchQuery));
+    final partsAsync = ref.watch(machineBomProvider(widget.machineId));
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -57,8 +59,23 @@ class _AddWoPartDialogState extends ConsumerState<AddWoPartDialog> {
                 child: partsAsync.when(
                   loading: () => const Center(child: CircularProgressIndicator()),
                   error: (e, st) => Center(child: Text('Error: $e')),
-                  data: (parts) {
-                    if (parts.isEmpty) return const Center(child: Text('ไม่พบรายการอะไหล่'));
+                  data: (allParts) {
+                    final parts = allParts.where((p) {
+                      if (_searchQuery.isEmpty) return true;
+                      final q = _searchQuery.toLowerCase();
+                      return (p.partCode.toLowerCase().contains(q)) || 
+                             (p.partName.toLowerCase().contains(q));
+                    }).toList();
+
+                    if (parts.isEmpty) {
+                      return Center(
+                        child: Text(
+                          allParts.isEmpty 
+                              ? 'เครื่องจักรนี้ยังไม่ได้ลงทะเบียน BOM (รายการอะไหล่ประจำเครื่อง)' 
+                              : 'ไม่พบรายการอะไหล่ใน BOM ที่ค้นหา'
+                        )
+                      );
+                    }
                     return ListView.separated(
                       itemCount: parts.length,
                       separatorBuilder: (context, index) => const Divider(height: 1),

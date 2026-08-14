@@ -321,7 +321,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           ],
                         ),
                         const SizedBox(height: AppSpacing.lg),
-                        _WorkOrderPartsCard(woId: wo.woId),
+                        _WorkOrderPartsCard(woId: wo.woId, machineId: wo.machineId),
                       ],
                     ),
                   ),
@@ -1521,8 +1521,9 @@ class _InfoRow extends StatelessWidget {
 
 class _WorkOrderPartsCard extends ConsumerWidget {
   final String woId;
+  final String? machineId;
 
-  const _WorkOrderPartsCard({required this.woId});
+  const _WorkOrderPartsCard({required this.woId, this.machineId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1553,9 +1554,15 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                   icon: const Icon(Icons.add_circle_outline, size: 20, color: AppColors.primary),
                   tooltip: 'เบิกอะไหล่เพิ่ม',
                   onPressed: () async {
+                    if (machineId == null || machineId!.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('กรุณาระบุเครื่องจักรในใบแจ้งซ่อมก่อนเบิกอะไหล่')),
+                      );
+                      return;
+                    }
                     final res = await showDialog(
                       context: context,
-                      builder: (c) => AddWoPartDialog(woId: woId),
+                      builder: (c) => AddWoPartDialog(woId: woId, machineId: machineId!),
                     );
                     if (res == true) {
                       ref.invalidate(workOrderPartsProvider(woId));
