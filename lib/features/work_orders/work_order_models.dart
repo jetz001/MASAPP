@@ -450,3 +450,35 @@ class WorkOrderOutsource {
     );
   }
 }
+
+class WorkOrderPart {
+  final String woPartId;
+  final String woId;
+  final String partId;
+  final String? partName;
+  final String? partCode;
+  final double quantity;
+  final DateTime? createdAt;
+
+  WorkOrderPart({
+    required this.woPartId,
+    required this.woId,
+    required this.partId,
+    this.partName,
+    this.partCode,
+    required this.quantity,
+    this.createdAt,
+  });
+
+  factory WorkOrderPart.fromMap(Map<String, dynamic> map) {
+    return WorkOrderPart(
+      woPartId: map['wo_part_id'] as String,
+      woId: map['wo_id'] as String,
+      partId: map['part_id'] as String,
+      partName: map['part_name'] as String?,
+      partCode: map['part_code'] as String?,
+      quantity: (map['quantity'] as num).toDouble(),
+      createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'] as String) : null,
+    );
+  }
+}

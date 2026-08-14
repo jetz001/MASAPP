@@ -771,6 +771,120 @@ class WorkOrderRepository {
       return false;
     }
   }
+
+  /// Add spare part to work order
+  Future<bool> addPartToWorkOrder({
+    required String woId,
+    required String partId,
+    required double quantity,
+  }) async {
+    try {
+      final woPartId = uuid.v4();
+      final transId = uuid.v4();
+      final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+      final now = DateTime.now().toIso8601String();
+
+      await DbHelper.transaction((tx) async {
+        // 1. Insert into work_order_parts
+        await DbHelper.txExecute(
+          tx,
+          '''INSERT INTO work_order_parts (wo_part_id, wo_id, part_id, quantity, created_at)
+             VALUES (@wpId, @woId, @partId, @qty, @now)''',
+          params: {
+            'wpId': woPartId,
+            'woId': woId,
+            'partId': partId,
+            'qty': quantity,
+            'now': now,
+          },
+        );
+
+        // 2. Insert transaction
+        await DbHelper.txExecute(
+          tx,
+          '''INSERT INTO spare_parts_transactions (trans_id, part_id, trans_type, quantity, reference_id, trans_by, remarks, trans_date)
+             VALUES (@tId, @partId, 'out', @qty, @woId, @userId, 'Work Order Requisition', @now)''',
+          params: {
+            'tId': transId,
+            'partId': partId,
+            'qty': quantity,
+            'woId': woId,
+            'userId': userId,
+            'now': now,
+          },
+        );
+
+        // 3. Update inventory
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE spare_parts_inventory 
+             SET quantity_on_hand = quantity_on_hand - @qty, updated_at = @now
+             WHERE part_id = @partId''',
+          params: {
+            'qty': quantity,
+            'now': now,
+            'partId': partId,
+          },
+        );
+      });
+      return true;
+    } catch (e) {
+      print('Error adding part to work order: $e');
+      return false;
+    }
+  }
+
+  /// Remove spare part from work order
+  Future<bool> removePartFromWorkOrder(String woPartId) async {
+    try {
+      final result = await DbHelper.queryOne('SELECT * FROM work_order_parts WHERE wo_part_id = @id', params: {'id': woPartId});
+      if (result == null) return false;
+
+      final partId = result['part_id'] as String;
+      final quantity = (result['quantity'] as num).toDouble();
+      final woId = result['wo_id'] as String;
+      final transId = uuid.v4();
+      final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
+      final now = DateTime.now().toIso8601String();
+
+      await DbHelper.transaction((tx) async {
+        // 1. Delete from work_order_parts
+        await DbHelper.txExecute(tx, 'DELETE FROM work_order_parts WHERE wo_part_id = @id', params: {'id': woPartId});
+
+        // 2. Insert transaction (return)
+        await DbHelper.txExecute(
+          tx,
+          '''INSERT INTO spare_parts_transactions (trans_id, part_id, trans_type, quantity, reference_id, trans_by, remarks, trans_date)
+             VALUES (@tId, @partId, 'return', @qty, @woId, @userId, 'Work Order Part Return', @now)''',
+          params: {
+            'tId': transId,
+            'partId': partId,
+            'qty': quantity,
+            'woId': woId,
+            'userId': userId,
+            'now': now,
+          },
+        );
+
+        // 3. Update inventory (add back)
+        await DbHelper.txExecute(
+          tx,
+          '''UPDATE spare_parts_inventory 
+             SET quantity_on_hand = quantity_on_hand + @qty, updated_at = @now
+             WHERE part_id = @partId''',
+          params: {
+            'qty': quantity,
+            'now': now,
+            'partId': partId,
+          },
+        );
+      });
+      return true;
+    } catch (e) {
+      print('Error removing part from work order: $e');
+      return false;
+    }
+  }
 }
 
 /// Riverpod providers
@@ -891,4 +1005,16 @@ final workOrderListProvider =
   } catch (e) {
     return [];
   }
+});
+
+final workOrderPartsProvider = FutureProvider.family<List<WorkOrderPart>, String>((ref, woId) async {
+  final rows = await DbHelper.query(
+    '''SELECT wp.*, sp.part_name, sp.part_code
+       FROM work_order_parts wp
+       JOIN spare_parts sp ON sp.part_id = wp.part_id
+       WHERE wp.wo_id = @woId
+       ORDER BY wp.created_at ASC''',
+    params: {'woId': woId},
+  );
+  return rows.map((r) => WorkOrderPart.fromMap(r)).toList();
 });

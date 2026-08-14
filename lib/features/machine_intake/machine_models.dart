@@ -430,3 +430,38 @@ class ChecklistResult {
         remarks: m['remarks']?.toString(),
       );
 }
+
+class MachineBomItem {
+  final String mapId;
+  final String machineId;
+  final String partId;
+  final String partCode;
+  final String partName;
+  final int quantity;
+  final int quantityOnHand;
+  final String? notes;
+
+  const MachineBomItem({
+    required this.mapId,
+    required this.machineId,
+    required this.partId,
+    required this.partCode,
+    required this.partName,
+    required this.quantity,
+    required this.quantityOnHand,
+    this.notes,
+  });
+
+  factory MachineBomItem.fromMap(Map<String, dynamic> m) {
+    return MachineBomItem(
+      mapId: m['map_id'] as String,
+      machineId: m['machine_id'] as String,
+      partId: m['part_id'] as String,
+      partCode: m['part_code'] as String,
+      partName: m['part_name'] as String,
+      quantity: m['quantity'] as int? ?? 1,
+      quantityOnHand: m['quantity_on_hand'] as int? ?? 0,
+      notes: m['notes'] as String?,
+    );
+  }
+}

@@ -461,7 +461,95 @@ class DbInitializer {
           ''');
         }
 
-        // 11. Repair any dangling foreign keys referencing work_orders_old
+        // 11. Add part_machine_map and PR tables
+        final mapTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'part_machine_map'],
+        );
+        if (mapTable.isEmpty) {
+          _log.i('Migration: Creating part_machine_map and PR tables...');
+          await db.execute('''
+            CREATE TABLE part_machine_map (
+              map_id            TEXT PRIMARY KEY,
+              part_id           TEXT NOT NULL REFERENCES spare_parts(part_id) ON DELETE CASCADE,
+              machine_id        TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+              quantity          INTEGER NOT NULL DEFAULT 1,
+              notes             TEXT,
+              UNIQUE(part_id, machine_id)
+            )
+          ''');
+          
+          await db.execute('''
+            CREATE TABLE purchase_requests (
+              pr_id             TEXT PRIMARY KEY,
+              pr_no             TEXT UNIQUE NOT NULL,
+              requested_by      TEXT REFERENCES users(user_id),
+              status            TEXT NOT NULL DEFAULT 'draft',
+              remarks           TEXT,
+              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE purchase_request_items (
+              pr_item_id        TEXT PRIMARY KEY,
+              pr_id             TEXT NOT NULL REFERENCES purchase_requests(pr_id) ON DELETE CASCADE,
+              part_id           TEXT NOT NULL REFERENCES spare_parts(part_id),
+              quantity          INTEGER NOT NULL,
+              unit_cost         REAL,
+              supplier_id       TEXT REFERENCES suppliers(supplier_id)
+            )
+          ''');
+        }
+
+        // 12. Add image_path to spare_parts
+        final sparePartsCols = await db.rawQuery('PRAGMA table_info(spare_parts)');
+        final hasSparePartsImage = sparePartsCols.any((col) => col['name'] == 'image_path');
+        if (!hasSparePartsImage) {
+          _log.i('Migration: Adding image_path to spare_parts...');
+          await db.execute('ALTER TABLE spare_parts ADD COLUMN image_path TEXT');
+        }
+
+        // 13. Add tools and tool_transactions
+        final toolsTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'tools'],
+        );
+        if (toolsTable.isEmpty) {
+          _log.i('Migration: Creating tools and tool_transactions tables...');
+          await db.execute('''
+            CREATE TABLE tools (
+              tool_id       TEXT PRIMARY KEY,
+              tool_code     TEXT UNIQUE NOT NULL,
+              tool_name     TEXT NOT NULL,
+              category      TEXT,
+              image_path    TEXT,
+              status        TEXT DEFAULT 'available',
+              purchase_date DATETIME,
+              price         REAL,
+              notes         TEXT,
+              created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              is_active     INTEGER DEFAULT 1
+            )
+          ''');
+
+          await db.execute('''
+            CREATE TABLE tool_transactions (
+              transaction_id TEXT PRIMARY KEY,
+              tool_id        TEXT NOT NULL REFERENCES tools(tool_id),
+              action_type    TEXT NOT NULL,
+              user_id        TEXT REFERENCES users(user_id),
+              reference_no   TEXT,
+              notes          TEXT,
+              action_date    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
+
+        // 14. Repair any dangling foreign keys referencing work_orders_old
         final brokenTables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%work_orders_old%'",
         );
@@ -477,6 +565,51 @@ class DbInitializer {
           final versionRow = await db.rawQuery('PRAGMA schema_version;');
           final version = versionRow.first.values.first as int;
           await db.execute('PRAGMA schema_version = ${version + 1};');
+        }
+
+        // 15. Create technician profile tables and modify technician_skills
+        final techAttachmentsTable = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='technician_attachments'",
+        );
+        if (techAttachmentsTable.isEmpty) {
+          _log.i('Migration: Creating technician_attachments table...');
+          await db.execute('''
+            CREATE TABLE technician_attachments (
+              attachment_id  TEXT PRIMARY KEY,
+              technician_id  TEXT NOT NULL REFERENCES users(user_id),
+              document_type  TEXT NOT NULL,
+              file_name      TEXT NOT NULL,
+              file_path      TEXT NOT NULL,
+              uploaded_by    TEXT REFERENCES users(user_id),
+              uploaded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+        }
+
+        // Check if technician_skills has score column
+        final skillColumns = await db.rawQuery("PRAGMA table_info(technician_skills)");
+        if (skillColumns.isNotEmpty && !skillColumns.any((col) => col['name'] == 'score')) {
+          _log.i('Migration: Adding score, rated_by, rated_at to technician_skills...');
+          await db.execute('ALTER TABLE technician_skills ADD COLUMN score INTEGER');
+          await db.execute('ALTER TABLE technician_skills ADD COLUMN rated_by TEXT REFERENCES users(user_id)');
+          await db.execute('ALTER TABLE technician_skills ADD COLUMN rated_at DATETIME');
+        }
+
+        // 16. Create work_order_parts table
+        final woPartsTable = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='work_order_parts'",
+        );
+        if (woPartsTable.isEmpty) {
+          _log.i('Migration: Creating work_order_parts table...');
+          await db.execute('''
+            CREATE TABLE work_order_parts (
+              wo_part_id TEXT PRIMARY KEY,
+              wo_id      TEXT NOT NULL REFERENCES work_orders(wo_id) ON DELETE CASCADE,
+              part_id    TEXT NOT NULL REFERENCES spare_parts(part_id),
+              quantity   REAL NOT NULL DEFAULT 1,
+              created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
         }
       }
 

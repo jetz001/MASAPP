@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hugeicons/hugeicons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/database/db_helper.dart';
+import '../auth/auth_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Models
@@ -42,14 +45,28 @@ class TechnicianProfile {
 final workforceProvider =
     FutureProvider<List<TechnicianProfile>>((ref) async {
   try {
+    final user = ref.watch(authProvider);
+    if (user == null) return [];
+
+    String extraWhere = '';
+    Map<String, dynamic> params = {};
+
+    // Technicians can only see their own work.
+    // Higher roles (engineer, safety, admin, etc.) can see everyone.
+    if (user.role == 'technician') {
+      extraWhere = ' AND u.user_id = @uid';
+      params['uid'] = user.userId;
+    }
+
     final rows = await DbHelper.query(
       '''SELECT u.user_id, u.employee_no, u.full_name, u.role,
                 u.email, u.phone, u.is_active,
                 d.dept_name
          FROM users u
          LEFT JOIN departments d ON d.dept_id = u.dept_id
-         WHERE u.role IN ('technician','engineer','safety')
+         WHERE u.role IN ('technician','engineer','safety')$extraWhere
          ORDER BY u.role, u.full_name''',
+      params: params,
     );
 
     final profiles = <TechnicianProfile>[];
@@ -210,36 +227,41 @@ class _TechCardState extends State<_TechCard> {
             ? AppColors.warning
             : AppColors.success;
 
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardTheme.color,
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          border: Border.all(
-            color: _hovered
-                ? _roleColor.withValues(alpha: 0.5)
-                : Theme.of(context).colorScheme.outline,
-          ),
-          boxShadow: _hovered
-              ? [
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => context.push('/workforce/${p.userId}'),
+        borderRadius: BorderRadius.circular(12),
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _hovered
+                    ? AppColors.primary.withValues(alpha: 0.5)
+                    : Theme.of(context).dividerColor,
+                width: _hovered ? 2 : 1,
+              ),
+              boxShadow: [
+                if (_hovered)
                   BoxShadow(
-                    color: _roleColor.withValues(alpha: 0.1),
-                    blurRadius: 16,
+                    color: AppColors.primary.withValues(alpha: 0.1),
+                    blurRadius: 12,
                     offset: const Offset(0, 4),
-                  ),
-                ]
-              : [],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Avatar + Name
-            Row(
+                  )
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Avatar + Name
+                Row(
+                  children: [
                 CircleAvatar(
                   radius: 24,
                   backgroundColor: _roleColor.withValues(alpha: 0.15),
@@ -383,6 +405,8 @@ class _TechCardState extends State<_TechCard> {
               ),
           ],
         ),
+      ),
+      ),
       ),
     );
   }

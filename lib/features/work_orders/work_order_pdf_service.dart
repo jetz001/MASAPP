@@ -463,4 +463,136 @@ class WorkOrderPdfService {
     await file.writeAsBytes(await document.save());
     await OpenFilex.open(file.path);
   }
+
+  static Future<void> generateSparePartRequisition({required String woId}) async {
+    final repo = WorkOrderRepository();
+    final wo = await repo.getWorkOrder(woId);
+    if (wo == null) return;
+
+    final rows = await DbHelper.query(
+      '''SELECT wp.*, sp.part_name, sp.part_code
+         FROM work_order_parts wp
+         JOIN spare_parts sp ON sp.part_id = wp.part_id
+         WHERE wp.wo_id = @woId
+         ORDER BY wp.created_at ASC''',
+      params: {'woId': woId},
+    );
+    final parts = rows.map((r) => WorkOrderPart.fromMap(r)).toList();
+
+    final document = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: await PdfGoogleFonts.sarabunRegular(),
+        bold: await PdfGoogleFonts.sarabunBold(),
+      ),
+    );
+
+    final settingsRows = await DbHelper.query('SELECT setting_key, setting_value FROM app_settings');
+    final settings = {
+      for (final r in settingsRows)
+        r['setting_key'].toString(): r['setting_value']?.toString() ?? ''
+    };
+    final orgLogoBase64 = settings['org_logo'] ?? '';
+
+    document.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return [
+            // Header
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                if (orgLogoBase64.isNotEmpty)
+                  pw.Container(
+                    width: 60,
+                    height: 60,
+                    child: pw.Image(pw.MemoryImage(base64Decode(orgLogoBase64))),
+                  )
+                else
+                  pw.SizedBox(width: 60),
+                pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Text('ใบเบิกวัสดุ / อะไหล่ (Material Requisition Form)', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+                    pw.Text('อ้างอิงใบแจ้งซ่อม: ${wo.woNo}', style: const pw.TextStyle(fontSize: 14)),
+                  ],
+                ),
+                pw.SizedBox(width: 60),
+              ],
+            ),
+            pw.SizedBox(height: 20),
+
+            // Info
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('ชื่อเครื่องจักร: ${wo.machineNo ?? "-"}', style: const pw.TextStyle(fontSize: 12)),
+                pw.Text('วันที่ขอเบิก: ${DateFormat('dd/MM/yyyy').format(DateTime.now())}', style: const pw.TextStyle(fontSize: 12)),
+              ],
+            ),
+            pw.SizedBox(height: 10),
+
+            // Table
+            pw.TableHelper.fromTextArray(
+              headers: ['ลำดับ', 'รหัสอะไหล่', 'รายการ', 'จำนวน', 'หน่วย'],
+              data: List.generate(parts.length, (index) {
+                final p = parts[index];
+                return [
+                  (index + 1).toString(),
+                  p.partCode ?? '-',
+                  p.partName ?? '-',
+                  p.quantity.toString(),
+                  'ชิ้น', // Assuming pieces
+                ];
+              }),
+              border: pw.TableBorder.all(),
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12),
+              cellStyle: const pw.TextStyle(fontSize: 12),
+              cellAlignment: pw.Alignment.centerLeft,
+            ),
+            pw.SizedBox(height: 40),
+
+            // Signatures
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              children: [
+                pw.Column(
+                  children: [
+                    pw.Text('ผู้ขอเบิก (ผู้รับของ)'),
+                    pw.SizedBox(height: 40),
+                    pw.Text('(................................................)'),
+                    pw.Text('วันที่: ....../....../......'),
+                  ],
+                ),
+                pw.Column(
+                  children: [
+                    pw.Text('ผู้อนุมัติจ่ายของ'),
+                    pw.SizedBox(height: 40),
+                    pw.Text('(................................................)'),
+                    pw.Text('วันที่: ....../....../......'),
+                  ],
+                ),
+                pw.Column(
+                  children: [
+                    pw.Text('ผู้จ่ายของ'),
+                    pw.SizedBox(height: 40),
+                    pw.Text('(................................................)'),
+                    pw.Text('วันที่: ....../....../......'),
+                  ],
+                ),
+              ],
+            ),
+          ];
+        },
+      ),
+    );
+
+    final dir = await getTemporaryDirectory();
+    final file = File(
+      '${dir.path}/Requisition_${wo.woNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}.pdf',
+    );
+    await file.writeAsBytes(await document.save());
+    await OpenFilex.open(file.path);
+  }
 }

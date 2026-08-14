@@ -14,6 +14,7 @@ import 'package:masapp/features/auth/auth_provider.dart';
 import 'package:masapp/core/database/db_helper.dart';
 import 'package:masapp/features/work_orders/work_order_models.dart';
 import 'package:masapp/features/work_orders/work_order_provider.dart';
+import 'package:masapp/features/work_orders/widgets/add_wo_part_dialog.dart';
 import 'package:masapp/features/work_orders/work_order_gate_pass_pdf_service.dart';
 import 'package:masapp/features/work_orders/work_order_pdf_service.dart';
 
@@ -320,31 +321,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           ],
                         ),
                         const SizedBox(height: AppSpacing.lg),
-                        _buildInfoCard(
-                          title: '‡∏£‡∏≤‡∏¢‡∏Å‡∏≤‡∏£‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà‡∏ó‡∏µ‡πà‡πÉ‡∏ä‡πâ',
-                          icon: Icons.inventory_2_outlined,
-                          onEdit: () => context.push('/work-orders/new', extra: wo),
-                          children: [
-                            // TODO: Replace with real data from spare parts module
-                            const _InfoRow(
-                              label: '1. ‡∏™‡∏≤‡∏¢‡∏û‡∏≤‡∏ô‡∏Ç‡∏±‡∏ö‡∏°‡∏≠‡πÄ‡∏ï‡∏≠‡∏£‡πå (V-Belt)',
-                              value: '2 ‡∏ä‡∏¥‡πâ‡∏ô',
-                            ),
-                            const _InfoRow(
-                              label: '2. ‡∏ï‡∏•‡∏±‡∏ö‡∏•‡∏π‡∏Å‡∏õ‡∏∑‡∏ô (Bearing 6204)',
-                              value: '1 ‡∏ä‡∏¥‡πâ‡∏ô',
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              '* ‡∏£‡∏≠‡∏Å‡∏≤‡∏£‡πÄ‡∏ä‡∏∑‡πà‡∏≠‡∏°‡∏ï‡πà‡∏≠‡∏Å‡∏±‡∏ö‡πÇ‡∏°‡∏î‡∏π‡∏•‡∏ó‡∏∞‡πÄ‡∏ö‡∏µ‡∏¢‡∏ô‡∏≠‡∏∞‡πÑ‡∏´‡∏•‡πà',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                color: AppColors.textSecondary.withOpacity(0.7),
-                              ),
-                            ),
-                          ],
-                        ),
+                        _WorkOrderPartsCard(woId: wo.woId),
                       ],
                     ),
                   ),
@@ -1542,3 +1519,132 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
+
+class _WorkOrderPartsCard extends ConsumerWidget {
+  final String woId;
+
+  const _WorkOrderPartsCard({required this.woId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final partsAsync = ref.watch(workOrderPartsProvider(woId));
+
+    return Card(
+      elevation: 0,
+      color: Colors.grey.shade50,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.inventory_2_outlined, size: 20, color: AppColors.primary),
+                const SizedBox(width: AppSpacing.sm),
+                const Text(
+                  '√“¬°“√Õ–‰À≈Ë∑’Ë„™È',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline, size: 20, color: AppColors.primary),
+                  tooltip: '‡∫‘°Õ–‰À≈Ë‡æ‘Ë¡',
+                  onPressed: () async {
+                    final res = await showDialog(
+                      context: context,
+                      builder: (c) => AddWoPartDialog(woId: woId),
+                    );
+                    if (res == true) {
+                      ref.invalidate(workOrderPartsProvider(woId));
+                    }
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.print_outlined, size: 20),
+                  tooltip: 'æ‘¡æÏ„∫‡∫‘°Õ–‰À≈Ë',
+                  onPressed: () {
+                    WorkOrderPdfService.generateSparePartRequisition(woId: woId);
+                  },
+                ),
+              ],
+            ),
+            const Divider(),
+            partsAsync.when(
+              loading: () => const Center(child: Padding(
+                padding: EdgeInsets.all(8.0),
+                child: CircularProgressIndicator(),
+              )),
+              error: (e, st) => Text('Error: $e'),
+              data: (parts) {
+                if (parts.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text('¬—ß‰¡Ë¡’°“√‡∫‘°Õ–‰À≈Ë', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                  );
+                }
+                return Column(
+                  children: parts.asMap().entries.map((e) {
+                    final index = e.key + 1;
+                    final p = e.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('$index. ${p.partName ?? '-'}', style: const TextStyle(fontWeight: FontWeight.w500)),
+                                Text('(${p.partCode ?? '-'})', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          Text('${p.quantity} ™‘Èπ', style: const TextStyle(fontWeight: FontWeight.w500)),
+                          const SizedBox(width: 8),
+                          InkWell(
+                            onTap: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  title: const Text('¬◊π¬—π°“√§◊πÕ–‰À≈Ë?'),
+                                  content: Text('§ÿ≥µÈÕß°“√§◊π ${p.partName} ®”π«π ${p.quantity} ™‘Èπ °≈—∫‡¢È“§≈—ß„™ËÀ√◊Õ‰¡Ë?'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('¬°‡≈‘°')),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, true), 
+                                      child: const Text('¬◊π¬—π§◊πÕ–‰À≈Ë', style: TextStyle(color: Colors.red)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                final success = await ref.read(workOrderRepositoryProvider).removePartFromWorkOrder(p.woPartId);
+                                if (success) {
+                                  ref.invalidate(workOrderPartsProvider(woId));
+                                } else {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('‡°‘¥¢ÈÕº‘¥æ≈“¥„π°“√§◊πÕ–‰À≈Ë')));
+                                  }
+                                }
+                              }
+                            },
+                            child: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

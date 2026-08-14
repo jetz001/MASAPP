@@ -161,6 +161,12 @@ const _navItems = [
     route: '/spare-parts',
   ),
   _NavItem(
+    label: 'เครื่องมือช่าง',
+    icon: HugeIcons.strokeRoundedWrench01,
+    iconSelected: HugeIcons.strokeRoundedWrench01,
+    route: '/tools',
+  ),
+  _NavItem(
     label: 'วิเคราะห์ & AI',
     icon: HugeIcons.strokeRoundedAiMagic,
     iconSelected: HugeIcons.strokeRoundedAiMagic,

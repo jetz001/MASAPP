@@ -12,10 +12,12 @@ import 'package:masapp/features/work_orders/work_order_detail_screen.dart';
 import '../../features/work_orders/work_order_form_screen.dart';
 import '../../features/work_orders/work_order_models.dart';
 import '../../features/spare_parts/spare_parts_screen.dart';
+import '../../features/tools_equipment/tool_management_screen.dart';
 import '../../features/pm_am/pm_am_screen.dart';
 import '../../features/pm_am/pm_am_plan_screen.dart';
 import '../../features/work_permit/work_permit_screen.dart';
 import '../../features/workforce/workforce_screen.dart';
+import '../../features/workforce/technician_profile_screen.dart';
 import '../../features/admin/admin_screen.dart';
 import '../../features/factory_layout/factory_layout_screen.dart';
 import '../../features/factory_layout/layout_list_screen.dart';
@@ -155,6 +157,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const SparePartsListScreen(),
           ),
 
+          // Tools & Equipment
+          GoRoute(
+            path: '/tools',
+            builder: (context, state) => const ToolManagementScreen(),
+          ),
+
           // Analytics (placeholder)
           GoRoute(
             path: '/analytics',
@@ -165,6 +173,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/workforce',
             builder: (context, state) => const WorkforceScreen(),
+            routes: [
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => TechnicianProfileScreen(
+                  userId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
           ),
 
           // Admin

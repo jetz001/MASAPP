@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -590,6 +591,8 @@ class _MachineRow extends ConsumerWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    _ImageHoverIcon(attachments: machine.attachments),
+                    if (machine.attachments.isNotEmpty) const SizedBox(width: 8),
                     IconButton(
                       icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
                       onPressed: onEdit,
@@ -788,6 +791,66 @@ class _ErrorState extends StatelessWidget {
             label: const Text('ลองใหม่'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ImageHoverIcon extends StatelessWidget {
+  final List<Map<String, dynamic>> attachments;
+  const _ImageHoverIcon({required this.attachments});
+
+  String? get _firstImagePath {
+    if (attachments.isEmpty) return null;
+    for (final att in attachments) {
+      final path = att['file_path'] as String?;
+      if (path != null) {
+        final lower = path.toLowerCase();
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+          return path;
+        }
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imagePath = _firstImagePath;
+    if (imagePath == null) return const SizedBox.shrink();
+
+    return Tooltip(
+      preferBelow: false,
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+        ],
+      ),
+      richMessage: WidgetSpan(
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 200, maxWidth: 200),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.file(
+            File(imagePath),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text('Image not found', style: TextStyle(color: AppColors.error)),
+            ),
+          ),
+        ),
+      ),
+      child: IconButton(
+        icon: const HugeIcon(icon: HugeIcons.strokeRoundedImage01, size: 16, color: AppColors.primary),
+        onPressed: () {},
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        tooltip: '',
       ),
     );
   }

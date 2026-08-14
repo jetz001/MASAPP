@@ -760,7 +760,10 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
           "SELECT w.wo_id as id, w.wo_no as title, w.description as subtitle, m.machine_name, m.machine_no FROM work_orders w LEFT JOIN machines m ON w.machine_id = m.machine_id WHERE w.status IN ('pending', 'in_progress') ORDER BY w.created_at DESC");
     } else if (refType == 'pm') {
       results = await DbHelper.query(
-          "SELECT p.plan_id as id, p.plan_code as title, p.plan_name as subtitle, m.machine_name, m.machine_no FROM pm_am_plans p LEFT JOIN machines m ON p.machine_id = m.machine_id WHERE p.status = 'active'");
+          "SELECT p.plan_id as id, p.plan_code as title, p.plan_name as subtitle, "
+          "(SELECT GROUP_CONCAT(task_name, ' / ') FROM pm_am_tasks WHERE plan_id = p.plan_id) as description, "
+          "m.machine_name, m.machine_no "
+          "FROM pm_am_plans p LEFT JOIN machines m ON p.machine_id = m.machine_id WHERE p.status = 'active'");
     }
     setState(() {
       _refOptions = results;
@@ -852,9 +855,27 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'เลือกรายการอ้างอิง *'),
                 items: _refOptions.map((opt) {
+                  String displayText = '${opt['title']}';
+                  
+                  final machineName = opt['machine_name'];
+                  if (machineName != null && machineName.toString().isNotEmpty) {
+                    displayText += ' ($machineName)';
+                  }
+                  
+                  if (opt['subtitle'] != null && opt['subtitle'].toString().isNotEmpty) {
+                    displayText += ' - ${opt['subtitle']}';
+                  }
+
+                  if (opt.containsKey('description') && opt['description'] != null && opt['description'].toString().isNotEmpty) {
+                    displayText += ' : ${opt['description']}';
+                  }
+                  
                   return DropdownMenuItem<String>(
                     value: opt['id'].toString(),
-                    child: Text('${opt['title']} - ${opt['subtitle']}'),
+                    child: Text(
+                      displayText,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   );
                 }).toList(),
                 onChanged: (val) {
@@ -867,6 +888,9 @@ class _NewPermitDialogState extends ConsumerState<_NewPermitDialog> {
                       String desc = '';
                       if (_refType == 'pm') {
                         desc = 'งาน PM/AM อ้างอิงแผน: ${opt['title']}\nหัวข้อ: ${opt['subtitle']}';
+                        if (opt.containsKey('description') && opt['description'] != null && opt['description'].toString().isNotEmpty) {
+                          desc += '\nรายละเอียด: ${opt['description']}';
+                        }
                       } else if (_refType == 'wo') {
                         desc = 'อ้างอิงใบแจ้งซ่อม: ${opt['title']}\nปัญหา: ${opt['subtitle']}';
                       }

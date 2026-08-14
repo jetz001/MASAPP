@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'spare_parts_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:empty_view/empty_view.dart';
@@ -7,6 +10,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
+import '../../core/widgets/hover_image_tooltip.dart';
 import 'package:intl/intl.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +28,7 @@ class SparePart {
   final int quantityReserved;
   final String? location;
   final String? supplierName;
+  final String? imagePath;
 
   int get available => quantityOnHand - quantityReserved;
   bool get isLowStock => quantityOnHand <= reorderLevel;
@@ -39,6 +44,7 @@ class SparePart {
     required this.quantityReserved,
     this.location,
     this.supplierName,
+    this.imagePath,
   });
 
   factory SparePart.fromMap(Map<String, dynamic> m) => SparePart(
@@ -52,6 +58,7 @@ class SparePart {
         quantityReserved: m['quantity_reserved'] as int? ?? 0,
         location: m['location'] as String?,
         supplierName: m['supplier_name'] as String?,
+        imagePath: m['image_path'] as String?,
       );
 }
 
@@ -139,12 +146,19 @@ class _SparePartsListScreenState extends ConsumerState<SparePartsListScreen> {
                 ],
               ),
               const Spacer(),
-              if (user?.isTechnicianOrAbove ?? false)
+              if (user?.isTechnicianOrAbove ?? false) ...[
+                OutlinedButton.icon(
+                  onPressed: () => _showAddSparePartDialog(context),
+                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedAdd01, size: 18, color: AppColors.primary),
+                  label: const Text('เพิ่มอะไหล่ใหม่'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 ElevatedButton.icon(
                   onPressed: () => _showTransactionDialog(context, null, true),
                   icon: const HugeIcon(icon: HugeIcons.strokeRoundedPackageAdd, size: 18, color: Colors.white),
                   label: const Text('รับของเข้า'),
                 ),
+              ],
             ],
           ),
         ),
@@ -274,6 +288,14 @@ class _SparePartsListScreenState extends ConsumerState<SparePartsListScreen> {
       ],
     );
   }
+  void _showAddSparePartDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _SparePartFormDialog(),
+    );
+  }
+
 
   void _showTransactionDialog(
       BuildContext context, SparePart? part, bool isReceive) {
@@ -320,7 +342,7 @@ class _SparePartsListScreenState extends ConsumerState<SparePartsListScreen> {
 // Table
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _PartsTable extends StatelessWidget {
+class _PartsTable extends ConsumerWidget {
   final List<SparePart> parts;
   final UserSession? user;
   final void Function(SparePart) onIssue;
@@ -334,7 +356,7 @@ class _PartsTable extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       child: Column(
         children: [
@@ -354,14 +376,14 @@ class _PartsTable extends StatelessWidget {
               children: [
                 _H('รหัสอะไหล่', flex: 2),
                 _H('ชื่ออะไหล่', flex: 4),
-                _H('หมวดหมู่', flex: 2),
+                _H('หมวดหมู่', flex: 1),
                 _H('คงเหลือ', flex: 1),
                 _H('จอง', flex: 1),
                 _H('พร้อมใช้', flex: 1),
                 _H('Min Stock', flex: 1),
-                _H('ราคา/หน่วย', flex: 2),
-                _H('ตำแหน่ง', flex: 2),
-                _H('', flex: 2),
+                _H('ราคา/หน่วย', flex: 1),
+                _H('ตำแหน่ง', flex: 1),
+                _H('', flex: 5),
               ],
             ),
           ),
@@ -385,6 +407,37 @@ class _PartsTable extends StatelessWidget {
                   user: user,
                   onIssue: () => onIssue(p),
                   onReceive: () => onReceive(p),
+                  onEdit: () {
+                    showDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => _SparePartFormDialog(part: p),
+                    );
+                  },
+                  onDelete: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: const Text('ยืนยันการลบ'),
+                        content: Text('คุณต้องการลบอะไหล่ \${p.partCode} ใช่หรือไม่?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(c, false),
+                            child: const Text('ยกเลิก'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(c, true),
+                            style: FilledButton.styleFrom(backgroundColor: AppColors.error),
+                            child: const Text('ลบข้อมูล'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) {
+                      await ref.read(sparePartsRepoProvider).deleteSparePart(p.partId);
+                      ref.invalidate(sparePartsProvider);
+                    }
+                  },
                 );
               },
             ),
@@ -413,21 +466,25 @@ class _H extends StatelessWidget {
   }
 }
 
-class _PartRow extends StatelessWidget {
+class _PartRow extends ConsumerWidget {
   final SparePart part;
   final UserSession? user;
   final VoidCallback onIssue;
   final VoidCallback onReceive;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   const _PartRow({
     required this.part,
     this.user,
     required this.onIssue,
     required this.onReceive,
+    required this.onEdit,
+    required this.onDelete,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isLow = part.isLowStock;
     return Container(
       color: isLow
@@ -451,6 +508,10 @@ class _PartRow extends StatelessWidget {
                   Text(part.partCode,
                       style: AppTextStyles.labelMedium
                           .copyWith(color: AppColors.primary)),
+                  if (part.imagePath != null && part.imagePath!.isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    HoverImageTooltip(imagePath: part.imagePath),
+                  ],
                 ],
               ),
             ),
@@ -461,7 +522,7 @@ class _PartRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis),
             ),
             Expanded(
-              flex: 2,
+              flex: 1,
               child: Text(part.category ?? '-',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -494,7 +555,7 @@ class _PartRow extends StatelessWidget {
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ))),
             Expanded(
-              flex: 2,
+              flex: 1,
               child: Text(
                 part.unitCost != null
                     ? NumberFormat('#,##0.00').format(part.unitCost)
@@ -503,34 +564,51 @@ class _PartRow extends StatelessWidget {
               ),
             ),
             Expanded(
-                flex: 2,
+                flex: 1,
                 child: Text(part.location ?? '-',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ))),
             Expanded(
-              flex: 2,
+              flex: 5,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  if (user?.isTechnicianOrAbove ?? false) ...[
-                    TextButton(
-                      onPressed: onReceive,
-                      style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          foregroundColor: AppColors.success),
-                      child: const Text('รับเข้า', style: TextStyle(fontSize: 12)),
-                    ),
-                    TextButton(
-                      onPressed: onIssue,
-                      style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          foregroundColor: AppColors.warning),
-                      child: const Text('เบิก', style: TextStyle(fontSize: 12)),
-                    ),
-                  ],
+                    if (user?.isTechnicianOrAbove ?? false) ...[
+                      TextButton(
+                        onPressed: onReceive,
+                        style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            foregroundColor: AppColors.success),
+                        child: const Text('รับเข้า', style: TextStyle(fontSize: 12)),
+                      ),
+                      TextButton(
+                        onPressed: onIssue,
+                        style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            foregroundColor: AppColors.warning),
+                        child: const Text('เบิก', style: TextStyle(fontSize: 12)),
+                      ),
+                      const SizedBox(width: 4),
+                      _SparePartImageHover(imagePath: part.imagePath),
+                      IconButton(
+                        onPressed: onEdit,
+                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
+                        tooltip: 'แก้ไข',
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: onDelete,
+                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedDelete01, size: 16, color: AppColors.error),
+                        tooltip: 'ลบ',
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
                 ],
               ),
             ),
@@ -591,9 +669,7 @@ class _TransactionDialogState extends State<_TransactionDialog> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceContainerHighest,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Row(
@@ -602,7 +678,7 @@ class _TransactionDialogState extends State<_TransactionDialog> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                          '${widget.part!.partCode} — ${widget.part!.partName}',
+                          '${widget.part!.partCode} - ${widget.part!.partName}',
                           style: AppTextStyles.labelMedium),
                     ),
                   ],
@@ -625,8 +701,7 @@ class _TransactionDialogState extends State<_TransactionDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _remarkCtrl,
-              decoration:
-                  const InputDecoration(labelText: 'หมายเหตุ'),
+              decoration: const InputDecoration(labelText: 'หมายเหตุ'),
               maxLines: 2,
             ),
           ],
@@ -637,7 +712,7 @@ class _TransactionDialogState extends State<_TransactionDialog> {
           onPressed: () => Navigator.pop(context),
           child: const Text('ยกเลิก'),
         ),
-        ElevatedButton(
+        FilledButton(
           onPressed: _saving
               ? null
               : () async {
@@ -655,10 +730,263 @@ class _TransactionDialogState extends State<_TransactionDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
-              : Text(widget.isReceive ? 'ยืนยันรับเข้า' : 'ยืนยันเบิก'),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : Text(widget.isReceive ? 'ยืนยันรับของ' : 'ยืนยันเบิกของ'),
         ),
       ],
     );
   }
 }
+
+
+class _SparePartImageHover extends StatelessWidget {
+  final String? imagePath;
+  const _SparePartImageHover({this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    if (imagePath == null) return const SizedBox.shrink();
+
+    return Tooltip(
+      preferBelow: false,
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+        ],
+      ),
+      richMessage: WidgetSpan(
+        child: Container(
+          constraints: const BoxConstraints(maxHeight: 200, maxWidth: 200),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Image.file(
+            File(imagePath!),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: const Text('Image not found', style: TextStyle(color: AppColors.error)),
+            ),
+          ),
+        ),
+      ),
+      child: IconButton(
+        icon: const HugeIcon(icon: HugeIcons.strokeRoundedImage01, size: 16, color: AppColors.primary),
+        onPressed: () {},
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        tooltip: '',
+      ),
+    );
+  }
+}
+
+class _SparePartFormDialog extends ConsumerStatefulWidget {
+  final SparePart? part;
+  const _SparePartFormDialog({this.part});
+
+  @override
+  ConsumerState<_SparePartFormDialog> createState() => _SparePartFormDialogState();
+}
+
+class _SparePartFormDialogState extends ConsumerState<_SparePartFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _codeCtrl;
+  late TextEditingController _nameCtrl;
+  late TextEditingController _categoryCtrl;
+  late TextEditingController _unitCostCtrl;
+  late TextEditingController _reorderLevelCtrl;
+  String? _imagePath;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _codeCtrl = TextEditingController(text: widget.part?.partCode);
+    _nameCtrl = TextEditingController(text: widget.part?.partName);
+    _categoryCtrl = TextEditingController(text: widget.part?.category);
+    _unitCostCtrl = TextEditingController(text: widget.part?.unitCost?.toString() ?? '');
+    _reorderLevelCtrl = TextEditingController(text: widget.part?.reorderLevel.toString() ?? '5');
+    _imagePath = widget.part?.imagePath;
+  }
+
+  @override
+  void dispose() {
+    _codeCtrl.dispose();
+    _nameCtrl.dispose();
+    _categoryCtrl.dispose();
+    _unitCostCtrl.dispose();
+    _reorderLevelCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      if (result != null && result.files.single.path != null) {
+        setState(() {
+          _imagePath = result.files.single.path;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    
+    try {
+      final repo = ref.read(sparePartsRepoProvider);
+      if (widget.part == null) {
+        await repo.addSparePart(
+          partCode: _codeCtrl.text.trim(),
+          partName: _nameCtrl.text.trim(),
+          category: _categoryCtrl.text.trim(),
+          unitCost: double.tryParse(_unitCostCtrl.text.trim()),
+          reorderLevel: int.tryParse(_reorderLevelCtrl.text.trim()) ?? 5,
+          imagePath: _imagePath,
+        );
+      } else {
+        await repo.updateSparePart(
+          partId: widget.part!.partId,
+          partCode: _codeCtrl.text.trim(),
+          partName: _nameCtrl.text.trim(),
+          category: _categoryCtrl.text.trim(),
+          unitCost: double.tryParse(_unitCostCtrl.text.trim()),
+          reorderLevel: int.tryParse(_reorderLevelCtrl.text.trim()) ?? 5,
+          imagePath: _imagePath,
+        );
+      }
+      
+      if (mounted) {
+        ref.invalidate(sparePartsProvider);
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.part == null ? 'เพิ่มอะไหล่ใหม่' : 'แก้ไขอะไหล่'),
+      content: SizedBox(
+        width: 500,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: _pickImage,
+                  child: Container(
+                    height: 160,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: AppColors.bgSurface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: _imagePath != null
+                        ? Image.file(
+                            File(_imagePath!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Center(
+                              child: Text('ไม่สามารถโหลดรูปภาพได้', style: TextStyle(color: AppColors.error)),
+                            ),
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              HugeIcon(icon: HugeIcons.strokeRoundedCamera01, size: 32, color: AppColors.textSecondary),
+                              const SizedBox(height: 8),
+                              Text('คลิกเพื่อเพิ่มรูปภาพ', style: AppTextStyles.bodySmall),
+                            ],
+                          ),
+                  ),
+                ),
+                if (_imagePath != null) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () => setState(() => _imagePath = null),
+                    icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.error),
+                    label: const Text('ลบรูปภาพ', style: TextStyle(color: AppColors.error)),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.lg),
+                TextFormField(
+                  controller: _codeCtrl,
+                  decoration: const InputDecoration(labelText: 'รหัสอะไหล่ (Part Code) *'),
+                  validator: (v) => v == null || v.isEmpty ? 'กรุณากรอกข้อมูล' : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(labelText: 'ชื่ออะไหล่ (Part Name) *'),
+                  validator: (v) => v == null || v.isEmpty ? 'กรุณากรอกข้อมูล' : null,
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
+                  controller: _categoryCtrl,
+                  decoration: const InputDecoration(labelText: 'หมวดหมู่ (Category)'),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _unitCostCtrl,
+                        decoration: const InputDecoration(labelText: 'ราคาต่อหน่วย (Unit Cost)'),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _reorderLevelCtrl,
+                        decoration: const InputDecoration(labelText: 'จุดสั่งซื้อ (Reorder Level)'),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
+          child: const Text('ยกเลิก'),
+        ),
+        FilledButton(
+          onPressed: _isSaving ? null : _save,
+          child: _isSaving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('บันทึก'),
+        ),
+      ],
+    );
+  }
+}
+

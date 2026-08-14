@@ -473,6 +473,7 @@ CREATE TABLE spare_parts (
   unit_cost         REAL,
   reorder_level     INTEGER DEFAULT 5,
   lead_time_days    INTEGER,
+  image_path        TEXT,
   is_active         INTEGER NOT NULL DEFAULT 1,
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -499,6 +500,34 @@ CREATE TABLE spare_parts_transactions (
   trans_date        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE part_machine_map (
+  map_id            TEXT PRIMARY KEY,
+  part_id           TEXT NOT NULL REFERENCES spare_parts(part_id) ON DELETE CASCADE,
+  machine_id        TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+  quantity          INTEGER NOT NULL DEFAULT 1,
+  notes             TEXT,
+  UNIQUE(part_id, machine_id)
+);
+
+CREATE TABLE purchase_requests (
+  pr_id             TEXT PRIMARY KEY,
+  pr_no             TEXT UNIQUE NOT NULL,
+  requested_by      TEXT REFERENCES users(user_id),
+  status            TEXT NOT NULL DEFAULT 'draft', -- draft, pending, approved, ordered, received, cancelled
+  remarks           TEXT,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE purchase_request_items (
+  pr_item_id        TEXT PRIMARY KEY,
+  pr_id             TEXT NOT NULL REFERENCES purchase_requests(pr_id) ON DELETE CASCADE,
+  part_id           TEXT NOT NULL REFERENCES spare_parts(part_id),
+  quantity          INTEGER NOT NULL,
+  unit_cost         REAL,
+  supplier_id       TEXT REFERENCES suppliers(supplier_id)
+);
+
 -- =============================================================================
 -- MODULE 11: WORKFORCE & SMART DISPATCH
 -- =============================================================================
@@ -523,3 +552,31 @@ CREATE TABLE technician_availability (
 );
 
 CREATE INDEX idx_tech_availability_date ON technician_availability(available_date);
+
+-- =============================================================================
+-- Tools & Equipment
+-- =============================================================================
+
+CREATE TABLE tools (
+  tool_id       TEXT PRIMARY KEY,
+  tool_code     TEXT UNIQUE NOT NULL,
+  tool_name     TEXT NOT NULL,
+  category      TEXT,
+  image_path    TEXT,
+  status        TEXT DEFAULT 'available', -- available, in_use, repair, lost
+  purchase_date DATETIME,
+  price         REAL,
+  notes         TEXT,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_active     INTEGER DEFAULT 1
+);
+
+CREATE TABLE tool_transactions (
+  transaction_id TEXT PRIMARY KEY,
+  tool_id        TEXT NOT NULL REFERENCES tools(tool_id),
+  action_type    TEXT NOT NULL, -- check_out, check_in, send_repair, receive_repair
+  user_id        TEXT REFERENCES users(user_id),
+  reference_no   TEXT, -- work order ID, or job ID
+  notes          TEXT,
+  action_date    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

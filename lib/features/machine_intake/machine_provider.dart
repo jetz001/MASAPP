@@ -68,7 +68,35 @@ class MachineRepository {
     ''';
 
     final rows = await DbHelper.query(sql, params: params);
-    return rows.map(MachineModel.fromMap).toList();
+    if (rows.isEmpty) return [];
+
+    final machineIds = rows.map((r) => r['machine_id'] as String).toList();
+    final placeholders = List.generate(machineIds.length, (i) => '@m$i').join(',');
+    final attParams = { for (var i = 0; i < machineIds.length; i++) 'm$i': machineIds[i] };
+    
+    final attRows = await DbHelper.query(
+      '''
+      SELECT h.machine_id, a.attachment_id, a.file_name, a.file_path, a.file_size, a.mime_type 
+      FROM handover_attachments a
+      JOIN machine_handover h ON h.handover_id = a.handover_id
+      WHERE h.machine_id IN ($placeholders)
+      ''',
+      params: attParams,
+    );
+
+    final attachmentsByMachine = <String, List<Map<String, dynamic>>>{};
+    for (final att in attRows) {
+      final mid = att['machine_id'] as String;
+      attachmentsByMachine.putIfAbsent(mid, () => []).add(att);
+    }
+
+    return rows.map((row) {
+      final mid = row['machine_id'] as String;
+      final m = MachineModel.fromMap(row);
+      return m.copyWithDetails(
+        attachments: attachmentsByMachine[mid] ?? [],
+      );
+    }).toList();
   }
 
   /// Fetch single machine with specs and handover info
@@ -526,6 +554,66 @@ class MachineRepository {
     });
   }
 
+  // --- Machine BOM ---
+
+  Future<List<MachineBomItem>> fetchMachineBom(String machineId) async {
+    final res = await DbHelper.query('''
+      SELECT 
+        m.map_id,
+        m.machine_id,
+        m.part_id,
+        m.quantity,
+        m.notes,
+        p.part_code,
+        p.part_name,
+        COALESCE(i.quantity_on_hand, 0) as quantity_on_hand
+      FROM part_machine_map m
+      JOIN spare_parts p ON m.part_id = p.part_id
+      LEFT JOIN spare_parts_inventory i ON p.part_id = i.part_id
+      WHERE m.machine_id = @mid
+      ORDER BY p.part_name ASC
+    ''', params: {'mid': machineId});
+    return res.map((e) => MachineBomItem.fromMap(e)).toList();
+  }
+
+  Future<void> addMachineBomItem({
+    required String machineId,
+    required String partId,
+    required int quantity,
+    String? notes,
+  }) async {
+    await DbHelper.execute('''
+      INSERT INTO part_machine_map (map_id, machine_id, part_id, quantity, notes)
+      VALUES (@id, @mid, @pid, @qty, @notes)
+    ''', params: {
+      'id': 'MAP-${DateTime.now().millisecondsSinceEpoch}',
+      'mid': machineId,
+      'pid': partId,
+      'qty': quantity,
+      'notes': notes,
+    });
+  }
+
+  Future<void> removeMachineBomItem(String mapId) async {
+    await DbHelper.execute('DELETE FROM part_machine_map WHERE map_id = @id', params: {'id': mapId});
+  }
+
+  Future<void> updateMachineBomItemQuantity(String mapId, int quantity) async {
+    await DbHelper.execute('UPDATE part_machine_map SET quantity = @qty WHERE map_id = @id', params: {
+      'qty': quantity,
+      'id': mapId,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> searchSpareParts(String query) async {
+    return DbHelper.query('''
+      SELECT part_id, part_code, part_name, category
+      FROM spare_parts
+      WHERE is_active = 1 AND (part_code LIKE @q OR part_name LIKE @q)
+      ORDER BY part_name LIMIT 20
+    ''', params: {'q': '%$query%'});
+  }
+
   /// Fetch categories for dropdown
   Future<List<Map<String, dynamic>>> fetchCategories() async {
     return DbHelper.query('SELECT category_id, code, name FROM machine_categories ORDER BY name');
@@ -694,4 +782,9 @@ final departmentsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
 
 final suppliersProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
   return ref.watch(machineRepositoryProvider).fetchSuppliers();
+});
+
+final machineBomProvider = FutureProvider.family<List<MachineBomItem>, String>((ref, machineId) async {
+  final repo = ref.watch(machineRepositoryProvider);
+  return repo.fetchMachineBom(machineId);
 });

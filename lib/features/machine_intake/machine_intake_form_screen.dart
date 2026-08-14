@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:intl/intl.dart';
+
 import 'package:logger/logger.dart';
 import '../dashboard/dashboard_screen.dart';
 import '../../core/theme/app_colors.dart';
@@ -18,6 +18,7 @@ import 'machine_provider.dart';
 import 'utils/machine_form_utils.dart';
 import 'utils/asset_tag_utils.dart';
 import 'widgets/approval_dialog.dart';
+import 'widgets/machine_bom_step.dart';
 
 final _log = Logger();
 
@@ -282,7 +283,7 @@ class _MachineIntakeFormScreenState
     }
   }
 
-  Future<void> _saveBasicInfo() async {
+  Future<void> _saveBasicInfo({bool moveToNext = true}) async {
     if (!_formKey0.currentState!.validate()) return;
 
     setState(() => _saving = true);
@@ -362,7 +363,7 @@ class _MachineIntakeFormScreenState
         setState(() {
           _savedMachineId = id;
           _saving = false;
-          _currentStep = 1; // Move to Documents step
+          if (moveToNext) _currentStep = 1; // Move to Documents step
         });
         ref.invalidate(dashboardStatsProvider);
       }
@@ -388,6 +389,46 @@ class _MachineIntakeFormScreenState
             backgroundColor: AppColors.error,
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _pickCoverImage() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+    );
+    if (result != null && result.files.isNotEmpty) {
+      final file = result.files.first;
+      
+      final coverIndex = _attachments.indexWhere((att) {
+        final path = (att['file_path'] as String?)?.toLowerCase() ?? '';
+        return path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png') || path.endsWith('.webp');
+      });
+      
+      if (coverIndex >= 0) {
+        final oldFile = _attachments[coverIndex];
+        if (oldFile['attachment_id'] != null) {
+          await ref.read(machineRepositoryProvider).deleteAttachment(oldFile['attachment_id']);
+        }
+        setState(() {
+          _attachments.removeAt(coverIndex);
+          _attachments.insert(0, {
+            'file_name': file.name,
+            'file_path': file.path,
+            'file_size': file.size,
+            'mime_type': file.extension,
+          });
+        });
+      } else {
+        setState(() {
+          _attachments.insert(0, {
+            'file_name': file.name,
+            'file_path': file.path,
+            'file_size': file.size,
+            'mime_type': file.extension,
+          });
+        });
       }
     }
   }
@@ -535,7 +576,7 @@ class _MachineIntakeFormScreenState
     }
   }
 
-  Future<void> _saveStage(int currentStep) async {
+  Future<void> _saveStage(int currentStep, {bool moveToNext = true}) async {
     if (_savedMachineId == null) return;
     
     setState(() => _saving = true);
@@ -559,12 +600,12 @@ class _MachineIntakeFormScreenState
       TextEditingController? notes;
       HandoverStage stageEnum;
       
-      if (currentStep == 2) {
+      if (currentStep == 3) {
         stageInfo = machine?.stage1;
         items = _stage1Items;
         notes = _stage1NotesCtrl;
         stageEnum = HandoverStage.stage1;
-      } else if (currentStep == 3) {
+      } else if (currentStep == 4) {
         stageInfo = machine?.stage2;
         items = _stage2Items;
         notes = _stage2NotesCtrl;
@@ -581,7 +622,7 @@ class _MachineIntakeFormScreenState
         throw Exception('ไม่พบข้อมูล Handover สำหรับเครื่องจักรนี้ กรุณาติดต่อผู้ดูแลระบบ');
       }
 
-      _log.i('Saving checklist results for handover: ${stageInfo!.handoverId!}');
+      _log.i('Saving checklist results for handover: ${stageInfo?.handoverId}');
       // 1. Save results
       final results = items.map((item) => {
         'item_name': item.title,
@@ -591,7 +632,7 @@ class _MachineIntakeFormScreenState
       }).toList();
       
       await repo.saveChecklistResults(
-        handoverId: stageInfo!.handoverId!,
+        handoverId: stageInfo?.handoverId ?? '',
         results: results,
       ).timeout(
         const Duration(seconds: 15),
@@ -610,7 +651,7 @@ class _MachineIntakeFormScreenState
          status: allPassed ? HandoverStatus.passed : HandoverStatus.failed,
          performedBy: user?.userId ?? 'system',
          notes: notes.text,
-         handoverConclusion: currentStep == 4 ? _handoverConclusion : null,
+         handoverConclusion: currentStep == 5 ? _handoverConclusion : null,
        ).timeout(
         const Duration(seconds: 15),
         onTimeout: () {
@@ -621,10 +662,10 @@ class _MachineIntakeFormScreenState
       _log.i('Successfully saved stage $currentStep');
       
       // Update initial results for this stage
-      if (currentStep == 2) {
+      if (currentStep == 3) {
         _initialStage1Results.clear();
         _initialStage1Results.addAll(_stage1Items.map((e) => e.status));
-      } else if (currentStep == 3) {
+      } else if (currentStep == 4) {
         _initialStage2Results.clear();
         _initialStage2Results.addAll(_stage2Items.map((e) => e.status));
       } else {
@@ -635,7 +676,7 @@ class _MachineIntakeFormScreenState
       if (mounted) {
         setState(() {
           _saving = false;
-          if (currentStep < 4) {
+          if (moveToNext && currentStep < 5) {
              _currentStep++;
           }
         });
@@ -752,11 +793,11 @@ class _MachineIntakeFormScreenState
   }
 
   bool _isStepDirty(int step) {
-    if (!_isReceivedMachine) return false;
+    if (_initialMachine == null && _savedMachineId == null) return true;
 
     switch (step) {
       case 0: // Basic Info
-        if (_initialMachine == null) return false;
+        if (_initialMachine == null) return true;
         return _machineNoCtrl.text != _initialMachine!.machineNo ||
             _machineNameCtrl.text != (_initialMachine!.machineName ?? '') ||
             _assetNoCtrl.text != (_initialMachine!.assetNo ?? '') ||
@@ -776,11 +817,13 @@ class _MachineIntakeFormScreenState
         }
         return false;
 
-      case 2: // Stage 1
+      case 2: // BOM
+        return false;
+      case 3: // Stage 1
         return !_listsEqual(_stage1Items.map((e) => e.status).toList(), _initialStage1Results);
-      case 3: // Stage 2
+      case 4: // Stage 2
         return !_listsEqual(_stage2Items.map((e) => e.status).toList(), _initialStage2Results);
-      case 4: // Stage 3
+      case 5: // Stage 3
         return !_listsEqual(_stage3Items.map((e) => e.status).toList(), _initialStage3Results);
       
       default:
@@ -911,11 +954,11 @@ class _MachineIntakeFormScreenState
                 ),
               ),
             ),
-          if (_saving && _currentStep != 5)
+          if (_saving && _currentStep != 6)
             const CircularProgressIndicator()
-          else if (_currentStep != 5)
+          else if (_currentStep != 6)
             Text(
-              'ขั้นตอนที่ ${_currentStep + 1} / 6',
+              'ขั้นตอนที่ ${_currentStep + 1} / 7',
               style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary),
             ),
         ],
@@ -930,12 +973,14 @@ class _MachineIntakeFormScreenState
       case 1:
         return _buildDocumentsStep(enabled: _canEdit);
       case 2:
-        return _buildChecklistStep('ระยะที่ 1: การติดตั้งและเตรียมเครื่อง', _stage1Items, _stage1NotesCtrl, (val) => setState(() => _stage1Items = val), enabled: _canEdit);
+        return _buildMachineBomStep();
       case 3:
-        return _buildChecklistStep('ระยะที่ 2: การทดสอบเดินเครื่อง', _stage2Items, _stage2NotesCtrl, (val) => setState(() => _stage2Items = val), enabled: _canEdit);
+        return _buildChecklistStep('ระยะที่ 1: การติดตั้งและเตรียมเครื่อง', _stage1Items, _stage1NotesCtrl, (val) => setState(() => _stage1Items = val), enabled: _canEdit);
       case 4:
-        return _buildChecklistStep('ระยะที่ 3: การตรวจรับขั้นตอนสุดท้าย', _stage3Items, _stage3NotesCtrl, (val) => setState(() => _stage3Items = val), enabled: _canEdit);
+        return _buildChecklistStep('ระยะที่ 2: การทดสอบเดินเครื่อง', _stage2Items, _stage2NotesCtrl, (val) => setState(() => _stage2Items = val), enabled: _canEdit);
       case 5:
+        return _buildChecklistStep('ระยะที่ 3: การตรวจรับขั้นตอนสุดท้าย', _stage3Items, _stage3NotesCtrl, (val) => setState(() => _stage3Items = val), enabled: _canEdit);
+      case 6:
         return _buildCompletionStep();
       default:
         return const Center(child: Text('Invalid Step'));
@@ -1036,10 +1081,15 @@ class _MachineIntakeFormScreenState
                 onPressed: () => context.pop(),
                 child: const Text('ยกเลิก'),
               ),
+              ElevatedButton.icon(
+                onPressed: _saving ? null : () => _saveBasicInfo(moveToNext: false),
+                icon: const Icon(Icons.save_outlined, size: 18),
+                label: const Text('บันทึก'),
+              ),
               const SizedBox(width: AppSpacing.md),
               ElevatedButton(
-                onPressed: _saving ? null : _saveBasicInfo,
-                child: const Text('ถัดไป'),
+                onPressed: _saving ? null : () => _saveBasicInfo(moveToNext: true),
+                child: const Text('บันทึก & ถัดไป'),
               ),
             ],
           ),
@@ -1048,13 +1098,120 @@ class _MachineIntakeFormScreenState
     );
   }
 
+  Future<void> _handleSaveDocuments({bool moveToNext = true}) async {
+    setState(() => _saving = true);
+    if (_savedMachineId != null) {
+      await _saveAttachments(_savedMachineId!);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('บันทึกเอกสารและรูปภาพเรียบร้อยแล้ว'), backgroundColor: AppColors.success));
+      setState(() {
+        _saving = false;
+        if (moveToNext) _currentStep = 2; // BOM step
+      });
+    }
+  }
+
   Widget _buildDocumentsStep({bool enabled = true}) {
+    final coverImageIndex = _attachments.indexWhere((att) {
+      final path = (att['file_path'] as String?)?.toLowerCase() ?? '';
+      return path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png') || path.endsWith('.webp');
+    });
+    final coverImage = coverImageIndex >= 0 ? _attachments[coverImageIndex] : null;
+
+    final otherIndices = <int>[];
+    for (int i = 0; i < _attachments.length; i++) {
+      if (i != coverImageIndex) otherIndices.add(i);
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionHeader(Icons.folder_open, 'เอกสาร & สื่อประกอบ'),
+        _buildSectionHeader(Icons.image_outlined, 'รูปภาพหน้าปกเครื่องจักร'),
         const SizedBox(height: AppSpacing.sm),
-        Text('อัปโหลดคู่มือเครื่องจักร, เอกสารการเทรนนิ่ง หรือรูปภาพหน้างาน', style: AppTextStyles.secondary),
+        Text('อัปโหลดรูปถ่ายหลักของเครื่องจักร เพื่อใช้แสดงผลในหน้ารายการ (ต้องเป็นไฟล์รูปภาพ)', style: AppTextStyles.secondary),
+        const SizedBox(height: AppSpacing.md),
+        if (coverImage != null)
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: Image.file(
+                    File(coverImage['file_path']),
+                    width: 80,
+                    height: 80,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 80, height: 80, color: Colors.grey[300],
+                      child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(coverImage['file_name'] ?? '', style: AppTextStyles.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 4),
+                      Text('${((coverImage['file_size'] ?? 0) / 1024 / 1024).toStringAsFixed(2)} MB', style: AppTextStyles.labelMedium),
+                    ],
+                  ),
+                ),
+                if (enabled) ...[
+                  OutlinedButton.icon(
+                    onPressed: _pickCoverImage,
+                    icon: const Icon(Icons.edit_outlined, size: 16),
+                    label: const Text('เปลี่ยนรูป'),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  IconButton(
+                    onPressed: () => _removeFile(coverImageIndex),
+                    icon: const Icon(Icons.delete_outline, color: AppColors.error),
+                    tooltip: 'ลบรูปหน้าปก',
+                  ),
+                ]
+              ],
+            ),
+          )
+        else
+          InkWell(
+            onTap: enabled ? _pickCoverImage : null,
+            borderRadius: BorderRadius.circular(AppRadius.md),
+            child: Opacity(
+              opacity: enabled ? 1.0 : 0.6,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.5), style: BorderStyle.solid),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add_a_photo_outlined, size: 40, color: AppColors.primary),
+                    const SizedBox(height: AppSpacing.md),
+                    Text('เพิ่มรูปภาพหน้าปกเครื่องจักร', style: AppTextStyles.titleMedium.copyWith(color: AppColors.primary)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        
+        const SizedBox(height: AppSpacing.xxl),
+        
+        _buildSectionHeader(Icons.folder_open, 'เอกสาร & สื่อประกอบอื่นๆ'),
+        const SizedBox(height: AppSpacing.sm),
+        Text('อัปโหลดคู่มือเครื่องจักร, เอกสารการเทรนนิ่ง หรือรูปภาพหน้างานเพิ่มเติม', style: AppTextStyles.secondary),
         const SizedBox(height: AppSpacing.lg),
         InkWell(
           onTap: enabled ? _pickFiles : null,
@@ -1087,16 +1244,17 @@ class _MachineIntakeFormScreenState
           ),
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_attachments.isNotEmpty) ...[
-          Text('ไฟล์ที่แนบแล้ว (${_attachments.length})', style: AppTextStyles.headlineSmall),
+        if (otherIndices.isNotEmpty) ...[
+          Text('ไฟล์ที่แนบแล้ว (${otherIndices.length})', style: AppTextStyles.headlineSmall),
           const SizedBox(height: AppSpacing.md),
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _attachments.length,
+            itemCount: otherIndices.length,
             separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
             itemBuilder: (context, i) {
-              final file = _attachments[i];
+              final realIndex = otherIndices[i];
+              final file = _attachments[realIndex];
               return Ink(
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surface,
@@ -1133,7 +1291,7 @@ class _MachineIntakeFormScreenState
                     if (enabled)
                       IconButton(
                         icon: const Icon(Icons.delete_outline, color: AppColors.error),
-                        onPressed: () => _removeFile(i),
+                        onPressed: () => _removeFile(realIndex),
                         tooltip: 'ลบ',
                       ),
                   ],
@@ -1142,8 +1300,8 @@ class _MachineIntakeFormScreenState
             ),
           );
         },
-          ),
-        ],
+      ),
+    ],
         const SizedBox(height: AppSpacing.xl),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -1153,22 +1311,44 @@ class _MachineIntakeFormScreenState
               child: const Text('ย้อนกลับ'),
             ),
             const SizedBox(width: AppSpacing.md),
+            ElevatedButton.icon(
+              onPressed: _saving ? null : () => _handleSaveDocuments(moveToNext: false),
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: const Text('บันทึก'),
+            ),
+            const SizedBox(width: AppSpacing.md),
             ElevatedButton(
-              onPressed: _saving ? null : () async {
-                setState(() => _saving = true);
-                if (_savedMachineId != null) {
-                  await _saveAttachments(_savedMachineId!);
-                }
-                if (mounted) {
-                  setState(() {
-                    _saving = false;
-                    _currentStep = 2;
-                  });
-                }
-              },
+              onPressed: _saving ? null : () => _handleSaveDocuments(moveToNext: true),
               child: _saving 
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : Text(_isReceivedMachine ? 'บันทึกการแก้ไข' : 'ถัดไป — เริ่มตรวจสอบ'),
+                : const Text('บันทึก & ถัดไป — อะไหล่ประจำเครื่อง'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMachineBomStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MachineBomStep(
+          machineId: _savedMachineId ?? '',
+          enabled: _canEdit && _savedMachineId != null,
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            OutlinedButton(
+              onPressed: () => setState(() => _currentStep--),
+              child: const Text('ย้อนกลับ'),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            FilledButton(
+              onPressed: () => setState(() => _currentStep++),
+              child: const Text('ขั้นตอนถัดไป — เริ่มตรวจสอบ'),
             ),
           ],
         ),
@@ -1201,7 +1381,7 @@ class _MachineIntakeFormScreenState
           },
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (_currentStep == 4) ...[
+        if (_currentStep == 5) ...[
           Text('ผลสรุปการตรวจรับ', style: AppTextStyles.headlineSmall),
           const SizedBox(height: AppSpacing.md),
           Row(
@@ -1234,28 +1414,39 @@ class _MachineIntakeFormScreenState
               onPressed: () => setState(() => _currentStep--),
               child: const Text('ย้อนกลับ'),
             ),
+            ElevatedButton.icon(
+              onPressed: (_saving || (_initialMachine?.stage3Status == HandoverStatus.approved)) ? null : () async {
+                setState(() => _saving = true);
+                await _saveStage(_currentStep, moveToNext: false);
+                if (mounted) setState(() => _saving = false);
+              },
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: const Text('บันทึก'),
+            ),
             const SizedBox(width: AppSpacing.md),
             ElevatedButton(
               onPressed: (_saving || (_initialMachine?.stage3Status == HandoverStatus.approved)) ? null : () async {
-                if (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true) {
-                  await _saveStage(4);
+                setState(() => _saving = true);
+                if (_currentStep == 5 && ref.read(authProvider)?.isEngineerOrAbove == true) {
+                  await _saveStage(5, moveToNext: false);
                   _showApprovalDialog();
                 } else {
-                  await _saveStage(_currentStep);
+                  await _saveStage(_currentStep, moveToNext: true);
                 }
+                if (mounted) setState(() => _saving = false);
               },
-              style: _currentStep == 4 ? ElevatedButton.styleFrom(
+              style: _currentStep == 5 ? ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.md),
-                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, inherit: false),
               ) : null,
               child: _saving 
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_currentStep == 4 && ref.read(authProvider)?.isEngineerOrAbove == true) ...[
+                      if (_currentStep == 5 && ref.read(authProvider)?.isEngineerOrAbove == true) ...[
                         HugeIcon(
                           icon: HugeIcons.strokeRoundedStamp, 
                           size: 20, 
@@ -1264,9 +1455,9 @@ class _MachineIntakeFormScreenState
                         const SizedBox(width: 8),
                       ],
                       Text(
-                        _currentStep == 4 
+                        _currentStep == 5 
                           ? ((_initialMachine?.stage3Status == HandoverStatus.approved) ? 'อนุมัติเรียบร้อยแล้ว' : 'ยืนยันการตรวจรับ') 
-                          : 'ถัดไป'
+                          : 'บันทึก & ถัดไป'
                       ),
                     ],
                   ),
@@ -1288,7 +1479,7 @@ class _MachineIntakeFormScreenState
     if (success == true) {
       if (mounted) {
         setState(() {
-          _currentStep = 5; // Move to completion
+          _currentStep = 6; // Move to completion
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('อนุมัติเรียบร้อยแล้ว')),
@@ -1581,7 +1772,7 @@ class _StepIndicator extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: List.generate(steps.length, (i) {
-          final isDone = i < currentStep;
+          final isDone = !isStepDirty(i);
           final isCurrent = i == currentStep;
           
           return InkWell(
@@ -1604,18 +1795,13 @@ class _StepIndicator extends StatelessWidget {
                       border: isCurrent ? null : Border.all(color: Theme.of(context).dividerColor),
                     ),
                     child: Center(
-                      child: isReceived
-                          ? (isStepDirty(i)
-                              ? const HugeIcon(icon: HugeIcons.strokeRoundedWrench01, size: 16, color: Colors.white)
-                              : const Icon(Icons.check, size: 16, color: Colors.white))
-                          : (isDone
-                              ? const Icon(Icons.check, size: 16, color: Colors.white)
-                              : Text('${i + 1}',
-                                  style: TextStyle(
-                                      color: isCurrent
-                                          ? Colors.white
-                                          : Theme.of(context).colorScheme.onSurfaceVariant,
-                                      fontWeight: FontWeight.bold))),
+                      child: isDone
+                          ? const Icon(Icons.check, size: 16, color: Colors.white)
+                          : (isCurrent
+                              ? Text('${i + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                              : isReceived
+                                  ? const HugeIcon(icon: HugeIcons.strokeRoundedWrench01, size: 16, color: Colors.white)
+                                  : Text('${i + 1}', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold))),
                     ),
                   ),
                   const SizedBox(height: 4),
