@@ -1,4 +1,7 @@
-import 'package:flutter/material.dart';
+﻿# -*- coding: utf-8 -*-
+import codecs
+
+content = """import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'line_balancing_provider.dart';
@@ -284,3 +287,8 @@ class LineBalancingScreen extends ConsumerWidget {
     );
   }
 }
+"""
+
+with codecs.open('lib/features/line_balancing/line_balancing_screen.dart', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Rewrote line balancing screen with correct utf-8 encoding")
