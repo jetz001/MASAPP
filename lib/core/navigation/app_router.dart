@@ -170,6 +170,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (context, state) => const AnalyticsDashboardScreen(),
           ),
 
+          // OEE Logs
+          GoRoute(
+            path: '/oee_logs',
+            builder: (context, state) => const OeeLogsScreen(),
+          ),
           // Workforce
           GoRoute(
             path: '/workforce',
