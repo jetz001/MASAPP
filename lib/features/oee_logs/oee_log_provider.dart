@@ -49,7 +49,7 @@ class OeeLogNotifier extends StateNotifier<AsyncValue<List<OeeLog>>> {
     state = const AsyncValue.loading();
     try {
       final results = await DbHelper.query(
-        '''SELECT o.*, m.name as machine_name 
+        '''SELECT o.*, m.machine_name 
            FROM machine_running_hours o
            LEFT JOIN machines m ON o.machine_id = m.machine_id
            ORDER BY o.recorded_date DESC

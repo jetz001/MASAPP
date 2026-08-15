@@ -183,6 +183,13 @@ const _navItems = [
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
+    label: 'Line Balancing',
+    icon: HugeIcons.strokeRoundedFlowSquare,
+    iconSelected: HugeIcons.strokeRoundedFlowSquare,
+    route: '/line_balancing',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
     label: 'ทีมช่าง',
     icon: HugeIcons.strokeRoundedUserGroup,
     iconSelected: HugeIcons.strokeRoundedUserGroup,
