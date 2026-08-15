@@ -13,22 +13,24 @@ class AnalyticsService {
     try {
       final start =
           startDate ?? DateTime.now().subtract(const Duration(days: 30));
-      final end = endDate ?? DateTime.now();
+      // Adjust end date to the end of the day to ensure we include records created on that day
+      var end = endDate ?? DateTime.now();
+      end = DateTime(end.year, end.month, end.day, 23, 59, 59);
 
-      // Get breakdown count
-      final breakdownResult = await DbHelper.queryOne(
-        '''SELECT COUNT(*) as count FROM work_orders
+      // Get breakdown counts
+      final breakdownsResult = await DbHelper.queryOne(
+        '''SELECT COUNT(*) as count FROM work_orders 
            WHERE status = 'completed' AND created_at BETWEEN @start AND @end''',
         params: {
           'start': start.toIso8601String(),
           'end': end.toIso8601String(),
         },
       );
-      final totalBreakdowns = (breakdownResult?['count'] as int?) ?? 0;
+      final totalBreakdowns = (breakdownsResult?['count'] as int?) ?? 0;
 
       // Get total work orders
       final woResult = await DbHelper.queryOne(
-        '''SELECT COUNT(*) as count FROM work_orders
+        '''SELECT COUNT(*) as count FROM work_orders 
            WHERE created_at BETWEEN @start AND @end''',
         params: {
           'start': start.toIso8601String(),
@@ -37,9 +39,9 @@ class AnalyticsService {
       );
       final totalWorkOrders = (woResult?['count'] as int?) ?? 0;
 
-      // Get total downtime hours (fallback to completed_at - reported_at if actual_hours is null)
+      // Get total downtime (actual_hours from work orders)
       final downtimeResult = await DbHelper.queryOne(
-        '''SELECT COALESCE(SUM(COALESCE(actual_hours, (julianday(completed_at) - julianday(created_at)) * 24)), 0) as total FROM work_orders
+        '''SELECT COALESCE(SUM(actual_hours), 0) as total FROM work_orders 
            WHERE status = 'completed' AND created_at BETWEEN @start AND @end''',
         params: {
           'start': start.toIso8601String(),
@@ -49,7 +51,7 @@ class AnalyticsService {
       final totalDowntimeHours =
           (downtimeResult?['total'] as num?)?.toDouble() ?? 0;
 
-      // Get total maintenance cost (assuming labor cost only for now)
+      // Get labor cost
       final laborCostResult = await DbHelper.queryOne(
         '''SELECT COALESCE(SUM(hours * 500), 0) as total FROM work_order_labor
            WHERE start_time BETWEEN @start AND @end''',
@@ -61,12 +63,24 @@ class AnalyticsService {
       final totalMaintenanceCost =
           (laborCostResult?['total'] as num?)?.toDouble() ?? 0;
 
-      // Get total running hours (from all machines)
+      // Get total running hours and production data
       final runningHoursResult = await DbHelper.queryOne(
-        '''SELECT COALESCE(SUM(cumulative_hours), 0) as total FROM machine_running_hours''',
+        '''SELECT 
+            COALESCE(SUM(cumulative_hours), 0) as total_hrs,
+            COALESCE(SUM(target_production), 0) as total_target,
+            COALESCE(SUM(actual_production), 0) as total_actual,
+            COALESCE(SUM(good_production), 0) as total_good
+           FROM machine_running_hours
+           WHERE recorded_date BETWEEN @start AND @end''',
+        params: {
+          'start': start.toIso8601String(),
+          'end': end.toIso8601String(),
+        }
       );
-      var totalRunningHours =
-          (runningHoursResult?['total'] as num?)?.toDouble() ?? 0;
+      var totalRunningHours = (runningHoursResult?['total_hrs'] as num?)?.toDouble() ?? 0;
+      var totalTarget = (runningHoursResult?['total_target'] as num?)?.toDouble() ?? 0;
+      var totalActual = (runningHoursResult?['total_actual'] as num?)?.toDouble() ?? 0;
+      var totalGood = (runningHoursResult?['total_good'] as num?)?.toDouble() ?? 0;
 
       // Fallback: If no running hours are logged, estimate them to show meaningful KPIs
       if (totalRunningHours <= 0) {
@@ -92,13 +106,26 @@ class AnalyticsService {
         totalRunningHours,
         totalRunningHours + totalDowntimeHours,
       );
-      final oee = MaintenanceMetrics.calculateOEE(availability);
+      
+      // Calculate Performance and Quality
+      double performance = 1.0;
+      if (totalTarget > 0) {
+        performance = totalActual / totalTarget;
+      }
+      double quality = 1.0;
+      if (totalActual > 0) {
+        quality = totalGood / totalActual;
+      }
+      
+      final oee = MaintenanceMetrics.calculateOEE(availability, performance, quality);
 
       return MaintenanceMetrics(
         mtbf: mtbf,
         mttr: mttr,
         oee: oee,
         availability: availability,
+        performance: performance,
+        quality: quality,
         totalBreakdowns: totalBreakdowns,
         totalWorkOrders: totalWorkOrders,
         totalDowntimeHours: totalDowntimeHours,
@@ -112,74 +139,16 @@ class AnalyticsService {
         mttr: 0,
         oee: 0,
         availability: 0,
+        performance: 0,
+        quality: 0,
         totalBreakdowns: 0,
         totalWorkOrders: 0,
         totalDowntimeHours: 0,
         totalMaintenanceCost: 0,
-        period: DateTime.now(),
+        period: startDate ?? DateTime.now().subtract(const Duration(days: 30)),
       );
     }
   }
-
-  /// Get Pareto analysis of failures
-  Future<ParetoAnalysis> getParetoAnalysis({
-    DateTime? startDate,
-    DateTime? endDate,
-    String groupBy = 'failureType',
-  }) async {
-    try {
-      final start =
-          startDate ?? DateTime.now().subtract(const Duration(days: 30));
-      var end = endDate ?? DateTime.now();
-      if (endDate != null) {
-        end = DateTime(end.year, end.month, end.day, 23, 59, 59);
-      }
-      
-      String selectField = '';
-      String joinClause = '';
-      
-      if (groupBy == 'machine') {
-        selectField = "COALESCE(s.machine_name, 'Unknown')";
-        joinClause = 'LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id';
-      } else if (groupBy == 'failureType') {
-        selectField = "COALESCE(rca.failure_type, 'Unknown')";
-        joinClause = 'LEFT JOIN work_order_rca rca ON rca.wo_id = wo.wo_id';
-      } else if (groupBy == 'causeCategory') {
-        selectField = "COALESCE(rca.cause_category, 'Unknown')";
-        joinClause = 'LEFT JOIN work_order_rca rca ON rca.wo_id = wo.wo_id';
-      } else {
-        selectField = "COALESCE(NULLIF(wo.failure_symptom, ''), NULLIF(wo.title, ''), 'Unknown')";
-        joinClause = '';
-      }
-
-      final results = await DbHelper.query(
-        '''SELECT 
-            $selectField as failure, 
-            COUNT(*) as count
-           FROM work_orders wo
-           $joinClause
-           WHERE wo.status = 'completed' AND wo.created_at BETWEEN @start AND @end
-           GROUP BY $selectField
-           ORDER BY count DESC
-           LIMIT 15''',
-        params: {
-          'start': start.toIso8601String(),
-          'end': end.toIso8601String(),
-        },
-      );
-
-      final failureCounts = <String, int>{};
-      for (final row in results) {
-        failureCounts[row['failure'] as String? ?? 'Unknown'] = (row['count'] as int);
-      }
-
-      return ParetoAnalysis.calculate(failureCounts);
-    } catch (e, stack) {
-      print('ERROR in getParetoAnalysis: $e, $stack');
-      return const ParetoAnalysis(categories: [], total: 0);
-    }
-  }
-
   /// Get cost analysis (PM vs CM)
   Future<CostAnalysis> getCostAnalysis({
     DateTime? startDate,
@@ -188,15 +157,18 @@ class AnalyticsService {
     try {
       final start =
           startDate ?? DateTime.now().subtract(const Duration(days: 30));
-      final end = endDate ?? DateTime.now();
+      var end = endDate ?? DateTime.now();
+      end = DateTime(end.year, end.month, end.day, 23, 59, 59);
 
-      // Get PM cost (from PM records - placeholder, needs PM module)
-      const pmCost = 0.0; // Would be calculated from PM records
+      // Get PM cost (placeholder, could query work_orders with PM title)
+      const pmCost = 0.0; 
 
-      // Get CM cost (from work orders)
+      // Get CM cost (from work_order_labor)
       final cmResult = await DbHelper.queryOne(
-        '''SELECT COALESCE(SUM(hours * 500), 0) as total FROM work_order_labor
-           WHERE start_time BETWEEN @start AND @end''',
+        '''SELECT COALESCE(SUM(l.hours * 500), 0) as total 
+           FROM work_order_labor l
+           JOIN work_orders w ON l.wo_id = w.wo_id
+           WHERE w.created_at BETWEEN @start AND @end''',
         params: {
           'start': start.toIso8601String(),
           'end': end.toIso8601String(),
@@ -204,8 +176,19 @@ class AnalyticsService {
       );
       final cmCost = (cmResult?['total'] as num?)?.toDouble() ?? 0;
 
-      // Get spare parts cost (placeholder)
-      const sparePartsCost = 0.0;
+      // Get spare parts cost
+      final partsResult = await DbHelper.queryOne(
+        '''SELECT COALESCE(SUM(wp.quantity * sp.unit_cost), 0) as total 
+           FROM work_order_parts wp
+           JOIN spare_parts sp ON wp.part_id = sp.part_id
+           JOIN work_orders w ON wp.wo_id = w.wo_id
+           WHERE w.created_at BETWEEN @start AND @end''',
+        params: {
+          'start': start.toIso8601String(),
+          'end': end.toIso8601String(),
+        },
+      );
+      final sparePartsCost = (partsResult?['total'] as num?)?.toDouble() ?? 0;
 
       final totalCost = pmCost + cmCost + sparePartsCost;
 
@@ -244,6 +227,7 @@ class AnalyticsService {
       );
     }
   }
+
 
   /// Get failure predictions for all machines
   Future<List<FailurePrediction>> getFailurePredictions() async {
