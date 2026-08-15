@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -114,17 +115,28 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
         ),
         actions: [
           if (user?.isEngineerOrAbove ?? false)
-            IconButton(
-              icon: Icon(
-                isEditMode ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
-                color: isEditMode ? Colors.orange : Theme.of(context).colorScheme.onSurface,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10.0),
+              child: ElevatedButton.icon(
+                icon: Icon(
+                  isEditMode ? Icons.check_circle_outline_rounded : Icons.edit_location_alt_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  isEditMode ? 'เสร็จสิ้นการจัดวาง' : 'แก้ไขผังโรงงาน',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isEditMode ? Colors.green.shade50 : Theme.of(context).colorScheme.primaryContainer,
+                  foregroundColor: isEditMode ? Colors.green.shade700 : Theme.of(context).colorScheme.onPrimaryContainer,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: () {
+                  ref.read(isEditModeProvider.notifier).state = !isEditMode;
+                  ref.read(isAligningModeProvider.notifier).state = false;
+                  ref.read(selectedMachineProvider.notifier).state = null;
+                },
               ),
-              tooltip: isEditMode ? 'ออกจากโหมดจัดการ' : 'เข้าสู่โหมดจัดการ',
-              onPressed: () {
-                ref.read(isEditModeProvider.notifier).state = !isEditMode;
-                ref.read(isAligningModeProvider.notifier).state = false;
-                ref.read(selectedMachineProvider.notifier).state = null;
-              },
             ),
           const SizedBox(width: 12),
         ],
@@ -644,11 +656,51 @@ class _MachineDetailPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final fullMachineAsync = ref.watch(singleMachineProvider(machine.machineId));
+    String? imagePath;
+    
+    if (fullMachineAsync.hasValue && fullMachineAsync.value != null) {
+      final attachments = fullMachineAsync.value!.attachments;
+      for (final att in attachments) {
+        final path = att['file_path'] as String?;
+        if (path != null) {
+          final lower = path.toLowerCase();
+          if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+            imagePath = path;
+            break;
+          }
+        }
+      }
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Machine Image
+          if (imagePath != null)
+            Container(
+              width: double.infinity,
+              height: 160,
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+                ],
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Image.file(
+                File(imagePath),
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: Colors.grey.shade200,
+                  child: const Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+                ),
+              ),
+            ),
+
           // Status indicator
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -721,6 +773,7 @@ class _MachineDetailPanel extends ConsumerWidget {
                     machine: machine,
                     settings: settings,
                     userName: user?.fullName ?? 'System User',
+                    imagePath: imagePath,
                   );
                 }
               },

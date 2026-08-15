@@ -563,17 +563,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
               const SizedBox(height: 32),
 
               // Footer note
-              const Center(
-                child: Text(
-                  'พบปัญหาการเข้าสู่ระบบ?\nติดต่อแผนกไอที เบอร์ภายใน 1122',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontSize: 13,
-                    height: 1.6,
-                  ),
-                ),
-              ),
+              // Footer note removed
             ],
           ),
         ),

@@ -129,7 +129,7 @@ class _BulkPRDialogState extends ConsumerState<BulkPRDialog> {
             Expanded(
               child: SingleChildScrollView(
                 child: DataTable(
-                  headingRowColor: WidgetStateProperty.all(AppColors.bgElevated),
+                  headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
                   columns: const [
                     DataColumn(label: Text('รหัสอะไหล่')),
                     DataColumn(label: Text('ชื่ออะไหล่')),

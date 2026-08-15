@@ -176,6 +176,13 @@ const _navItems = [
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
+    label: 'บันทึก OEE',
+    icon: HugeIcons.strokeRoundedActivity01,
+    iconSelected: HugeIcons.strokeRoundedActivity01,
+    route: '/oee_logs',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
     label: 'ทีมช่าง',
     icon: HugeIcons.strokeRoundedUserGroup,
     iconSelected: HugeIcons.strokeRoundedUserGroup,

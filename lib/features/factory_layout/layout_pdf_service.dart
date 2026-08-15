@@ -16,6 +16,7 @@ class LayoutPdfService {
     required MachinePosition machine,
     required AppSettingsState settings,
     required String userName,
+    String? imagePath,
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
@@ -55,6 +56,18 @@ class LayoutPdfService {
         logoImage = pw.MemoryImage(base64Decode(logoBase64));
       } catch (e) {
         debugPrint('Logo decode error: $e');
+      }
+    }
+    
+    pw.MemoryImage? machinePhoto;
+    if (imagePath != null) {
+      try {
+        final file = File(imagePath);
+        if (await file.exists()) {
+          machinePhoto = pw.MemoryImage(await file.readAsBytes());
+        }
+      } catch (e) {
+        debugPrint('Machine photo decode error: $e');
       }
     }
 
@@ -190,6 +203,20 @@ class LayoutPdfService {
                           pw.Text(layout.name, style: pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey500)),
                           pw.Divider(color: PdfColors.blueGrey200),
                           pw.SizedBox(height: 15),
+                          
+                          if (machinePhoto != null) ...[
+                            pw.Center(
+                              child: pw.Container(
+                                height: 90,
+                                decoration: pw.BoxDecoration(
+                                  border: pw.Border.all(color: PdfColors.grey300),
+                                  color: PdfColors.white,
+                                ),
+                                child: pw.Image(machinePhoto, fit: pw.BoxFit.contain),
+                              ),
+                            ),
+                            pw.SizedBox(height: 15),
+                          ],
                           
                           _buildDetail('รหัสเครื่องจักร', machine.machineNo),
                           _buildDetail('ยี่ห้อ', machine.brand ?? '-'),

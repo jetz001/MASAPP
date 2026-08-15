@@ -9,15 +9,50 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final dateRange = ref.watch(analyticsDateRangeProvider);
     final metricsAsync = ref.watch(maintenanceMetricsProvider);
     final paretoAsync = ref.watch(paretoAnalysisProvider);
     final costAsync = ref.watch(costAnalysisProvider);
     final predictionsAsync = ref.watch(failurePredictionsProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Analytics Dashboard'), elevation: 0),
+      appBar: AppBar(
+        title: const Text('Analytics Dashboard'),
+        elevation: 0,
+        actions: [
+          FilledButton.tonalIcon(
+            icon: const Icon(Icons.date_range, size: 18),
+            label: Text(
+              dateRange == null
+                  ? 'Last 30 Days'
+                  : '${dateRange.start.day.toString().padLeft(2, '0')}/${dateRange.start.month.toString().padLeft(2, '0')}/${dateRange.start.year} - ${dateRange.end.day.toString().padLeft(2, '0')}/${dateRange.end.month.toString().padLeft(2, '0')}/${dateRange.end.year}',
+            ),
+            onPressed: () async {
+              final picked = await showDateRangePicker(
+                context: context,
+                locale: const Locale(
+                  'th',
+                  'TH',
+                ), // <--- Added locale for Thai date format
+                initialDateRange:
+                    dateRange ??
+                    DateTimeRange(
+                      start: DateTime.now().subtract(const Duration(days: 30)),
+                      end: DateTime.now(),
+                    ),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) {
+                ref.read(analyticsDateRangeProvider.notifier).state = picked;
+              }
+            },
+          ),
+          const SizedBox(width: 16),
+        ],
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -31,9 +66,29 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
             const SizedBox(height: 32),
 
             // Pareto Chart
-            const Text(
-              'Failure Analysis (Pareto)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Failure Analysis (Pareto)',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                DropdownButton<String>(
+                  value: ref.watch(paretoGroupByProvider),
+                  items: const [
+                    DropdownMenuItem(value: 'failureType', child: Text('หมวดหมู่อาการเสีย (Failure Category)')),
+                    DropdownMenuItem(value: 'causeCategory', child: Text('สาเหตุหลัก (Root Cause)')),
+                    DropdownMenuItem(value: 'machine', child: Text('เครื่องจักร (Machine)')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      ref.read(paretoGroupByProvider.notifier).state = val;
+                    }
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             paretoAsync.when(
@@ -45,9 +100,11 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
             const SizedBox(height: 32),
 
             // Cost Breakdown
-            const Text(
+            Text(
               'Cost Breakdown (PM vs CM)',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             costAsync.when(
@@ -59,9 +116,11 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
             const SizedBox(height: 32),
 
             // Risk Predictions
-            const Text(
+            Text(
               'Equipment Risk Predictions',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             predictionsAsync.when(
@@ -86,35 +145,60 @@ class _KPICards extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView.count(
-      crossAxisCount: 4,
+      crossAxisCount: 3,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: 16,
       crossAxisSpacing: 16,
+      childAspectRatio: 1.8,
       children: [
         _KPICard(
           label: 'MTBF',
           value: '${metrics.mtbf.toStringAsFixed(0)}h',
           subtitle: 'Mean Time Between Failures',
-          color: Colors.blue,
+          tooltip: 'Mean Time Between Failures\n\nสูตรคำนวณ:\nเวลาเดินเครื่องทั้งหมด (Total Uptime)\n÷ จำนวนครั้งที่เครื่องเสีย (Breakdown Count)',
+          color: Colors.blue.shade600,
+          icon: Icons.timer_outlined,
         ),
         _KPICard(
           label: 'MTTR',
           value: '${metrics.mttr.toStringAsFixed(1)}h',
           subtitle: 'Mean Time To Repair',
-          color: Colors.orange,
+          tooltip: 'Mean Time To Repair\n\nสูตรคำนวณ:\nเวลาที่ใช้ซ่อมทั้งหมด (Total Downtime)\n÷ จำนวนครั้งที่เครื่องเสีย (Breakdown Count)',
+          color: Colors.orange.shade600,
+          icon: Icons.build_circle_outlined,
         ),
         _KPICard(
           label: 'OEE',
           value: '${metrics.oee.toStringAsFixed(1)}%',
           subtitle: 'Overall Equipment Effectiveness',
-          color: Colors.green,
+          tooltip: 'Overall Equipment Effectiveness\n\nสูตรคำนวณ:\nAvailability × Performance × Quality',
+          color: Colors.green.shade600,
+          icon: Icons.trending_up,
         ),
         _KPICard(
           label: 'Availability',
           value: '${(metrics.availability * 100).toStringAsFixed(1)}%',
           subtitle: 'Equipment Availability',
-          color: Colors.purple,
+          tooltip: 'Equipment Availability\n\nสูตรคำนวณ:\nเวลาเดินเครื่อง (Uptime)\n÷ (เวลาเดินเครื่อง + เวลาหยุดเครื่อง)',
+          color: Colors.purple.shade600,
+          icon: Icons.check_circle_outline,
+        ),
+        _KPICard(
+          label: 'Performance',
+          value: '${(metrics.performance * 100).toStringAsFixed(1)}%',
+          subtitle: 'Production Performance',
+          tooltip: 'Performance\n\nสูตรคำนวณ:\nยอดผลิตจริง (Actual Production)\n÷ ยอดเป้าหมาย (Target Production)',
+          color: Colors.teal.shade600,
+          icon: Icons.speed,
+        ),
+        _KPICard(
+          label: 'Quality',
+          value: '${(metrics.quality * 100).toStringAsFixed(1)}%',
+          subtitle: 'Production Quality',
+          tooltip: 'Quality\n\nสูตรคำนวณ:\nยอดของดี (Good Production)\n÷ ยอดผลิตทั้งหมด (Actual Production)',
+          color: Colors.indigo.shade600,
+          icon: Icons.verified_user_outlined,
         ),
       ],
     );
@@ -125,56 +209,76 @@ class _KPICard extends StatelessWidget {
   final String label;
   final String value;
   final String subtitle;
+  final String tooltip;
   final Color color;
+  final IconData icon;
 
   const _KPICard({
     required this.label,
     required this.value,
     required this.subtitle,
+    required this.tooltip,
     required this.color,
+    required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        border: Border.all(color: color.withAlpha(100)),
-        borderRadius: BorderRadius.circular(8),
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? color.withAlpha(50) : color.withAlpha(30),
+          width: 1,
+        ),
       ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: color,
+      color: isDark
+          ? theme.colorScheme.surfaceContainerHighest.withAlpha(100)
+          : color.withAlpha(10),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: color,
+                  ),
+                ),
+                Icon(icon, color: color.withAlpha(150), size: 24),
+              ],
             ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+            const Spacer(),
+            Text(
+              value,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// Pareto Chart
 class _ParetoChart extends StatelessWidget {
   final ParetoAnalysis analysis;
 
@@ -182,59 +286,157 @@ class _ParetoChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     if (analysis.categories.isEmpty) {
-      return const SizedBox(
-        height: 300,
-        child: Center(child: Text('No failure data available')),
+      return SizedBox(
+        height: 350,
+        child: Center(
+          child: Text(
+            'No failure data available',
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
       );
     }
 
-    return Container(
-      height: 300,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(8),
+    final maxCount = analysis.categories.fold<int>(
+      0,
+      (max, cat) => cat.count > max ? cat.count : max,
+    );
+    final maxY = (maxCount * 1.2).ceilToDouble();
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
-      padding: const EdgeInsets.all(16),
-      child: BarChart(
-        BarChartData(
-          barGroups: List.generate(
-            analysis.categories.length,
-            (index) => BarChartGroupData(
-              x: index,
-              barRods: [
-                BarChartRodData(
-                  toY: analysis.categories[index].percentage.toDouble(),
-                  color: Colors.blue,
-                  width: 20,
-                ),
-              ],
-            ),
-          ),
-          titlesData: FlTitlesData(
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                getTitlesWidget: (value, meta) {
-                  final category = analysis.categories[value.toInt()];
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      category.category.length > 10
-                          ? '${category.category.substring(0, 10)}...'
-                          : category.category,
-                      style: const TextStyle(fontSize: 10),
+      color: theme.colorScheme.surface,
+      child: Container(
+        height: 400,
+        padding: const EdgeInsets.fromLTRB(16, 32, 32, 24),
+        child: BarChart(
+          BarChartData(
+            maxY: maxY == 0 ? 10 : maxY,
+            barTouchData: BarTouchData(
+              touchTooltipData: BarTouchTooltipData(
+                getTooltipColor: (group) =>
+                    isDark ? Colors.grey.shade800 : Colors.white,
+                getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                  final cat = analysis.categories[group.x];
+                  return BarTooltipItem(
+                    '${cat.category}\n',
+                    TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.bold,
                     ),
+                    children: [
+                      TextSpan(
+                        text: 'Count: ${cat.count}\n',
+                        style: TextStyle(
+                          color: Colors.blue.shade400,
+                          fontWeight: FontWeight.normal,
+                        ),
+                      ),
+                      TextSpan(
+                        text: 'Share: ${cat.percentage.toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          color: Colors.orange.shade400,
+                          fontWeight: FontWeight.normal,
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
             ),
-            leftTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                getTitlesWidget: (value, meta) => Text(
-                  '${value.toInt()}%',
-                  style: const TextStyle(fontSize: 10),
+            barGroups: List.generate(
+              analysis.categories.length,
+              (index) => BarChartGroupData(
+                x: index,
+                barRods: [
+                  BarChartRodData(
+                    toY: analysis.categories[index].count.toDouble(),
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 40,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              horizontalInterval: (maxY / 4).ceilToDouble() > 0
+                  ? (maxY / 4).ceilToDouble()
+                  : 1,
+              getDrawingHorizontalLine: (value) => FlLine(
+                color: theme.colorScheme.outlineVariant.withAlpha(100),
+                strokeWidth: 1,
+                dashArray: [5, 5],
+              ),
+            ),
+            borderData: FlBorderData(
+              show: true,
+              border: Border(
+                left: BorderSide(color: theme.colorScheme.outlineVariant),
+                bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+              ),
+            ),
+            titlesData: FlTitlesData(
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              bottomTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  getTitlesWidget: (value, meta) {
+                    final index = value.toInt();
+                    if (index < 0 || index >= analysis.categories.length)
+                      return const SizedBox();
+                    final category = analysis.categories[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12.0),
+                      child: Transform.rotate(
+                        angle: -0.5,
+                        child: Text(
+                          category.category.length > 30 ? category.category.replaceFirst(' (', '\n(') : category.category,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  reservedSize: 60,
+                ),
+              ),
+              leftTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  getTitlesWidget: (value, meta) {
+                    if (value % 1 != 0) return const SizedBox();
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: Text(
+                        value.toInt().toString(),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    );
+                  },
+                  reservedSize: 40,
                 ),
               ),
             ),
@@ -253,59 +455,87 @@ class _CostBreakdownChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 250,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1F2937),
-        borderRadius: BorderRadius.circular(8),
+    final theme = Theme.of(context);
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
       ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: PieChart(
-              PieChartData(
-                sections: List.generate(
-                  analysis.breakdown.length,
-                  (index) => PieChartSectionData(
-                    value: analysis.breakdown[index].amount,
-                    title:
-                        '${analysis.breakdown[index].percentage.toStringAsFixed(1)}%',
-                    radius: 60,
-                    color: [Colors.blue, Colors.orange, Colors.green][index],
+      color: theme.colorScheme.surface,
+      child: Container(
+        height: 280,
+        padding: const EdgeInsets.all(24),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 1,
+              child: PieChart(
+                PieChartData(
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 40,
+                  sections: List.generate(
+                    analysis.breakdown.length,
+                    (index) => PieChartSectionData(
+                      value: analysis.breakdown[index].amount,
+                      title:
+                          '${analysis.breakdown[index].percentage.toStringAsFixed(1)}%',
+                      radius: 60,
+                      titleStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                      color: [
+                        Colors.blue.shade400,
+                        Colors.orange.shade400,
+                        Colors.green.shade400,
+                      ][index % 3],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 16,
-            runSpacing: 8,
-            children: List.generate(
-              analysis.breakdown.length,
-              (index) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: [Colors.blue, Colors.orange, Colors.green][index],
-                      borderRadius: BorderRadius.circular(2),
+            Expanded(
+              flex: 1,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(
+                  analysis.breakdown.length,
+                  (index) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: [
+                              Colors.blue.shade400,
+                              Colors.orange.shade400,
+                              Colors.green.shade400,
+                            ][index % 3],
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${analysis.breakdown[index].category}: \$${analysis.breakdown[index].amount.toStringAsFixed(0)}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${analysis.breakdown[index].category}: \$${analysis.breakdown[index].amount.toStringAsFixed(0)}',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -319,27 +549,45 @@ class _RiskPredictionsList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     if (predictions.isEmpty) {
-      return const SizedBox(
+      return SizedBox(
         height: 200,
-        child: Center(child: Text('No machines to predict')),
+        child: Center(
+          child: Text(
+            'No machines to predict',
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
       );
     }
 
-    // Show only high risk and above
     final highRisk = predictions.where((p) => p.riskScore >= 50).toList();
 
     if (highRisk.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.green.withAlpha(30),
-          border: Border.all(color: Colors.green),
-          borderRadius: BorderRadius.circular(8),
+      return Card(
+        elevation: 0,
+        color: Colors.green.shade50.withOpacity(isDark(context) ? 0.1 : 1.0),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: Colors.green.shade300),
         ),
-        child: const Text(
-          'All equipment operating normally - no high-risk predictions',
-          style: TextStyle(color: Colors.greenAccent),
+        child: const Padding(
+          padding: EdgeInsets.all(24),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green),
+              SizedBox(width: 16),
+              Text(
+                'All equipment operating normally - no high-risk predictions',
+                style: TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -352,72 +600,83 @@ class _RiskPredictionsList extends StatelessWidget {
         final pred = highRisk[index];
         final color = _getRiskColor(pred.riskScore);
 
-        return Container(
+        return Card(
+          elevation: 0,
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: color.withAlpha(30),
-            border: Border.all(color: color),
-            borderRadius: BorderRadius.circular(6),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: color.withAlpha(100)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    pred.machineNo,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      pred.riskLevel,
-                      style: TextStyle(
-                        fontSize: 12,
+          color: color.withAlpha(15),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      pred.machineNo,
+                      style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
                       ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withAlpha(30),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: color),
+                      ),
+                      child: Text(
+                        pred.riskLevel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isDark(context)
+                              ? color.shade200
+                              : color.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                LinearProgressIndicator(
+                  value: pred.riskScore / 100,
+                  backgroundColor: color.withAlpha(30),
+                  valueColor: AlwaysStoppedAnimation(color),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                if (pred.reason != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    pred.reason!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: pred.riskScore / 100,
-                backgroundColor: Colors.grey.withAlpha(100),
-                valueColor: AlwaysStoppedAnimation(color),
-              ),
-              const SizedBox(height: 8),
-              if (pred.reason != null)
-                Text(
-                  pred.reason!,
-                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                ),
-            ],
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  Color _getRiskColor(double score) {
+  MaterialColor _getRiskColor(double score) {
     if (score >= 75) return Colors.red;
     if (score >= 50) return Colors.orange;
     return Colors.yellow;
   }
+
+  bool isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
 }
 
 /// Skeleton loader for loading state
@@ -426,14 +685,17 @@ class _SkeletonLoader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 200,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1F2937),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Center(child: CircularProgressIndicator()),
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      color: theme.colorScheme.surfaceContainerHighest.withAlpha(100),
+      child: const SizedBox(
+        height: 200,
+        child: Center(child: CircularProgressIndicator()),
       ),
     );
   }

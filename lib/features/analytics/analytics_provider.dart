@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/db_helper.dart';
 import 'analytics_models.dart';
@@ -36,9 +37,9 @@ class AnalyticsService {
       );
       final totalWorkOrders = (woResult?['count'] as int?) ?? 0;
 
-      // Get total downtime hours
+      // Get total downtime hours (fallback to completed_at - reported_at if actual_hours is null)
       final downtimeResult = await DbHelper.queryOne(
-        '''SELECT COALESCE(SUM(actual_hours), 0) as total FROM work_orders
+        '''SELECT COALESCE(SUM(COALESCE(actual_hours, (julianday(completed_at) - julianday(created_at)) * 24)), 0) as total FROM work_orders
            WHERE status = 'completed' AND created_at BETWEEN @start AND @end''',
         params: {
           'start': start.toIso8601String(),
@@ -49,7 +50,6 @@ class AnalyticsService {
           (downtimeResult?['total'] as num?)?.toDouble() ?? 0;
 
       // Get total maintenance cost (assuming labor cost only for now)
-      // In real scenario, would also include spare parts
       final laborCostResult = await DbHelper.queryOne(
         '''SELECT COALESCE(SUM(hours * 500), 0) as total FROM work_order_labor
            WHERE start_time BETWEEN @start AND @end''',
@@ -65,8 +65,19 @@ class AnalyticsService {
       final runningHoursResult = await DbHelper.queryOne(
         '''SELECT COALESCE(SUM(cumulative_hours), 0) as total FROM machine_running_hours''',
       );
-      final totalRunningHours =
+      var totalRunningHours =
           (runningHoursResult?['total'] as num?)?.toDouble() ?? 0;
+
+      // Fallback: If no running hours are logged, estimate them to show meaningful KPIs
+      if (totalRunningHours <= 0) {
+        final machinesResult = await DbHelper.queryOne(
+          '''SELECT COUNT(*) as count FROM machines WHERE is_active = 1''',
+        );
+        final totalMachines = (machinesResult?['count'] as int?) ?? 1;
+        final daysInPeriod = end.difference(start).inDays > 0 ? end.difference(start).inDays : 1;
+        // Estimate: Machines run 8 hours a day
+        totalRunningHours = totalMachines * daysInPeriod * 8.0;
+      }
 
       // Calculate metrics
       final mtbf = MaintenanceMetrics.calculateMTBF(
@@ -114,18 +125,43 @@ class AnalyticsService {
   Future<ParetoAnalysis> getParetoAnalysis({
     DateTime? startDate,
     DateTime? endDate,
+    String groupBy = 'failureType',
   }) async {
     try {
       final start =
           startDate ?? DateTime.now().subtract(const Duration(days: 30));
-      final end = endDate ?? DateTime.now();
+      var end = endDate ?? DateTime.now();
+      if (endDate != null) {
+        end = DateTime(end.year, end.month, end.day, 23, 59, 59);
+      }
+      
+      String selectField = '';
+      String joinClause = '';
+      
+      if (groupBy == 'machine') {
+        selectField = "COALESCE(s.machine_name, 'Unknown')";
+        joinClause = 'LEFT JOIN machine_snapshots s ON s.snapshot_id = wo.snapshot_id';
+      } else if (groupBy == 'failureType') {
+        selectField = "COALESCE(rca.failure_type, 'Unknown')";
+        joinClause = 'LEFT JOIN work_order_rca rca ON rca.wo_id = wo.wo_id';
+      } else if (groupBy == 'causeCategory') {
+        selectField = "COALESCE(rca.cause_category, 'Unknown')";
+        joinClause = 'LEFT JOIN work_order_rca rca ON rca.wo_id = wo.wo_id';
+      } else {
+        selectField = "COALESCE(NULLIF(wo.failure_symptom, ''), NULLIF(wo.title, ''), 'Unknown')";
+        joinClause = '';
+      }
 
       final results = await DbHelper.query(
-        '''SELECT COALESCE(failure_symptom, 'Unknown') as failure, COUNT(*) as count
-           FROM work_orders
-           WHERE status = 'completed' AND created_at BETWEEN @start AND @end
-           GROUP BY failure_symptom
-           ORDER BY count DESC''',
+        '''SELECT 
+            $selectField as failure, 
+            COUNT(*) as count
+           FROM work_orders wo
+           $joinClause
+           WHERE wo.status = 'completed' AND wo.created_at BETWEEN @start AND @end
+           GROUP BY $selectField
+           ORDER BY count DESC
+           LIMIT 15''',
         params: {
           'start': start.toIso8601String(),
           'end': end.toIso8601String(),
@@ -134,11 +170,12 @@ class AnalyticsService {
 
       final failureCounts = <String, int>{};
       for (final row in results) {
-        failureCounts[row['failure'] as String] = (row['count'] as int);
+        failureCounts[row['failure'] as String? ?? 'Unknown'] = (row['count'] as int);
       }
 
       return ParetoAnalysis.calculate(failureCounts);
-    } catch (e) {
+    } catch (e, stack) {
+      print('ERROR in getParetoAnalysis: $e, $stack');
       return const ParetoAnalysis(categories: [], total: 0);
     }
   }
@@ -270,29 +307,53 @@ class AnalyticsService {
   }
 }
 
-/// Riverpod providers
+/// Date range state for Analytics
+final analyticsDateRangeProvider = StateProvider<DateTimeRange?>((ref) {
+  final now = DateTime.now();
+  return DateTimeRange(
+    start: DateTime(now.year, 1, 1),
+    end: now,
+  );
+});
 
 final analyticsServiceProvider = Provider((ref) => AnalyticsService());
 
 /// Main maintenance metrics
 final maintenanceMetricsProvider = FutureProvider((ref) async {
   final service = ref.watch(analyticsServiceProvider);
-  return await service.getMaintenanceMetrics();
+  final dateRange = ref.watch(analyticsDateRangeProvider);
+  return await service.getMaintenanceMetrics(
+    startDate: dateRange?.start,
+    endDate: dateRange?.end,
+  );
 });
+
+/// Pareto grouping option
+final paretoGroupByProvider = StateProvider<String>((ref) => 'failureType');
 
 /// Pareto analysis
 final paretoAnalysisProvider = FutureProvider((ref) async {
   final service = ref.watch(analyticsServiceProvider);
-  return await service.getParetoAnalysis();
+  final dateRange = ref.watch(analyticsDateRangeProvider);
+  final groupBy = ref.watch(paretoGroupByProvider);
+  return await service.getParetoAnalysis(
+    startDate: dateRange?.start,
+    endDate: dateRange?.end,
+    groupBy: groupBy,
+  );
 });
 
 /// Cost analysis
 final costAnalysisProvider = FutureProvider((ref) async {
   final service = ref.watch(analyticsServiceProvider);
-  return await service.getCostAnalysis();
+  final dateRange = ref.watch(analyticsDateRangeProvider);
+  return await service.getCostAnalysis(
+    startDate: dateRange?.start,
+    endDate: dateRange?.end,
+  );
 });
 
-/// Failure predictions
+/// Failure predictions (Doesn't use date range currently, but kept for consistency)
 final failurePredictionsProvider = FutureProvider((ref) async {
   final service = ref.watch(analyticsServiceProvider);
   return await service.getFailurePredictions();

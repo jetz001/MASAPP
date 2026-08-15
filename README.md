@@ -31,12 +31,24 @@
 
 *   **Frontend**: [Flutter](https://flutter.dev) (Desktop Optimized)
 *   **State Management**: [Riverpod](https://riverpod.dev) (Robust & Testable)
-*   **Database**: [SQLite (FFI)](https://pub.dev/packages/sqflite_common_ffi) สำหรับการจัดเก็บข้อมูลแบบ Offline-first บน Desktop
+*   **Database**: [SQLite (FFI)](https://pub.dev/packages/sqflite_common_ffi) สำหรับการจัดเก็บข้อมูลแบบ Offline-first และ **Serverless LAN Deployment** บน Desktop
 *   **Navigation**: [GoRouter](https://pub.dev/packages/go_router)
 *   **UI Components**: 
     *   [Syncfusion DataGrid](https://www.syncfusion.com/flutter-widgets/flutter-datagrid) สำหรับจัดการข้อมูลตารางขนาดใหญ่
     *   [HugeIcons](https://hugeicons.com/) สำหรับชุดไอคอนระดับพรีเมียม
     *   [Form Builder](https://pub.dev/packages/flutter_form_builder) สำหรับการจัดการฟอร์มที่ซับซ้อน
+
+---
+
+## 🔐 Default Credentials (Fresh Install)
+
+เมื่อระบบสร้างฐานข้อมูลใหม่ (Fresh Install) ข้อมูลเข้าใช้งานระดับผู้ดูแลระบบ (Admin) เริ่มต้นคือ:
+
+*   **รหัสพนักงาน / Username**: `admin`
+*   **รหัสผ่าน**: `Admin@1234`
+*   **รหัส PIN (สำหรับอนุมัติ)**: `123456`
+
+*(หมายเหตุ: แนะนำให้ผู้ดูแลระบบเปลี่ยนรหัสผ่านทันทีที่เข้าสู่ระบบครั้งแรกเพื่อความปลอดภัย)*
 
 ---
 
@@ -59,6 +71,12 @@
     ```bash
     flutter run -d windows
     ```
+
+### 🗄️ Database Setup (Serverless LAN)
+แอปพลิเคชันถูกออกแบบมาให้รองรับการใช้งานผ่านเครือข่าย LAN ร่วมกันโดยไม่ต้องพึ่งพา Server:
+1. กดที่ปุ่ม **ตั้งค่าฐานข้อมูล** ในหน้าล็อกอิน
+2. เลือกเชื่อมต่อฐานข้อมูลบนโฟลเดอร์ Network Share (เช่น `\\Server\Maintenance\masapp.db`)
+3. ระบบจะจัดการการอ่านเขียน (Concurrency) ผ่าน `PRAGMA busy_timeout` เพื่อรองรับผู้ใช้งานหลายคนพร้อมกัน
 
 ---
 

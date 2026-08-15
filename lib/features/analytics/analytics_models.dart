@@ -6,6 +6,8 @@ class MaintenanceMetrics {
   final double mttr; // Mean Time To Repair (hours)
   final double oee; // Overall Equipment Effectiveness (%)
   final double availability; // Equipment availability (%)
+  final double performance;
+  final double quality;
   final int totalBreakdowns;
   final int totalWorkOrders;
   final double totalDowntimeHours;
@@ -17,6 +19,8 @@ class MaintenanceMetrics {
     required this.mttr,
     required this.oee,
     required this.availability,
+    this.performance = 1.0,
+    this.quality = 1.0,
     required this.totalBreakdowns,
     required this.totalWorkOrders,
     required this.totalDowntimeHours,
@@ -37,8 +41,8 @@ class MaintenanceMetrics {
   /// Calculate OEE: (Availability * Performance * Quality) * 100
   /// For maintenance: (Available hours / Total hours) * (Planned production / Actual production) * (Good production / Total production)
   /// Simplified: Availability * 100
-  static double calculateOEE(double availability) {
-    return availability * 100;
+  static double calculateOEE(double availability, double performance, double quality) {
+    return availability * performance * quality * 100;
   }
 
   /// Calculate availability: Running hours / Total available hours

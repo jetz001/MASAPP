@@ -653,14 +653,6 @@ class DbInitializer {
               created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
           ''');
-
-          // Seed some mock notifications for admin
-          await db.execute('''
-            INSERT INTO notifications (id, user_id, title, message, type, is_read) VALUES
-            ('n1', 'u1', 'ใบแจ้งซ่อมใหม่', 'มีใบแจ้งซ่อมใหม่ WO-2608-001 เครื่องบรรจุขวด', 'work_order', 0),
-            ('n2', 'u1', 'อะไหล่ใกล้หมด', 'Bearing SKF 6205 ใกล้หมดสต็อก', 'inventory', 0),
-            ('n3', 'u1', 'กำหนดการ PM', 'พรุ่งนี้มีแผนบำรุงรักษาเครื่องชิลเลอร์ (Chiller-01)', 'pm', 0)
-          ''');
         }
       }
 

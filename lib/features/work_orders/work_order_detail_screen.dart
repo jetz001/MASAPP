@@ -1075,74 +1075,151 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     final rootCauseCtrl = TextEditingController(text: wo.rca?.rootCause ?? '');
     final correctionCtrl = TextEditingController(text: wo.closureNotes ?? '');
     final formKey = GlobalKey<FormState>();
+    
+    String? selectedFailureType = wo.rca?.failureType;
+    String? selectedCauseCategory = wo.rca?.causeCategory;
+
+    final failureCategories = [
+      'ระบบไฟฟ้า/อิเล็กทรอนิกส์ (Electrical)',
+      'ระบบเครื่องกล/กลไก (Mechanical)',
+      'ระบบท่อ/ของเหลว/ลม (Hydraulic/Pneumatic)',
+      'ระบบซอฟต์แวร์/เซนเซอร์ (Control/Software)',
+      'โครงสร้าง/ตัวถังภายนอก (Structural)',
+      'อะไหล่สิ้นเปลือง/วัสดุสิ้นเปลือง (Consumables)',
+      'บำรุงรักษาเชิงป้องกัน (PM)',
+      'อื่นๆ (Others)',
+    ];
+    
+    if (selectedFailureType != null && selectedFailureType.isNotEmpty && !failureCategories.contains(selectedFailureType)) {
+      failureCategories.add(selectedFailureType);
+    }
+
+    final causeCategories = [
+      'เสื่อมสภาพตามอายุ (Normal Wear & Tear)',
+      'ขาดการบำรุงรักษา (Lack of Maintenance)',
+      'ใช้งานผิดวิธี (Misuse / Operator Error)',
+      'วัสดุ/ชิ้นส่วนไม่ได้มาตรฐาน (Substandard Parts)',
+      'ปัจจัยภายนอก/อุบัติเหตุ (External/Accident)',
+      'อื่นๆ (Others)',
+    ];
+    
+    if (selectedCauseCategory != null && selectedCauseCategory.isNotEmpty && !causeCategories.contains(selectedCauseCategory)) {
+      causeCategories.add(selectedCauseCategory);
+    }
 
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('แก้ไขบันทึกการซ่อม'),
-          content: SizedBox(
-            width: 500,
-            child: Form(
-              key: formKey,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextFormField(
-                      controller: rootCauseCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'สาเหตุของปัญหา (Cause) *',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                      validator: (v) => v == null || v.trim().isEmpty ? 'กรุณาระบุสาเหตุรากเหง้า' : null,
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('บันทึกผลการซ่อม (Repair Log)'),
+              content: SizedBox(
+                width: 600,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        DropdownButtonFormField<String>(
+                          value: selectedFailureType,
+                          decoration: const InputDecoration(
+                            labelText: 'หมวดหมู่อาการเสีย (Failure Category)',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: failureCategories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14)))).toList(),
+                          onChanged: (v) => setState(() => selectedFailureType = v),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        DropdownButtonFormField<String>(
+                          value: selectedCauseCategory,
+                          decoration: const InputDecoration(
+                            labelText: 'หมวดหมู่สาเหตุหลัก (Root Cause Category)',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: causeCategories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14)))).toList(),
+                          onChanged: (v) => setState(() => selectedCauseCategory = v),
+                        ),
+                        const SizedBox(height: AppSpacing.lg),
+                        TextFormField(
+                          controller: rootCauseCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'รายละเอียดเพิ่มเติม (Remarks)',
+                            border: OutlineInputBorder(),
+                            alignLabelWithHint: true,
+                          ),
+                          maxLines: 3,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        TextFormField(
+                          controller: correctionCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'วิธีการแก้ไข / การซ่อม',
+                            border: OutlineInputBorder(),
+                            alignLabelWithHint: true,
+                          ),
+                          maxLines: 3,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextFormField(
-                      controller: correctionCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'วิธีการแก้ไข / รายละเอียดการซ่อม',
-                        border: OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('ยกเลิก'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.of(context).pop(true);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('บันทึกข้อมูล'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (formKey.currentState!.validate()) {
+                      Navigator.of(context).pop(true);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('บันทึกข้อมูล'),
+                ),
+              ],
+            );
+          }
         );
       },
     );
 
     if (result == true && context.mounted) {
       final repo = ref.read(workOrderRepositoryProvider);
-      final success = await repo.updateRepairLog(wo.woId, rootCauseCtrl.text, correctionCtrl.text);
-      if (success && context.mounted) {
+      
+      final rcaSuccess = await repo.saveRCA(
+        woId: wo.woId,
+        why1: '',
+        why2: '',
+        why3: '',
+        why4: '',
+        why5: '',
+        rootCause: rootCauseCtrl.text,
+        failureType: selectedFailureType,
+        causeCategory: selectedCauseCategory,
+      );
+
+      if (rcaSuccess) {
+        await repo.updateRepairLog(wo.woId, rootCauseCtrl.text, correctionCtrl.text);
         ref.invalidate(workOrderProvider(wo.woId));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('แก้ไขบันทึกการซ่อมสำเร็จ')));
-      } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('บันทึกการซ่อมสำเร็จ')),
+          );
+        }
+      } else {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก RCA')),
+          );
+        }
       }
     }
   }

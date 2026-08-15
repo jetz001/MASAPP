@@ -256,7 +256,7 @@ class _MachineBomStepState extends ConsumerState<MachineBomStep> {
                   child: Material(
                     type: MaterialType.transparency,
                     child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(AppColors.bgElevated),
+                      headingRowColor: WidgetStateProperty.all(Theme.of(context).colorScheme.surfaceContainerHighest),
                       columns: const [
                         DataColumn(label: Text('')),
                         DataColumn(label: Text('รหัสอะไหล่')),

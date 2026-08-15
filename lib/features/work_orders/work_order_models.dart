@@ -126,6 +126,7 @@ class WorkOrder {
   final String? zone;
   final String? description; // Problem description
   final String? failureSymptom; // How machine failed
+  final String? failureType; // Category of failure (from RCA)
   final String? reportedBy; // User ID who reported
   final String? reportedByName;
   final DateTime reportedAt;
@@ -162,6 +163,7 @@ class WorkOrder {
     this.zone,
     this.description,
     this.failureSymptom,
+    this.failureType,
     this.reportedBy,
     this.reportedByName,
     required this.reportedAt,
@@ -359,6 +361,8 @@ class RootCauseAnalysis {
   final String? rootCause; // Final root cause
   final String? correctionAction; // Action to prevent recurrence
   final String? preventiveAction; // Long-term prevention
+  final String? failureType;
+  final String? causeCategory;
   final DateTime? completedAt;
   final String? completedBy;
 
@@ -373,6 +377,8 @@ class RootCauseAnalysis {
     this.rootCause,
     this.correctionAction,
     this.preventiveAction,
+    this.failureType,
+    this.causeCategory,
     this.completedAt,
     this.completedBy,
   });
@@ -389,6 +395,8 @@ class RootCauseAnalysis {
       rootCause: map['root_cause'] as String?,
       correctionAction: map['correction_action'] as String?,
       preventiveAction: map['preventive_action'] as String?,
+      failureType: map['failure_type'] as String?,
+      causeCategory: map['cause_category'] as String?,
       completedAt: map['completed_at'] != null
           ? DateTime.parse(map['completed_at'] as String)
           : null,

@@ -22,6 +22,7 @@ import '../../features/admin/admin_screen.dart';
 import '../../features/factory_layout/factory_layout_screen.dart';
 import '../../features/factory_layout/layout_list_screen.dart';
 import '../../features/analytics/analytics_dashboard_screen.dart';
+import '../../features/oee_logs/oee_logs_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_detail_screen.dart';

@@ -602,6 +602,8 @@ class WorkOrderRepository {
     String? rootCause,
     String? correctionAction,
     String? preventiveAction,
+    String? failureType,
+    String? causeCategory,
   }) async {
     try {
       final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
@@ -615,7 +617,8 @@ class WorkOrderRepository {
           '''UPDATE work_order_rca
              SET why_1 = @why_1, why_2 = @why_2, why_3 = @why_3, why_4 = @why_4, why_5 = @why_5,
                  root_cause = @root_cause, correction_action = @correction_action,
-                 preventive_action = @preventive_action, analyzed_by = @analyzed_by,
+                 preventive_action = @preventive_action, failure_type = @failure_type, cause_category = @cause_category,
+                 analyzed_by = @analyzed_by,
                  analyzed_at = @analyzed_at, updated_at = @updated_at
              WHERE wo_id = @wo_id''',
           params: {
@@ -628,6 +631,8 @@ class WorkOrderRepository {
             'root_cause': rootCause ?? 'N/A',
             'correction_action': correctionAction,
             'preventive_action': preventiveAction,
+            'failure_type': failureType,
+            'cause_category': causeCategory,
             'analyzed_by': userId,
             'analyzed_at': now,
             'updated_at': now,
@@ -637,9 +642,11 @@ class WorkOrderRepository {
         await DbHelper.execute(
           '''INSERT INTO work_order_rca
              (rca_id, wo_id, why_1, why_2, why_3, why_4, why_5, root_cause, 
-              correction_action, preventive_action, analyzed_by, analyzed_at, created_at, updated_at)
+              correction_action, preventive_action, failure_type, cause_category,
+              analyzed_by, analyzed_at, created_at, updated_at)
              VALUES (@rca_id, @wo_id, @why_1, @why_2, @why_3, @why_4, @why_5, @root_cause,
-                     @correction_action, @preventive_action, @analyzed_by, @analyzed_at, @created_at, @updated_at)''',
+                     @correction_action, @preventive_action, @failure_type, @cause_category,
+                     @analyzed_by, @analyzed_at, @created_at, @updated_at)''',
           params: {
             'rca_id': uuid.v4(),
             'wo_id': woId,
@@ -651,6 +658,8 @@ class WorkOrderRepository {
             'root_cause': rootCause ?? 'N/A',
             'correction_action': correctionAction,
             'preventive_action': preventiveAction,
+            'failure_type': failureType,
+            'cause_category': causeCategory,
             'analyzed_by': userId,
             'analyzed_at': now,
             'created_at': now,
