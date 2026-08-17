@@ -331,9 +331,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                     base64Decode(orgLogo),
                                     fit: BoxFit.contain,
                                     errorBuilder: (context, error, stackTrace) => 
-                                        Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                                        const Icon(Icons.business, size: 64, color: Colors.blueAccent),
                                   )
-                                : Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                                : const Icon(Icons.business, size: 64, color: Colors.blueAccent),
                           ),
                         ),
                       ),
@@ -358,7 +358,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               border: Border.all(color: const Color(0xFF1D4ED8), width: 1.5),
                             ),
                             child: ClipOval(
-                              child: Image.asset('assets/images/masapp_logo.png', fit: BoxFit.contain),
+                              child: const Icon(Icons.business, size: 64, color: Colors.blueAccent),
                             ),
                           ),
                         ),

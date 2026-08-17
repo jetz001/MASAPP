@@ -1,5 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -27,6 +30,8 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
   final _adminUsernameCtrl = TextEditingController(text: 'admin');
   final _adminPassCtrl = TextEditingController();
   final _serialKeyCtrl = TextEditingController();
+  String? _logoBase64;
+
 
   bool _loading = false;
   String? _statusMessage;
@@ -75,6 +80,18 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
     if (result != null) {
       setState(() {
         _pathCtrl.text = '$result\\masapp.db';
+      });
+    }
+  }
+
+
+  Future<void> _pickLogo() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      setState(() {
+        _logoBase64 = base64Encode(bytes);
       });
     }
   }
@@ -192,6 +209,12 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
             await txn.execute(
               "INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('app.serial_key', ?, 'Serial License Key')",
               [serial],
+            );
+          }
+          if (_logoBase64 != null && _logoBase64!.isNotEmpty) {
+            await txn.execute(
+              "UPDATE app_settings SET setting_value = ? WHERE setting_key = 'org_logo'",
+              [_logoBase64],
             );
           }
           final adminUser = _adminUsernameCtrl.text.trim();
@@ -320,6 +343,35 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
                       const SizedBox(height: 40),
 
                       // --- NEW FIELDS ---
+                      Text('โลโก้บริษัท', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      GestureDetector(
+                        onTap: _pickLogo,
+                        child: Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: _logoBase64 != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Image.memory(base64Decode(_logoBase64!), fit: BoxFit.cover),
+                                )
+                              : const Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.add_a_photo, color: Colors.white54, size: 32),
+                                    SizedBox(height: 8),
+                                    Text('เลือกโลโก้', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                                  ],
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
                       Text('ชื่อบริษัท / องค์กร', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
                       const SizedBox(height: 8),
                       TextFormField(
