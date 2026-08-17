@@ -163,6 +163,8 @@ CREATE TABLE machine_specs (
   dim_width_mm  REAL,
   dim_height_mm REAL,
   rpm           REAL,
+  fuel_consumption_rate REAL,
+  fuel_type     TEXT,
   extra_specs   TEXT, -- JSON
   updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE (machine_id)

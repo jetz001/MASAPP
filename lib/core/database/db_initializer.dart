@@ -654,6 +654,21 @@ class DbInitializer {
             )
           ''');
         }
+
+        // 18. Add fuel/gas consumption columns to machine_specs
+        final msColumns = await db.rawQuery("PRAGMA table_info('machine_specs')");
+        if (!msColumns.any((c) => c['name'] == 'fuel_consumption_rate')) {
+          _log.i('Migration: Adding fuel columns to machine_specs table...');
+          await db.execute('ALTER TABLE machine_specs ADD COLUMN fuel_consumption_rate REAL;');
+          await db.execute('ALTER TABLE machine_specs ADD COLUMN fuel_type TEXT;');
+          
+          // Migration for default_workers
+          var specCols3 = await db.rawQuery("PRAGMA table_info('machine_specs');");
+          bool hasDefaultWorkers = specCols3.any((col) => col['name'] == 'default_workers');
+          if (!hasDefaultWorkers) {
+            await db.execute('ALTER TABLE machine_specs ADD COLUMN default_workers INTEGER;');
+          }
+        }
       }
 
       return true;

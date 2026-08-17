@@ -1,6 +1,12 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import '../../core/database/db_helper.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:intl/intl.dart';
@@ -33,7 +39,15 @@ class ToolManagementScreen extends ConsumerWidget {
                 const SizedBox(width: AppSpacing.md),
                 Text('เครื่องมือช่าง (Tools & Equipment)', style: AppTextStyles.displaySmall),
                 const Spacer(),
-                if (user?.isTechnicianOrAbove ?? false)
+                if (user?.isTechnicianOrAbove ?? false) ...[
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      toolsAsync.whenData((tools) => _exportToolsPdf(tools));
+                    },
+                    icon: const HugeIcon(icon: HugeIcons.strokeRoundedFileExport, size: 18, color: Colors.black),
+                    label: const Text('Export PDF'),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
                   FilledButton.icon(
                     onPressed: () {
                       showDialog(
@@ -45,6 +59,7 @@ class ToolManagementScreen extends ConsumerWidget {
                     icon: const Icon(Icons.add),
                     label: const Text('เพิ่มเครื่องมือ'),
                   ),
+                ],
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -60,6 +75,11 @@ class ToolManagementScreen extends ConsumerWidget {
                     onCheckIn: (t) => _showTransactionDialog(context, ref, t, 'check_in'),
                     onRepair: (t) => _showTransactionDialog(context, ref, t, 'send_repair'),
                     onRepairDone: (t) => _showTransactionDialog(context, ref, t, 'receive_repair'),
+                    onStockCard: (t) => showDialog(
+                      context: context,
+                      barrierDismissible: true,
+                      builder: (_) => _ToolStockCardDialog(tool: t),
+                    ),
                   );
                 },
                 loading: () => const Center(child: CircularProgressIndicator()),
@@ -87,6 +107,7 @@ class _ToolsTable extends ConsumerWidget {
   final void Function(ToolItem) onCheckIn;
   final void Function(ToolItem) onRepair;
   final void Function(ToolItem) onRepairDone;
+  final void Function(ToolItem) onStockCard;
 
   const _ToolsTable({
     required this.tools,
@@ -94,6 +115,7 @@ class _ToolsTable extends ConsumerWidget {
     required this.onCheckIn,
     required this.onRepair,
     required this.onRepairDone,
+    required this.onStockCard,
   });
 
   @override
@@ -137,6 +159,7 @@ class _ToolsTable extends ConsumerWidget {
                   onCheckIn: () => onCheckIn(tool),
                   onRepair: () => onRepair(tool),
                   onRepairDone: () => onRepairDone(tool),
+                  onStockCard: () => onStockCard(tool),
                 );
               },
             ),
@@ -153,6 +176,7 @@ class _ToolRow extends ConsumerWidget {
   final VoidCallback onCheckIn;
   final VoidCallback onRepair;
   final VoidCallback onRepairDone;
+  final VoidCallback onStockCard;
 
   const _ToolRow({
     required this.tool,
@@ -160,6 +184,7 @@ class _ToolRow extends ConsumerWidget {
     required this.onCheckIn,
     required this.onRepair,
     required this.onRepairDone,
+    required this.onStockCard,
   });
 
   @override
@@ -274,6 +299,14 @@ class _ToolRow extends ConsumerWidget {
                   ),
                 const SizedBox(width: 4),
                 _ToolImageHover(imagePath: tool.imagePath),
+                IconButton(
+                  onPressed: onStockCard,
+                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedCardExchange01, size: 16, color: Colors.blue),
+                  tooltip: 'Stock Card (ประวัติ)',
+                  constraints: const BoxConstraints(),
+                  padding: EdgeInsets.zero,
+                ),
+                const SizedBox(width: 8),
                 if (user?.isTechnicianOrAbove ?? false) ...[
                   IconButton(
                     onPressed: () {
@@ -623,6 +656,276 @@ class _ToolTransactionDialogState extends ConsumerState<_ToolTransactionDialog> 
         TextButton(onPressed: _isSaving ? null : () => Navigator.of(context).pop(), child: const Text('ยกเลิก')),
         FilledButton(onPressed: _isSaving ? null : _submit, child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : const Text('ยืนยัน')),
       ],
+    );
+  }
+}
+
+Future<void> _exportToolsPdf(List<ToolItem> tools) async {
+  final fontData = await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf');
+  final fontBoldData = await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf');
+  final ttf = pw.Font.ttf(fontData);
+  final ttfBold = pw.Font.ttf(fontBoldData);
+  final pdf = pw.Document();
+
+  pdf.addPage(
+    pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      theme: pw.ThemeData(defaultTextStyle: pw.TextStyle(font: ttf, fontSize: 10)),
+      header: (context) => pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text('รายงานทะเบียนเครื่องมือช่าง (Tools & Equipment)', style: pw.TextStyle(font: ttfBold, fontSize: 18)),
+          pw.SizedBox(height: 10),
+        ]
+      ),
+      build: (context) => [
+        pw.TableHelper.fromTextArray(
+          headers: ['รหัสเครื่องมือ', 'ชื่อเครื่องมือ', 'หมวดหมู่', 'สถานะ', 'ราคา', 'หมายเหตุ'],
+          headerStyle: pw.TextStyle(font: ttfBold, fontSize: 10),
+          cellStyle: pw.TextStyle(font: ttf, fontSize: 9),
+          headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
+          data: tools.map((t) => [
+            t.toolCode,
+            t.toolName,
+            t.category ?? 'Others',
+            t.status,
+            t.price?.toStringAsFixed(2) ?? '-',
+            t.notes ?? '-',
+          ]).toList(),
+        ),
+      ],
+    ),
+  );
+
+  final bytes = await pdf.save();
+  final tempDir = await getTemporaryDirectory();
+  final file = File('${tempDir.path}\\Tools_Inventory_Report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+  await file.writeAsBytes(bytes);
+
+  if (Platform.isWindows) {
+    await Process.run('cmd', ['/c', 'start', '', file.path]);
+  } else if (Platform.isMacOS) {
+    await Process.run('open', [file.path]);
+  } else if (Platform.isLinux) {
+    await Process.run('xdg-open', [file.path]);
+  }
+}
+
+class _ToolStockCardDialog extends StatefulWidget {
+  final ToolItem tool;
+  const _ToolStockCardDialog({required this.tool});
+
+  @override
+  State<_ToolStockCardDialog> createState() => _ToolStockCardDialogState();
+}
+
+class _ToolStockCardDialogState extends State<_ToolStockCardDialog> {
+  late Future<List<Map<String, dynamic>>> _transactionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _transactionsFuture = _fetchTransactions();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTransactions() async {
+    return await DbHelper.query(
+      'SELECT t.*, u.full_name FROM tool_transactions t LEFT JOIN users u ON t.user_id = u.user_id WHERE t.tool_id = @tid ORDER BY t.action_date DESC',
+      params: {'tid': widget.tool.toolId},
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      content: Container(
+        width: 800,
+        height: 600,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const HugeIcon(icon: HugeIcons.strokeRoundedCardExchange01, size: 28, color: AppColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Stock Card (ประวัติเครื่องมือ):', style: AppTextStyles.titleLarge),
+                      Text('${widget.tool.toolCode} - ${widget.tool.toolName}', style: AppTextStyles.bodyMedium.copyWith(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                )
+              ],
+            ),
+            const Divider(height: 32),
+            Expanded(
+              child: FutureBuilder<List<Map<String, dynamic>>>(
+                future: _transactionsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: ${snapshot.error}'));
+                  }
+                  final txs = snapshot.data ?? [];
+                  if (txs.isEmpty) {
+                    return const Center(child: Text('ไม่มีประวัติการทำรายการ'));
+                  }
+                  
+                  return SingleChildScrollView(
+                    child: Table(
+                      columnWidths: const {
+                        0: FlexColumnWidth(2), // Date
+                        1: FlexColumnWidth(2), // Action
+                        2: FlexColumnWidth(2), // User
+                        3: FlexColumnWidth(2), // Ref
+                        4: FlexColumnWidth(3), // Remarks
+                      },
+                      border: TableBorder(
+                        horizontalInside: BorderSide(color: Colors.grey.shade200),
+                        bottom: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      children: [
+                        TableRow(
+                          decoration: BoxDecoration(color: Colors.grey.shade100),
+                          children: [
+                            _th('วันที่/เวลา'),
+                            _th('ประเภท'),
+                            _th('ผู้ทำรายการ'),
+                            _th('อ้างอิง'),
+                            _th('หมายเหตุ'),
+                          ],
+                        ),
+                        for (final tx in txs)
+                          TableRow(
+                            children: [
+                              _td(DateFormat('yyyy-MM-dd HH:mm').format(DateTime.parse(tx['action_date']))),
+                              _tdType(tx['action_type']),
+                              _td(tx['full_name']?.toString() ?? '-'),
+                              _td(tx['reference_no']?.toString() ?? '-'),
+                              _td(tx['notes']?.toString() ?? '-'),
+                            ],
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () async {
+            final fontData = await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf');
+            final fontBoldData = await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf');
+            final ttf = pw.Font.ttf(fontData);
+            final ttfBold = pw.Font.ttf(fontBoldData);
+            final pdf = pw.Document();
+
+            final tx = await _transactionsFuture;
+            pdf.addPage(
+              pw.Page(
+                pageFormat: PdfPageFormat.a4,
+                theme: pw.ThemeData(defaultTextStyle: pw.TextStyle(font: ttf, fontSize: 10)),
+                build: (context) => pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('ประวัติเครื่องมือ: ${widget.tool.toolCode} - ${widget.tool.toolName}', style: pw.TextStyle(font: ttfBold, fontSize: 18)),
+                    pw.SizedBox(height: 10),
+                    pw.TableHelper.fromTextArray(
+                      headers: ['วันที่', 'ประเภท', 'ผู้ทำรายการ', 'อ้างอิง', 'หมายเหตุ'],
+                      headerStyle: pw.TextStyle(font: ttfBold, fontSize: 10),
+                      cellStyle: pw.TextStyle(font: ttf, fontSize: 9),
+                      headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
+                      data: tx.map((t) => [
+                        t['action_date'] != null ? t['action_date'].toString().substring(0, 16) : '-',
+                        t['action_type'] == 'check_out' ? 'ยืม (เบิก)' : (t['action_type'] == 'check_in' ? 'คืน' : (t['action_type'] == 'send_repair' ? 'ส่งซ่อม' : 'รับคืนจากการซ่อม')),
+                        t['full_name']?.toString() ?? '-',
+                        t['reference_no']?.toString() ?? '-',
+                        t['notes']?.toString() ?? '-',
+                      ]).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+            final bytes = await pdf.save();
+            final tempDir = await getTemporaryDirectory();
+            final file = File('${tempDir.path}\\Tool_History_${widget.tool.toolCode}_${DateTime.now().millisecondsSinceEpoch}.pdf');
+            await file.writeAsBytes(bytes);
+
+            if (Platform.isWindows) {
+              await Process.run('cmd', ['/c', 'start', '', file.path]);
+            } else if (Platform.isMacOS) {
+              await Process.run('open', [file.path]);
+            } else if (Platform.isLinux) {
+              await Process.run('xdg-open', [file.path]);
+            }
+          },
+          child: const Text('Export PDF'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('ปิด'),
+        ),
+      ],
+    );
+  }
+
+  Widget _th(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+    );
+  }
+
+  Widget _td(String text, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Text(text, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+    );
+  }
+
+  Widget _tdType(String type) {
+    Color color;
+    String text;
+    if (type == 'check_out') {
+      color = Colors.orange;
+      text = 'ยืม (เบิก)';
+    } else if (type == 'check_in') {
+      color = Colors.green;
+      text = 'คืน';
+    } else if (type == 'send_repair') {
+      color = Colors.red;
+      text = 'ส่งซ่อม';
+    } else {
+      color = Colors.blue;
+      text = 'รับคืนจากการซ่อม';
+    }
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold)),
+      ),
     );
   }
 }

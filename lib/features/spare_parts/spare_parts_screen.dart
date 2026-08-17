@@ -1,3 +1,8 @@
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -148,15 +153,17 @@ class _SparePartsListScreenState extends ConsumerState<SparePartsListScreen> {
               const Spacer(),
               if (user?.isTechnicianOrAbove ?? false) ...[
                 OutlinedButton.icon(
+                  onPressed: () {
+                    partsAsync.whenData((parts) => _exportPdf(parts));
+                  },
+                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedFileExport, size: 18, color: Colors.black),
+                  label: const Text('Export PDF'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                OutlinedButton.icon(
                   onPressed: () => _showAddSparePartDialog(context),
                   icon: const HugeIcon(icon: HugeIcons.strokeRoundedAdd01, size: 18, color: AppColors.primary),
                   label: const Text('เพิ่มอะไหล่ใหม่'),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                ElevatedButton.icon(
-                  onPressed: () => _showTransactionDialog(context, null, true),
-                  icon: const HugeIcon(icon: HugeIcons.strokeRoundedPackageAdd, size: 18, color: Colors.white),
-                  label: const Text('รับของเข้า'),
                 ),
               ],
             ],
@@ -280,6 +287,11 @@ class _SparePartsListScreenState extends ConsumerState<SparePartsListScreen> {
                             _showTransactionDialog(context, p, false),
                         onReceive: (p) =>
                             _showTransactionDialog(context, p, true),
+                        onStockCard: (p) => showDialog(
+                          context: context,
+                          barrierDismissible: true,
+                          builder: (_) => _SparePartStockCardDialog(part: p),
+                        ),
                       );
               },
             ),
@@ -347,12 +359,14 @@ class _PartsTable extends ConsumerWidget {
   final UserSession? user;
   final void Function(SparePart) onIssue;
   final void Function(SparePart) onReceive;
+  final void Function(SparePart) onStockCard;
 
   const _PartsTable({
     required this.parts,
     this.user,
     required this.onIssue,
     required this.onReceive,
+    required this.onStockCard,
   });
 
   @override
@@ -407,6 +421,7 @@ class _PartsTable extends ConsumerWidget {
                   user: user,
                   onIssue: () => onIssue(p),
                   onReceive: () => onReceive(p),
+                  onStockCard: () => onStockCard(p),
                   onEdit: () {
                     showDialog(
                       context: context,
@@ -471,6 +486,7 @@ class _PartRow extends ConsumerWidget {
   final UserSession? user;
   final VoidCallback onIssue;
   final VoidCallback onReceive;
+  final VoidCallback onStockCard;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -479,6 +495,7 @@ class _PartRow extends ConsumerWidget {
     this.user,
     required this.onIssue,
     required this.onReceive,
+    required this.onStockCard,
     required this.onEdit,
     required this.onDelete,
   });
@@ -593,6 +610,14 @@ class _PartRow extends ConsumerWidget {
                       ),
                       const SizedBox(width: 4),
                       _SparePartImageHover(imagePath: part.imagePath),
+                      IconButton(
+                        onPressed: onStockCard,
+                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedCardExchange01, size: 16, color: Colors.blue),
+                        tooltip: 'Stock Card',
+                        constraints: const BoxConstraints(),
+                        padding: EdgeInsets.zero,
+                      ),
+                      const SizedBox(width: 8),
                       IconButton(
                         onPressed: onEdit,
                         icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
@@ -989,4 +1014,225 @@ class _SparePartFormDialogState extends ConsumerState<_SparePartFormDialog> {
     );
   }
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Card Dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SparePartStockCardDialog extends StatefulWidget {
+  final SparePart part;
+  const _SparePartStockCardDialog({required this.part});
+
+  @override
+  State<_SparePartStockCardDialog> createState() => _SparePartStockCardDialogState();
+}
+
+class _SparePartStockCardDialogState extends State<_SparePartStockCardDialog> {
+  late Future<List<Map<String, dynamic>>> _transactionsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _transactionsFuture = _fetchTransactions();
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchTransactions() async {
+    return await DbHelper.query(
+      'SELECT * FROM spare_parts_transactions WHERE part_id = @pid ORDER BY trans_date DESC',
+      params: {'pid': widget.part.partId},
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 800,
+        height: 600,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const HugeIcon(icon: HugeIcons.strokeRoundedCardExchange01, size: 28, color: AppColors.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Stock Card: ', style: AppTextStyles.titleLarge),
+                      Text('', style: AppTextStyles.bodyMedium.copyWith(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                )
+              ],
+            ),
+            const Divider(height: 32),
+            Expanded(
+              child: FutureBuilder<List<Map<String, dynamic>>>(
+                future: _transactionsFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(child: Text('Error: '));
+                  }
+                  final txs = snapshot.data ?? [];
+                  if (txs.isEmpty) {
+                    return const Center(child: Text('ไม่มีประวัติการทำรายการ'));
+                  }
+                  
+                  int currentBalance = widget.part.quantityOnHand;
+                  List<Map<String, dynamic>> enrichedTxs = [];
+                  for (final tx in txs) {
+                    final qty = (tx['quantity'] as num).toInt();
+                    final enriched = Map<String, dynamic>.from(tx);
+                    enriched['running_balance'] = currentBalance;
+                    enrichedTxs.add(enriched);
+                    currentBalance -= qty;
+                  }
+                  
+                  return SingleChildScrollView(
+                    child: Table(
+                      columnWidths: const {
+                        0: FlexColumnWidth(2), // Date
+                        1: FlexColumnWidth(1), // Type
+                        2: FlexColumnWidth(1), // Qty
+                        3: FlexColumnWidth(1), // Balance
+                        4: FlexColumnWidth(2), // Ref
+                        5: FlexColumnWidth(2), // Remarks
+                      },
+                      border: TableBorder(
+                        horizontalInside: BorderSide(color: Colors.grey.shade200),
+                        bottom: BorderSide(color: Colors.grey.shade200),
+                      ),
+                      children: [
+                        TableRow(
+                          decoration: BoxDecoration(color: Colors.grey.shade100),
+                          children: [
+                            _th('วันที่/เวลา'),
+                            _th('ประเภท'),
+                            _th('จำนวน'),
+                            _th('คงเหลือ'),
+                            _th('อ้างอิง'),
+                            _th('หมายเหตุ'),
+                          ],
+                        ),
+                        for (final tx in enrichedTxs)
+                          TableRow(
+                            children: [
+                              _td(DateFormat('yyyy-MM-dd HH:mm').format(DateTime.parse(tx['trans_date']))),
+                              _tdType(tx['trans_type']),
+                              _td((tx['quantity'] as num) > 0 ? '+${tx['quantity']}' : tx['quantity'].toString(), bold: true),
+                              _td(tx['running_balance'].toString(), bold: true),
+                              _td(tx['reference_id']?.toString() ?? '-'),
+                              _td(tx['remarks']?.toString() ?? '-'),
+                            ],
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _th(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+    );
+  }
+
+  Widget _td(String text, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Text(text, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.bold : FontWeight.normal)),
+    );
+  }
+
+  Widget _tdType(String type) {
+    final isRecv = type == 'in';
+    final color = isRecv ? Colors.green : Colors.orange;
+    final text = isRecv ? 'รับเข้า' : 'เบิกออก';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Text(text, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+}  Future<void> _exportPdf(List<SparePart> parts) async {
+    final fontData = await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf');
+    final fontBoldData = await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf');
+    final ttf = pw.Font.ttf(fontData);
+    final ttfBold = pw.Font.ttf(fontBoldData);
+
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4.landscape,
+        theme: pw.ThemeData(defaultTextStyle: pw.TextStyle(font: ttf, fontSize: 10)),
+        header: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('รายงานทะเบียนคลังอะไหล่ (Spare Parts Inventory)', style: pw.TextStyle(font: ttfBold, fontSize: 18)),
+            pw.SizedBox(height: 10),
+          ]
+        ),
+        build: (context) => [
+          pw.TableHelper.fromTextArray(
+            headers: ['รหัสอะไหล่', 'ชื่ออะไหล่', 'หมวดหมู่', 'คงเหลือ', 'จอง', 'พร้อมใช้', 'Min Stock', 'ราคา/หน่วย', 'ตำแหน่ง'],
+            headerStyle: pw.TextStyle(font: ttfBold, fontSize: 10),
+            cellStyle: pw.TextStyle(font: ttf, fontSize: 9),
+            headerDecoration: pw.BoxDecoration(color: PdfColors.grey300),
+            data: parts.map((p) => [
+              p.partCode,
+              p.partName,
+              p.category ?? 'Others',
+              p.quantityOnHand.toString(),
+              p.quantityReserved.toString(),
+              p.available.toString(),
+              p.reorderLevel.toString(),
+              p.unitCost?.toStringAsFixed(2) ?? '-',
+              p.location ?? '-',
+            ]).toList(),
+          ),
+        ],
+      ),
+    );
+
+    final bytes = await pdf.save();
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}\\Spare_Parts_Inventory_Report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+    await file.writeAsBytes(bytes);
+    
+    if (Platform.isWindows) {
+      await Process.run('cmd', ['/c', 'start', '', file.path]);
+    } else if (Platform.isMacOS) {
+      await Process.run('open', [file.path]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [file.path]);
+    }
+  }
+
 

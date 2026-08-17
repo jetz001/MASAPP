@@ -1,6 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'oee_log_provider.dart';
+import '../machine_intake/machine_provider.dart';
+
 
 class OeeLogsScreen extends ConsumerStatefulWidget {
   const OeeLogsScreen({super.key});
@@ -11,7 +13,7 @@ class OeeLogsScreen extends ConsumerStatefulWidget {
 
 class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _machineCtrl = TextEditingController();
+  String? _selectedMachineId;
   final _hoursCtrl = TextEditingController();
   final _targetCtrl = TextEditingController();
   final _actualCtrl = TextEditingController();
@@ -22,7 +24,6 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
 
   @override
   void dispose() {
-    _machineCtrl.dispose();
     _hoursCtrl.dispose();
     _targetCtrl.dispose();
     _actualCtrl.dispose();
@@ -47,11 +48,13 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     
-    // Hardcoded machine ID for demo, usually comes from dropdown
-    final machineId = _machineCtrl.text.isEmpty ? 'MCH-001' : _machineCtrl.text;
+    if (_selectedMachineId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('กรุณาเลือกเครื่องจักร')));
+      return;
+    }
     
     await ref.read(oeeLogProvider.notifier).addLog(
-      machineId: machineId,
+      machineId: _selectedMachineId!,
       hours: double.parse(_hoursCtrl.text),
       target: double.parse(_targetCtrl.text),
       actual: double.parse(_actualCtrl.text),
@@ -73,6 +76,7 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
   @override
   Widget build(BuildContext context) {
     final logsAsync = ref.watch(oeeLogProvider);
+    final machinesAsync = ref.watch(machineListProvider(const MachineListFilter()));
 
     return Scaffold(
       appBar: AppBar(
@@ -105,9 +109,29 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
                         },
                       ),
                       const Divider(),
-                      TextFormField(
-                        controller: _machineCtrl,
-                        decoration: const InputDecoration(labelText: 'รหัสเครื่องจักร (เช่น MCH-001)'),
+                      machinesAsync.when(
+                        data: (machines) {
+                          return DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            decoration: const InputDecoration(labelText: 'เลือกรหัสเครื่องจักร'),
+                            value: _selectedMachineId,
+                            items: machines.map((m) => DropdownMenuItem(
+                              value: m.machineId,
+                              child: Text(
+                                '${m.machineNo} - ${m.machineName ?? "ไม่ระบุชื่อ"}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            )).toList(),
+                            onChanged: (val) {
+                              setState(() {
+                                _selectedMachineId = val;
+                              });
+                            },
+                            validator: (val) => val == null ? 'กรุณาเลือกเครื่องจักร' : null,
+                          );
+                        },
+                        loading: () => const CircularProgressIndicator(),
+                        error: (e, st) => Text('Error loading machines: '),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -163,12 +187,17 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
                     itemCount: logs.length,
                     itemBuilder: (context, index) {
                       final log = logs[index];
+                      final machine = machinesAsync.value?.where((m) => m.machineId == log.machineId).firstOrNull;
+                      final machineDisplay = machine != null 
+                          ? '${machine.machineNo} - ${machine.machineName ?? "ไม่ระบุชื่อ"}'
+                          : log.machineId;
+
                       return ListTile(
                         leading: Icon(
                           log.dataSource == 'plc' ? Icons.memory : Icons.person,
                           color: log.dataSource == 'plc' ? Colors.blue : Colors.orange,
                         ),
-                        title: Text('เครื่องจักร: ${log.machineId} (${log.cumulativeHours} ชม.)'),
+                        title: Text('เครื่องจักร: $machineDisplay (${log.cumulativeHours} ชม.)'),
                         subtitle: Text('ผลิตได้: ${log.actualProduction} / ${log.targetProduction} (ดี: ${log.goodProduction})'),
                         trailing: Text(log.recordedDate.toString().split(' ')[0]),
                       );

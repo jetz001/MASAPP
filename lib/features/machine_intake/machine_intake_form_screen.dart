@@ -74,6 +74,9 @@ class _MachineIntakeFormScreenState
   final _freqCtrl = TextEditingController();
   final _capacityCtrl = TextEditingController();
   final _capacityUnitCtrl = TextEditingController(text: 'หน่วย/ชม.');
+  final _fuelConsumptionCtrl = TextEditingController();
+  final _fuelTypeCtrl = TextEditingController();
+  final _defaultWorkersCtrl = TextEditingController();
   final _weightCtrl = TextEditingController();
   final _lenCtrl = TextEditingController();
   final _widCtrl = TextEditingController();
@@ -105,7 +108,7 @@ class _MachineIntakeFormScreenState
       _machineNoCtrl, _machineNameCtrl, _assetNoCtrl, _brandCtrl, _modelCtrl, _serialNoCtrl,
       _locationCtrl, _costCtrl, _notesCtrl, _powerCtrl, _voltCtrl, _currentCtrl,
       _freqCtrl, _capacityCtrl, _capacityUnitCtrl, _weightCtrl, _lenCtrl,
-      _widCtrl, _htCtrl, _rpmCtrl, _stage1NotesCtrl, _stage2NotesCtrl,
+      _widCtrl, _htCtrl, _rpmCtrl, _fuelConsumptionCtrl, _fuelTypeCtrl, _defaultWorkersCtrl, _stage1NotesCtrl, _stage2NotesCtrl,
       _stage3NotesCtrl,
     ]) {
       c.dispose();
@@ -1067,13 +1070,17 @@ class _MachineIntakeFormScreenState
             ],
           ),
           const SizedBox(height: AppSpacing.md),
+          _buildTextField(_capacityCtrl, 'ความสามารถในการผลิต (ชิ้น/ชม.)', Icons.speed, enabled: enabled),
+          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
-              Expanded(child: _buildTextField(_capacityCtrl, 'ความสามารถในการผลิต', Icons.speed, enabled: enabled)),
+              Expanded(child: _buildTextField(_fuelConsumptionCtrl, 'อัตราสิ้นเปลือง (เชื้อเพลิง)', Icons.local_gas_station, enabled: enabled)),
               const SizedBox(width: AppSpacing.md),
-              Expanded(child: _buildTextField(_capacityUnitCtrl, 'หน่วย (เช่น ชิ้น/นาที)', null, enabled: enabled)),
+              Expanded(child: _buildTextField(_fuelTypeCtrl, 'ประเภทเชื้อเพลิง/หน่วย', null, enabled: enabled)),
             ],
           ),
+          const SizedBox(height: AppSpacing.md),
+          _buildTextField(_defaultWorkersCtrl, 'จำนวนพนักงานประจำเครื่อง (คน)', Icons.people, enabled: enabled),
           const SizedBox(height: AppSpacing.xl),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,

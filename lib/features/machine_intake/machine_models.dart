@@ -276,6 +276,9 @@ class MachineSpecs {
   final double? dimWidthMm;
   final double? dimHeightMm;
   final double? rpm;
+  final double? fuelConsumptionRate;
+  final String? fuelType;
+  final int? defaultWorkers;
 
   const MachineSpecs({
     this.powerKw,
@@ -289,21 +292,48 @@ class MachineSpecs {
     this.dimWidthMm,
     this.dimHeightMm,
     this.rpm,
+    this.fuelConsumptionRate,
+    this.fuelType,
+    this.defaultWorkers,
   });
 
-  factory MachineSpecs.fromMap(Map<String, dynamic> m) => MachineSpecs(
-    powerKw: (m['power_kw'] as num?)?.toDouble(),
-    voltageV: (m['voltage_v'] as num?)?.toDouble(),
-    currentA: (m['current_a'] as num?)?.toDouble(),
-    frequencyHz: (m['frequency_hz'] as num?)?.toDouble(),
-    capacity: (m['capacity'] as num?)?.toDouble(),
-    capacityUnit: m['capacity_unit']?.toString(),
-    weightKg: (m['weight_kg'] as num?)?.toDouble(),
-    dimLengthMm: (m['dim_length_mm'] as num?)?.toDouble(),
-    dimWidthMm: (m['dim_width_mm'] as num?)?.toDouble(),
-    dimHeightMm: (m['dim_height_mm'] as num?)?.toDouble(),
-    rpm: (m['rpm'] as num?)?.toDouble(),
-  );
+  factory MachineSpecs.fromMap(Map<String, dynamic> map) {
+    return MachineSpecs(
+      powerKw: (map['power_kw'] as num?)?.toDouble(),
+      voltageV: (map['voltage_v'] as num?)?.toDouble(),
+      currentA: (map['current_a'] as num?)?.toDouble(),
+      frequencyHz: (map['frequency_hz'] as num?)?.toDouble(),
+      capacity: (map['capacity'] as num?)?.toDouble(),
+      capacityUnit: map['capacity_unit'] as String?,
+      weightKg: (map['weight_kg'] as num?)?.toDouble(),
+      dimLengthMm: (map['dim_length_mm'] as num?)?.toDouble(),
+      dimWidthMm: (map['dim_width_mm'] as num?)?.toDouble(),
+      dimHeightMm: (map['dim_height_mm'] as num?)?.toDouble(),
+      rpm: (map['rpm'] as num?)?.toDouble(),
+      fuelConsumptionRate: (map['fuel_consumption_rate'] as num?)?.toDouble(),
+      fuelType: map['fuel_type'] as String?,
+      defaultWorkers: map['default_workers'] as int?,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'power_kw': powerKw,
+      'voltage_v': voltageV,
+      'current_a': currentA,
+      'frequency_hz': frequencyHz,
+      'capacity': capacity,
+      'capacity_unit': capacityUnit,
+      'weight_kg': weightKg,
+      'dim_length_mm': dimLengthMm,
+      'dim_width_mm': dimWidthMm,
+      'dim_height_mm': dimHeightMm,
+      'rpm': rpm,
+      'fuel_consumption_rate': fuelConsumptionRate,
+      'fuel_type': fuelType,
+      'default_workers': defaultWorkers,
+    };
+  }
 }
 
 class HandoverInfo {
