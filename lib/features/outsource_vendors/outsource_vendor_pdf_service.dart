@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -17,8 +18,8 @@ class OutsourceVendorPdfService {
 
     final document = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

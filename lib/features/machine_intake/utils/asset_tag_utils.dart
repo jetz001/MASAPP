@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
@@ -12,8 +13,8 @@ class AssetTagUtils {
   /// Generate a PDF for the machine asset tag
   static Future<void> generateAndPrintTag(MachineModel machine) async {
     // Load Thai font
-    final fontRegular = await PdfGoogleFonts.sarabunRegular();
-    final fontBold = await PdfGoogleFonts.sarabunBold();
+    final fontRegular = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf'));
+    final fontBold = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf'));
 
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(

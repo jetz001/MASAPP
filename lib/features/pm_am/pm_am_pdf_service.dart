@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -24,8 +25,8 @@ class PmAmPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 
@@ -132,8 +133,8 @@ class PmAmPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 
@@ -255,8 +256,8 @@ class PmAmPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 
@@ -374,8 +375,8 @@ class PmAmPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 
@@ -489,8 +490,8 @@ class PmAmPdfService {
 
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

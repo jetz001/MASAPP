@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -20,8 +21,8 @@ class LayoutPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 
@@ -259,8 +260,8 @@ class LayoutPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

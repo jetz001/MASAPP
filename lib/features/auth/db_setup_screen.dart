@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:logger/logger.dart';
 import '../../core/config/app_config.dart';
+import '../../core/utils/crypto_utils.dart';
 import '../../core/database/db_connection.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/theme/app_colors.dart';
@@ -22,6 +23,10 @@ class DbSetupScreen extends ConsumerStatefulWidget {
 class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _pathCtrl = TextEditingController();
+  final _companyCtrl = TextEditingController();
+  final _adminUsernameCtrl = TextEditingController(text: 'admin');
+  final _adminPassCtrl = TextEditingController();
+  final _serialKeyCtrl = TextEditingController();
 
   bool _loading = false;
   String? _statusMessage;
@@ -41,6 +46,10 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
   @override
   void dispose() {
     _pathCtrl.dispose();
+    _companyCtrl.dispose();
+    _adminUsernameCtrl.dispose();
+    _adminPassCtrl.dispose();
+    _serialKeyCtrl.dispose();
     super.dispose();
   }
 
@@ -169,6 +178,31 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
               }
             }
           }
+
+          // Inject setup configurations
+          final company = _companyCtrl.text.trim();
+          if (company.isNotEmpty) {
+            await txn.execute(
+              "UPDATE app_settings SET setting_value = ? WHERE setting_key = 'app.company_name'",
+              [company],
+            );
+          }
+          final serial = _serialKeyCtrl.text.trim();
+          if (serial.isNotEmpty) {
+            await txn.execute(
+              "INSERT INTO app_settings (setting_key, setting_value, description) VALUES ('app.serial_key', ?, 'Serial License Key')",
+              [serial],
+            );
+          }
+          final adminUser = _adminUsernameCtrl.text.trim();
+          final adminPass = _adminPassCtrl.text;
+          if (adminUser.isNotEmpty && adminPass.isNotEmpty) {
+            final hashedPass = CryptoUtils.hashPassword(adminPass);
+            await txn.execute(
+              "UPDATE users SET username = ?, password_hash = ? WHERE role = 'admin'",
+              [adminUser, hashedPass]
+            );
+          }
         });
         Logger().i('[Setup] Successfully executed $executed statements.');
 
@@ -285,6 +319,45 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
 
                       const SizedBox(height: 40),
 
+                      // --- NEW FIELDS ---
+                      Text('ชื่อบริษัท / องค์กร', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _companyCtrl,
+                        style: AppTextStyles.bodyMedium,
+                        decoration: const InputDecoration(hintText: 'โรงงานตัวอย่าง จำกัด', prefixIcon: Icon(Icons.business)),
+                      ),
+                      const SizedBox(height: 20),
+
+                      Text('ชื่อผู้ใช้งาน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _adminUsernameCtrl,
+                        style: AppTextStyles.bodyMedium,
+                        decoration: const InputDecoration(prefixIcon: Icon(Icons.person)),
+                        validator: (v) => v == null || v.isEmpty ? 'กรุณาระบุ Username' : null,
+                      ),
+                      const SizedBox(height: 20),
+
+                      Text('รหัสผ่าน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _adminPassCtrl,
+                        style: AppTextStyles.bodyMedium,
+                        obscureText: true,
+                        decoration: const InputDecoration(hintText: 'ปล่อยว่างหากต้องการใช้รหัสผ่านตั้งต้น', prefixIcon: Icon(Icons.lock)),
+                      ),
+                      const SizedBox(height: 20),
+
+                      Text('Serial Key / License (ถ้ามี)', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _serialKeyCtrl,
+                        style: AppTextStyles.bodyMedium,
+                        decoration: const InputDecoration(hintText: 'XXXX-XXXX-XXXX-XXXX', prefixIcon: Icon(Icons.key)),
+                      ),
+                      const SizedBox(height: 40),
+                      // --- END NEW FIELDS ---
                       Text(
                         'ที่อยู่ไฟล์ฐานข้อมูล (.db)',
                         style: AppTextStyles.labelLarge.copyWith(

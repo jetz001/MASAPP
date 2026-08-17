@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';import 'package:intl/intl.dart';
@@ -26,8 +27,8 @@ class WorkOrderGatePassPdfService {
     );
     final document = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

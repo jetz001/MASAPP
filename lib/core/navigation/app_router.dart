@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/database/db_connection.dart';
 import '../../features/auth/auth_provider.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/db_setup_screen.dart';
@@ -41,6 +42,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       final isLoggedIn = authState != null;
       final isLoginRoute = state.matchedLocation.startsWith('/login');
       final isSetupRoute = state.matchedLocation.startsWith('/setup');
+      
+      // If database is not connected (no config found or connect failed), force setup
+      final isDbConnected = DbConnection.instance.isConnected;
+      if (!isDbConnected && !isSetupRoute) return '/setup';
 
       if (isSetupRoute) return null;
       if (!isLoggedIn && !isLoginRoute) return '/login';

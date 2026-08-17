@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -19,8 +20,8 @@ class WorkOrderLogSheetPdfService {
   }) async {
     final document = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

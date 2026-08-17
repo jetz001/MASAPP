@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+import 'package:flutter/services.dart';
+import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:pdf/pdf.dart';
@@ -17,8 +18,8 @@ class WorkPermitPdfService {
   }) async {
     final pdf = pw.Document(
       theme: pw.ThemeData.withFont(
-        base: await PdfGoogleFonts.sarabunRegular(),
-        bold: await PdfGoogleFonts.sarabunBold(),
+        base: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf')),
+        bold: pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf')),
       ),
     );
 

@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:pdf/pdf.dart';
@@ -12,10 +13,10 @@ class MachineFormUtils {
   /// Generate a manual checklist PDF for the machine
   static Future<void> generateManualChecklist(MachineModel machine) async {
     // Load Thai font (Sarabun) variants to resolve tofu and unicode issues
-    final fontRegular = await PdfGoogleFonts.sarabunRegular();
-    final fontBold = await PdfGoogleFonts.sarabunBold();
-    final fontItalic = await PdfGoogleFonts.sarabunItalic();
-    final fontBoldItalic = await PdfGoogleFonts.sarabunBoldItalic();
+    final fontRegular = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf'));
+    final fontBold = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf'));
+    final fontItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf'));
+    final fontBoldItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf'));
 
     // Fetch Settings
     final rows = await DbHelper.query('SELECT setting_key, setting_value FROM app_settings');
@@ -200,10 +201,10 @@ class MachineFormUtils {
 
   static Future<void> generateIntakeReport(MachineModel machine) async {
     // Load all Thai font (Sarabun) variants to fully support Unicode and styles
-    final fontRegular = await PdfGoogleFonts.sarabunRegular();
-    final fontBold = await PdfGoogleFonts.sarabunBold();
-    final fontItalic = await PdfGoogleFonts.sarabunItalic();
-    final fontBoldItalic = await PdfGoogleFonts.sarabunBoldItalic();
+    final fontRegular = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf'));
+    final fontBold = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf'));
+    final fontItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Regular.ttf'));
+    final fontBoldItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf'));
     final signatureFont = await PdfGoogleFonts.charmonmanBold();
 
     // Fetch Settings
