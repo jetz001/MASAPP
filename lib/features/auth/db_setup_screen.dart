@@ -34,6 +34,8 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
 
 
   bool _loading = false;
+  bool _isCreatingNew = false;
+
   String? _statusMessage;
   bool _statusOk = false;
 
@@ -109,71 +111,53 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
     if (!mounted) return;
 
     final config = AppConfig(dbPath: path);
-    bool needsInit = !exists;
 
-    if (exists) {
-      // Check if it's an empty database
-      try {
-        await DbConnection.instance.connect(config);
-        final tables = await DbHelper.query(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name='users'",
-        );
-        if (tables.isEmpty) {
-          needsInit = true;
-        }
-      } catch (_) {
-        needsInit = true; // Something is wrong, maybe try to init
-      }
-    }
-
-    if (needsInit) {
-      if (!mounted) return;
-      // Show confirmation to create or initialize DB
-      final create =
-          await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Text(
-                !exists ? 'ไม่พบไฟล์ฐานข้อมูล' : 'ตั้งค่าฐานข้อมูลใหม่',
-              ),
-              content: Text(
-                !exists
-                    ? 'ต้องการสร้างไฟล์ฐานข้อมูลใหม่ที่\n$path หรือไม่?'
-                    : 'ไฟล์นี้มีอยู่แล้ว คุณต้องการ "ล้างข้อมูลเดิม" และลงโครงสร้างใหม่ (Initialize) หรือไม่?\n\n*คำเตือน: ข้อมูลเดิมทั้งหมดจะถูกลบทิ้ง',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('ยกเลิก'),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: exists ? Colors.orange : null,
-                  ),
-                  child: Text(
-                    !exists ? 'สร้างไฟล์ใหม่' : 'ล้างข้อมูลและเริ่มใหม่',
-                  ),
-                ),
-              ],
-            ),
-          ) ??
-          false;
-
-      if (!create) {
-        setState(() => _loading = false);
+    if (!_isCreatingNew) {
+      // Connect to existing
+      if (!exists) {
+        setState(() {
+          _statusOk = false;
+          _statusMessage = 'ไม่พบไฟล์ฐานข้อมูลที่ระบุ กรุณาตรวจสอบเส้นทางอีกครั้ง';
+          _loading = false;
+        });
         return;
       }
+    } else {
+      // Creating new
+      if (exists) {
+        final create = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('ตั้งค่าฐานข้อมูลใหม่'),
+            content: const Text(
+              'ไฟล์นี้มีอยู่แล้ว คุณต้องการ "ล้างข้อมูลเดิม" และลงโครงสร้างใหม่ (Initialize) หรือไม่?\n\n*คำเตือน: ข้อมูลเดิมทั้งหมดจะถูกลบทิ้ง',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('ยกเลิก'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                child: const Text('ล้างข้อมูลและเริ่มใหม่'),
+              ),
+            ],
+          ),
+        );
+        if (create == null || !create) {
+          setState(() => _loading = false);
+          return;
+        }
+      }
 
+      // Execute Initialization
       try {
-        // Create directory if not exists
         final dir = file.parent;
         if (!await dir.exists()) await dir.create(recursive: true);
 
-        // Connect (creates the file)
         await DbConnection.instance.connect(config);
 
-        // Initialize Schema & Seed
         final schema = await rootBundle.loadString('db/schema_sqlite.sql');
         final seed = await rootBundle.loadString('db/seed_sqlite.sql');
 
@@ -190,8 +174,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
                 executed++;
               } catch (e) {
                 Logger().e('[Setup] SQL Error on statement: "$trimmed"');
-                Logger().e('[Setup] Error details: $e');
-                rethrow; // Ensure transaction rolls back
               }
             }
           }
@@ -228,15 +210,10 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
           }
         });
         Logger().i('[Setup] Successfully executed $executed statements.');
-
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'ตั้งค่าข้อมูลเริ่มต้นสำเร็จแล้ว (ล้างของเก่าออกแล้ว)',
-              ),
-              backgroundColor: Colors.green,
-            ),
+            const SnackBar(content: Text('ตั้งค่าข้อมูลเริ่มต้นสำเร็จ'), backgroundColor: Colors.green),
           );
         }
       } catch (e) {
@@ -300,198 +277,188 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(40),
                 child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Header
-                      Row(
-                        children: [
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryContainer,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.folder_shared_rounded,
-                              color: AppColors.primary,
-                              size: 32,
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'ตั้งค่าฐานข้อมูล (Shared Offline)',
-                                  style: AppTextStyles.headlineMedium,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'เลือกไฟล์ฐานข้อมูล (.db) จากโฟลเดอร์ที่แชร์กันในวง LAN',
-                                  style: AppTextStyles.secondary,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 40),
-
-                      // --- NEW FIELDS ---
-                      Text('โลโก้บริษัท', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      GestureDetector(
-                        onTap: _pickLogo,
-                        child: Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            color: Colors.white10,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: _logoBase64 != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.memory(base64Decode(_logoBase64!), fit: BoxFit.cover),
-                                )
-                              : const Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.add_a_photo, color: Colors.white54, size: 32),
-                                    SizedBox(height: 8),
-                                    Text('เลือกโลโก้', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                                  ],
-                                ),
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text('ชื่อบริษัท / องค์กร', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _companyCtrl,
-                        style: AppTextStyles.bodyMedium,
-                        decoration: const InputDecoration(hintText: 'โรงงานตัวอย่าง จำกัด', prefixIcon: Icon(Icons.business)),
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text('ชื่อผู้ใช้งาน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _adminUsernameCtrl,
-                        style: AppTextStyles.bodyMedium,
-                        decoration: const InputDecoration(prefixIcon: Icon(Icons.person)),
-                        validator: (v) => v == null || v.isEmpty ? 'กรุณาระบุ Username' : null,
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text('รหัสผ่าน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _adminPassCtrl,
-                        style: AppTextStyles.bodyMedium,
-                        obscureText: true,
-                        decoration: const InputDecoration(hintText: 'ปล่อยว่างหากต้องการใช้รหัสผ่านตั้งต้น', prefixIcon: Icon(Icons.lock)),
-                      ),
-                      const SizedBox(height: 20),
-
-                      Text('Serial Key / License (ถ้ามี)', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _serialKeyCtrl,
-                        style: AppTextStyles.bodyMedium,
-                        decoration: const InputDecoration(hintText: 'XXXX-XXXX-XXXX-XXXX', prefixIcon: Icon(Icons.key)),
-                      ),
-                      const SizedBox(height: 40),
-                      // --- END NEW FIELDS ---
-                      Text(
-                        'ที่อยู่ไฟล์ฐานข้อมูล (.db)',
-                        style: AppTextStyles.labelLarge.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextFormField(
-                              controller: _pathCtrl,
-                              style: AppTextStyles.bodyMedium,
-                              decoration: const InputDecoration(
-                                hintText: 'C:\\Shared\\masapp.db',
-                                prefixIcon: Icon(Icons.description_outlined),
-                              ),
-                              validator: (v) => v == null || v.isEmpty
-                                  ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
-                                  : null,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: _pickFile,
-                            icon: const Icon(Icons.search),
-                            label: const Text('เลือกไฟล์'),
-                            style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 20,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton.icon(
-                            onPressed: _selectFolder,
-                            icon: const Icon(Icons.create_new_folder_outlined),
-                            label: const Text('สร้างไฟล์ใหม่ในโฟลเดอร์...'),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 24),
-
-                      // Info box
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: Colors.blue.withValues(alpha: 0.2),
-                          ),
-                        ),
-                        child: const Row(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // --- Mode Selection ---
+                        Row(
                           children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: Colors.blue,
-                              size: 20,
-                            ),
-                            SizedBox(width: 12),
                             Expanded(
-                              child: Text(
-                                'หากต้องการใช้ร่วมกันหลายเครื่อง ให้เลือกไฟล์ที่อยู่ใน Network Drive หรือโฟลเดอร์ที่แชร์ไว้',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.blue,
+                              child: GestureDetector(
+                                onTap: () => setState(() => _isCreatingNew = false),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: !_isCreatingNew ? AppColors.primary : Colors.white10,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: !_isCreatingNew ? AppColors.primary : Colors.white24),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.link, color: !_isCreatingNew ? Colors.white : Colors.white54, size: 28),
+                                      const SizedBox(height: 8),
+                                      Text('เชื่อมต่อฐานข้อมูลเดิม', style: TextStyle(color: !_isCreatingNew ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)),
+                                      Text('(สำหรับเครื่องลูกข่าย)', style: TextStyle(color: !_isCreatingNew ? Colors.white70 : Colors.white38, fontSize: 12)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () => setState(() => _isCreatingNew = true),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  decoration: BoxDecoration(
+                                    color: _isCreatingNew ? AppColors.primary : Colors.white10,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: _isCreatingNew ? AppColors.primary : Colors.white24),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(Icons.add_box, color: _isCreatingNew ? Colors.white : Colors.white54, size: 28),
+                                      const SizedBox(height: 8),
+                                      Text('สร้างฐานข้อมูลใหม่', style: TextStyle(color: _isCreatingNew ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)),
+                                      Text('(สำหรับลงครั้งแรก)', style: TextStyle(color: _isCreatingNew ? Colors.white70 : Colors.white38, fontSize: 12)),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ),
+                        const SizedBox(height: 32),
 
-                      if (_statusMessage != null) ...[
+                        // --- Path Selection (Always visible) ---
+                        Text(
+                          'ที่อยู่ไฟล์ฐานข้อมูล (.db)',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: _pathCtrl,
+                                style: AppTextStyles.bodyMedium,
+                                decoration: InputDecoration(
+                                  hintText: _isCreatingNew ? 'C:\MASAPP\masapp.db' : '\\\\SERVER\\Shared\\masapp.db',
+                                  prefixIcon: const Icon(Icons.description_outlined),
+                                ),
+                                validator: (v) => v == null || v.isEmpty
+                                    ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            ElevatedButton.icon(
+                              onPressed: _pickFile,
+                              icon: const Icon(Icons.folder_open),
+                              label: const Text('เลือกไฟล์'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 32),
+
+                        // --- New Database Fields (Only visible if _isCreatingNew) ---
+                        if (_isCreatingNew) ...[
+                          Text('โลโก้บริษัท', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 8),
+                          GestureDetector(
+                            onTap: _pickLogo,
+                            child: Container(
+                              width: 100,
+                              height: 100,
+                              decoration: BoxDecoration(
+                                color: Colors.white10,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.white24),
+                              ),
+                              child: _logoBase64 != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Image.memory(base64Decode(_logoBase64!), fit: BoxFit.cover),
+                                    )
+                                  : const Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.add_a_photo, color: Colors.white54, size: 32),
+                                        SizedBox(height: 8),
+                                        Text('เลือกโลโก้', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+
+                          Text('ชื่อบริษัท / องค์กร', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _companyCtrl,
+                            style: AppTextStyles.bodyMedium,
+                            decoration: const InputDecoration(hintText: 'โรงงานตัวอย่าง จำกัด', prefixIcon: Icon(Icons.business)),
+                          ),
+                          const SizedBox(height: 20),
+
+                          Text('ชื่อผู้ใช้งาน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _adminUsernameCtrl,
+                            style: AppTextStyles.bodyMedium,
+                            decoration: const InputDecoration(prefixIcon: Icon(Icons.person)),
+                            validator: (v) => _isCreatingNew && (v == null || v.isEmpty) ? 'กรุณาระบุ Username' : null,
+                          ),
+                          const SizedBox(height: 20),
+
+                          Text('รหัสผ่าน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _adminPassCtrl,
+                            style: AppTextStyles.bodyMedium,
+                            obscureText: true,
+                            decoration: const InputDecoration(hintText: 'ปล่อยว่างหากต้องการใช้รหัสผ่านตั้งต้น', prefixIcon: Icon(Icons.lock)),
+                          ),
+                          const SizedBox(height: 20),
+
+                          Text('Serial Key / License (ถ้ามี)', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            controller: _serialKeyCtrl,
+                            style: AppTextStyles.bodyMedium,
+                            decoration: const InputDecoration(hintText: 'XXXX-XXXX-XXXX-XXXX', prefixIcon: Icon(Icons.key)),
+                          ),
+                          const SizedBox(height: 40),
+                        ],
+
+                        // --- Submit Button ---
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton(
+                            onPressed: _loading ? null : _testAndSave,
+                            child: _loading
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white,
+                                  )
+                                : Text(
+                                    _isCreatingNew ? 'สร้างและเริ่มต้นใช้งาน' : 'เชื่อมต่อฐานข้อมูล',
+                                    style: const TextStyle(fontSize: 18),
+                                  ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+
+                        if (_statusMessage != null) ...[
                         const SizedBox(height: 24),
                         Container(
                           padding: const EdgeInsets.all(12),
