@@ -1,7 +1,7 @@
 ﻿[Setup]
 AppName=MASAPP
 AppVersion=1.0.0
-AppPublisher=Factory Management
+AppPublisher=jetsoft co.,ltd
 DefaultDirName={autopf}\MASAPP
 DefaultGroupName=MASAPP
 OutputDir=D:\DEV\MASAPP\Output
@@ -9,6 +9,7 @@ OutputBaseFilename=MASAPP_Setup_v1.0
 Compression=lzma
 SolidCompression=yes
 SetupIconFile=D:\DEV\MASAPP\windows\runner\resources\app_icon.ico
+UninstallDisplayIcon={app}\masapp.exe
 DisableProgramGroupPage=yes
 DisableDirPage=auto
 
