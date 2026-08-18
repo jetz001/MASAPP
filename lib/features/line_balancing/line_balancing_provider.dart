@@ -178,11 +178,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       : super(LineBalancingState(
           availableTimeMin: 480, // 8 hours
           demandQuantity: 1000,
-          stations: [
-            WorkstationData(id: '1', name: 'Station 1 (Assembly)', cycleTime: 20, workers: 1, laborCost: 300),
-            WorkstationData(id: '2', name: 'Station 2 (Testing)', cycleTime: 25, workers: 1, laborCost: 300),
-            WorkstationData(id: '3', name: 'Station 3 (Packaging)', cycleTime: 18, workers: 1, laborCost: 300),
-          ],
+          stations: [],
         ));
 
   void updateDemand(double demand) {
@@ -234,7 +230,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       return s;
     }).toList();
     
-    state = state.copyWith(stations: [...updatedStations, newStation]);
+    state = state.copyWith(stations: []);
   }
 
   void updateStation(String id, String name, double cycleTime, {
