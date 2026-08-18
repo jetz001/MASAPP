@@ -67,6 +67,10 @@ dependencies:
   flex_color_scheme: ^8.4.0
   shadcn_ui: ^0.54.0
 
+  # AI Chat Module
+  google_generative_ai: ^0.4.6
+  http: ^1.2.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

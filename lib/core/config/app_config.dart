@@ -83,29 +83,53 @@ class AppConfigService {
   static const _configFileName = 'config.json';
   static AppConfig? _cached;
 
-  static Future<Directory> _configDir() async {
+  static Future<List<Directory>> _candidateConfigDirs() async {
+    final dirs = <Directory>[];
+
     final appData = await getApplicationSupportDirectory();
-    final dir = Directory('${appData.path}\\masapp');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    final normalizedAppData = appData.path.replaceAll('/', '\\').toLowerCase();
+    final appDataDir = normalizedAppData.endsWith(r'\masapp')
+        ? Directory(appData.path)
+        : Directory('${appData.path}\\masapp');
+    dirs.add(appDataDir);
+
+    final documents = await getApplicationDocumentsDirectory();
+    dirs.add(Directory('${documents.path}\\MASAPP'));
+    dirs.add(Directory('${Directory.current.path}\\.masapp'));
+    return dirs;
   }
 
-  static Future<File> _configFile() async {
-    final dir = await _configDir();
-    return File('${dir.path}\\$_configFileName');
+  static Future<File?> _configFileForRead() async {
+    for (final dir in await _candidateConfigDirs()) {
+      try {
+        final file = File('${dir.path}\\$_configFileName');
+        if (await file.exists()) return file;
+      } on FileSystemException {
+        // Ignore inaccessible locations and try the next fallback.
+      }
+    }
+    return null;
+  }
+
+  static Future<List<File>> _configFilesForWrite() async {
+    final files = <File>[];
+    for (final dir in await _candidateConfigDirs()) {
+      files.add(File('${dir.path}\\$_configFileName'));
+    }
+    return files;
   }
 
   /// Returns true if a saved config exists.
   static Future<bool> isConfigured() async {
-    final file = await _configFile();
-    return file.existsSync();
+    final file = await _configFileForRead();
+    return file != null;
   }
 
   /// Loads config from disk (or returns null if not found).
   static Future<AppConfig?> load() async {
     if (_cached != null) return _cached;
-    final file = await _configFile();
-    if (!file.existsSync()) return null;
+    final file = await _configFileForRead();
+    if (file == null) return null;
     try {
       final contents = await file.readAsString();
       final json = jsonDecode(contents) as Map<String, dynamic>;
@@ -118,9 +142,25 @@ class AppConfigService {
 
   /// Saves config to disk.
   static Future<void> save(AppConfig config) async {
-    final file = await _configFile();
-    await file.writeAsString(jsonEncode(config.toJson()), flush: true);
-    _cached = config;
+    FileSystemException? lastError;
+    final payload = jsonEncode(config.toJson());
+
+    for (final file in await _configFilesForWrite()) {
+      try {
+        final dir = file.parent;
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        await file.writeAsString(payload, flush: true);
+        _cached = config;
+        return;
+      } on FileSystemException catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (lastError != null) throw lastError;
+    throw const FileSystemException('Cannot resolve writable config directory');
   }
 
   static void clearCache() => _cached = null;

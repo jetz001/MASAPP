@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/storage/attachment_storage_service.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/audit/audit_service.dart';
 import 'work_order_models.dart';
@@ -53,17 +54,22 @@ class WorkOrderRepository {
     List<String>? savedAttachments;
     if (attachments != null && attachments.isNotEmpty) {
       savedAttachments = [];
-      final baseDir = Directory(p.join(File(DbHelper.dbPath).parent.path, 'attachments', woId));
-      if (!await baseDir.exists()) {
-        await baseDir.create(recursive: true);
-      }
       for (final path in attachments) {
-        final file = File(path);
+        final trimmed = path.trim();
+        if (trimmed.isEmpty) continue;
+
+        final file = File(trimmed);
         if (await file.exists()) {
-          final fileName = p.basename(path);
-          final destPath = p.join(baseDir.path, fileName);
-          await file.copy(destPath);
-          savedAttachments.add(destPath);
+          final asset = await AttachmentStorageService.instance.ingestFile(
+            moduleType: 'work_order',
+            entityId: woId,
+            sourcePath: trimmed,
+            displayName: p.basename(trimmed),
+            category: 'attachment',
+          );
+          savedAttachments.add(asset.storagePath);
+        } else {
+          savedAttachments.add(trimmed);
         }
       }
     }
@@ -88,7 +94,9 @@ class WorkOrderRepository {
           'created_by': userId,
           'created_at': now,
           'updated_at': now,
-          'attachments': savedAttachments != null ? jsonEncode(savedAttachments) : null,
+          'attachments': savedAttachments != null
+              ? jsonEncode(savedAttachments)
+              : null,
         },
       );
     });
@@ -105,28 +113,35 @@ class WorkOrderRepository {
   }
 
   /// Update attachments for a work order
-  Future<bool> updateAttachments(String woId, List<String> filePaths) async {
+  Future<List<String>?> updateAttachments(
+    String woId,
+    List<String> filePaths,
+  ) async {
     try {
-      final baseDir = Directory(p.join(File(DbHelper.dbPath).parent.path, 'attachments', woId));
-      if (!await baseDir.exists()) {
-        await baseDir.create(recursive: true);
-      }
-      
       final savedAttachments = <String>[];
       for (final path in filePaths) {
-        if (path.startsWith(baseDir.path)) {
-          // Already saved in attachments dir
-          savedAttachments.add(path);
+        final trimmed = path.trim();
+        if (trimmed.isEmpty) continue;
+
+        if (AttachmentStorageService.instance.looksManagedPath(trimmed)) {
+          savedAttachments.add(trimmed);
         } else {
-          // New file
-          final ext = p.extension(path);
-          final fileName = '${DateTime.now().millisecondsSinceEpoch}_${const Uuid().v4()}$ext';
-          final destPath = p.join(baseDir.path, fileName);
-          await File(path).copy(destPath);
-          savedAttachments.add(destPath);
+          final file = File(trimmed);
+          if (await file.exists()) {
+            final asset = await AttachmentStorageService.instance.ingestFile(
+              moduleType: 'work_order',
+              entityId: woId,
+              sourcePath: trimmed,
+              displayName: p.basename(trimmed),
+              category: 'attachment',
+            );
+            savedAttachments.add(asset.storagePath);
+          } else {
+            savedAttachments.add(trimmed);
+          }
         }
       }
-      
+
       await DbHelper.execute(
         'UPDATE work_orders SET attachments = @attachments, updated_at = @updated_at WHERE wo_id = @wo_id',
         params: {
@@ -135,10 +150,10 @@ class WorkOrderRepository {
           'updated_at': DateTime.now().toIso8601String(),
         },
       );
-      return true;
+      return savedAttachments;
     } catch (e) {
       print('Error updating attachments: $e');
-      return false;
+      return null;
     }
   }
 
@@ -186,19 +201,17 @@ class WorkOrderRepository {
       );
       WorkOrderOutsource? outsource;
       if (outsourceRow != null) {
-         final map = Map<String, dynamic>.from(outsourceRow);
-         // Ensure vendor name resolves correctly if it was storing ID vs name
-         if (map['vendor_name_from_db'] != null) {
-           map['vendor_name'] = map['vendor_name_from_db'];
-         }
-         outsource = WorkOrderOutsource.fromMap(map);
+        final map = Map<String, dynamic>.from(outsourceRow);
+        // Ensure vendor name resolves correctly if it was storing ID vs name
+        if (map['vendor_name_from_db'] != null) {
+          map['vendor_name'] = map['vendor_name_from_db'];
+        }
+        outsource = WorkOrderOutsource.fromMap(map);
       }
 
-      return WorkOrder.fromMap(row).copyWith(
-        laborEntries: labors, 
-        rca: rca,
-        outsource: outsource,
-      );
+      return WorkOrder.fromMap(
+        row,
+      ).copyWith(laborEntries: labors, rca: rca, outsource: outsource);
     } catch (e, stack) {
       print('ERROR in getWorkOrder: $e\n$stack');
       return null;
@@ -291,12 +304,9 @@ class WorkOrderRepository {
         '''UPDATE work_orders
            SET status = 'rejected', updated_at = @updated_at
            WHERE wo_id = @wo_id''',
-        params: {
-          'wo_id': woId,
-          'updated_at': now,
-        },
+        params: {'wo_id': woId, 'updated_at': now},
       );
-      
+
       await AuditService.logUpdate(
         'work_orders',
         woId,
@@ -337,7 +347,7 @@ class WorkOrderRepository {
     return await DbHelper.transaction((tx) async {
       try {
         final now = DateTime.now().toIso8601String();
-        
+
         // 1. Update work order status
         await DbHelper.txExecute(
           tx,
@@ -440,7 +450,11 @@ class WorkOrderRepository {
         const uuidInstance = Uuid();
 
         // 0. Upsert RCA
-        final existingRca = await DbHelper.txQueryOne(tx, 'SELECT rca_id FROM work_order_rca WHERE wo_id = @id', params: {'id': woId});
+        final existingRca = await DbHelper.txQueryOne(
+          tx,
+          'SELECT rca_id FROM work_order_rca WHERE wo_id = @id',
+          params: {'id': woId},
+        );
         if (existingRca != null) {
           await DbHelper.txExecute(
             tx,
@@ -453,7 +467,13 @@ class WorkOrderRepository {
             '''INSERT INTO work_order_rca
                (rca_id, wo_id, why_1, why_2, why_3, why_4, why_5, root_cause, created_at, updated_at)
                VALUES (@rca_id, @wo_id, '', '', '', '', '', @rc, @created_at, @updated_at)''',
-            params: {'rca_id': uuidInstance.v4(), 'wo_id': woId, 'rc': rootCause, 'created_at': now, 'updated_at': now},
+            params: {
+              'rca_id': uuidInstance.v4(),
+              'wo_id': woId,
+              'rc': rootCause,
+              'created_at': now,
+              'updated_at': now,
+            },
           );
         }
 
@@ -506,13 +526,19 @@ class WorkOrderRepository {
         final userId = AuthService.currentUser?.userId ?? 'SYSTEM';
         final now = DateTime.now().toIso8601String();
 
-        final latestOutsource = await DbHelper.txQueryOne(tx, 'SELECT * FROM work_order_outsource WHERE wo_id = @wo_id ORDER BY created_at DESC LIMIT 1', params: {'wo_id': woId});
+        final latestOutsource = await DbHelper.txQueryOne(
+          tx,
+          'SELECT * FROM work_order_outsource WHERE wo_id = @wo_id ORDER BY created_at DESC LIMIT 1',
+          params: {'wo_id': woId},
+        );
         if (latestOutsource != null) {
           final existingNotes = latestOutsource['notes'] as String? ?? '';
           final passText = isPassed ? "ผ่าน" : "ตีกลับ";
           final dateStr = DateFormat('dd/MM/yyyy').format(actualReturnDate);
           final formattedNote = '[$passText][$dateStr] $notes';
-          final appendedNotes = existingNotes.isNotEmpty ? '$existingNotes\n$formattedNote' : formattedNote;
+          final appendedNotes = existingNotes.isNotEmpty
+              ? '$existingNotes\n$formattedNote'
+              : formattedNote;
 
           await DbHelper.txExecute(
             tx,
@@ -531,8 +557,10 @@ class WorkOrderRepository {
 
         // 2. Update status (if passed -> completed, if not -> outsourced)
         final newStatus = isPassed ? 'completed' : 'outsourced';
-        final completedAtQuery = isPassed ? ", completed_at = @actual_date" : "";
-        
+        final completedAtQuery = isPassed
+            ? ", completed_at = @actual_date"
+            : "";
+
         // If not passed, we append the failure notes to closure_notes or just let them use failure_symptom.
         // Changing status back to outsourced so they can inspect again when it comes back.
         await DbHelper.txExecute(
@@ -541,10 +569,10 @@ class WorkOrderRepository {
              SET status = @status, updated_at = @updated_at$completedAtQuery
              WHERE wo_id = @wo_id''',
           params: {
-             'wo_id': woId, 
-             'updated_at': now, 
-             'status': newStatus,
-             if (isPassed) 'actual_date': actualReturnDate.toIso8601String(),
+            'wo_id': woId,
+            'updated_at': now,
+            'status': newStatus,
+            if (isPassed) 'actual_date': actualReturnDate.toIso8601String(),
           },
         );
 
@@ -610,7 +638,10 @@ class WorkOrderRepository {
       final now = DateTime.now().toIso8601String();
       const uuid = Uuid();
 
-      final existingRca = await DbHelper.queryOne('SELECT rca_id FROM work_order_rca WHERE wo_id = @id', params: {'id': woId});
+      final existingRca = await DbHelper.queryOne(
+        'SELECT rca_id FROM work_order_rca WHERE wo_id = @id',
+        params: {'id': woId},
+      );
 
       if (existingRca != null) {
         await DbHelper.execute(
@@ -712,11 +743,7 @@ class WorkOrderRepository {
              SET quantity_on_hand = quantity_on_hand - @qty,
                  updated_at = @now
              WHERE part_id = @pid''',
-          params: {
-            'pid': partId,
-            'qty': quantity,
-            'now': now,
-          },
+          params: {'pid': partId, 'qty': quantity, 'now': now},
         );
 
         return true;
@@ -726,28 +753,47 @@ class WorkOrderRepository {
     });
   }
 
-  Future<bool> updateRepairLog(String woId, String rootCause, String closureNotes) async {
+  Future<bool> updateRepairLog(
+    String woId,
+    String rootCause,
+    String closureNotes,
+  ) async {
     try {
       final now = DateTime.now().toIso8601String();
-      
+
       await DbHelper.transaction((tx) async {
         // Update RCA
-        final existingRca = await DbHelper.txQuery(tx, 'SELECT rca_id FROM work_order_rca WHERE wo_id = @id', params: {'id': woId});
+        final existingRca = await DbHelper.txQuery(
+          tx,
+          'SELECT rca_id FROM work_order_rca WHERE wo_id = @id',
+          params: {'id': woId},
+        );
         if (existingRca.isNotEmpty) {
-          await DbHelper.txExecute(tx, 
-            'UPDATE work_order_rca SET root_cause = @rc, updated_at = @now WHERE wo_id = @id', 
-            params: {'rc': rootCause, 'now': now, 'id': woId});
+          await DbHelper.txExecute(
+            tx,
+            'UPDATE work_order_rca SET root_cause = @rc, updated_at = @now WHERE wo_id = @id',
+            params: {'rc': rootCause, 'now': now, 'id': woId},
+          );
         } else {
-          await DbHelper.txExecute(tx,
+          await DbHelper.txExecute(
+            tx,
             '''INSERT INTO work_order_rca (rca_id, wo_id, root_cause, created_at, updated_at) 
                VALUES (@rid, @wid, @rc, @now, @now)''',
-            params: {'rid': const Uuid().v4(), 'wid': woId, 'rc': rootCause, 'now': now});
+            params: {
+              'rid': const Uuid().v4(),
+              'wid': woId,
+              'rc': rootCause,
+              'now': now,
+            },
+          );
         }
-        
+
         // Update WO closure notes
-        await DbHelper.txExecute(tx, 
-          'UPDATE work_orders SET closure_notes = @cn, updated_at = @now WHERE wo_id = @id', 
-          params: {'cn': closureNotes, 'now': now, 'id': woId});
+        await DbHelper.txExecute(
+          tx,
+          'UPDATE work_orders SET closure_notes = @cn, updated_at = @now WHERE wo_id = @id',
+          params: {'cn': closureNotes, 'now': now, 'id': woId},
+        );
       });
       return true;
     } catch (e) {
@@ -756,7 +802,12 @@ class WorkOrderRepository {
     }
   }
 
-  Future<bool> updateOutsourceInfo(String outsourceId, String repairDetails, DateTime? expectedReturnDate, String? notes) async {
+  Future<bool> updateOutsourceInfo(
+    String outsourceId,
+    String repairDetails,
+    DateTime? expectedReturnDate,
+    String? notes,
+  ) async {
     try {
       final now = DateTime.now().toIso8601String();
       await DbHelper.execute(
@@ -772,7 +823,7 @@ class WorkOrderRepository {
           'notes': notes,
           'now': now,
           'id': outsourceId,
-        }
+        },
       );
       return true;
     } catch (e) {
@@ -829,11 +880,7 @@ class WorkOrderRepository {
           '''UPDATE spare_parts_inventory 
              SET quantity_on_hand = quantity_on_hand - @qty, updated_at = @now
              WHERE part_id = @partId''',
-          params: {
-            'qty': quantity,
-            'now': now,
-            'partId': partId,
-          },
+          params: {'qty': quantity, 'now': now, 'partId': partId},
         );
       });
       return true;
@@ -846,7 +893,10 @@ class WorkOrderRepository {
   /// Remove spare part from work order
   Future<bool> removePartFromWorkOrder(String woPartId) async {
     try {
-      final result = await DbHelper.queryOne('SELECT * FROM work_order_parts WHERE wo_part_id = @id', params: {'id': woPartId});
+      final result = await DbHelper.queryOne(
+        'SELECT * FROM work_order_parts WHERE wo_part_id = @id',
+        params: {'id': woPartId},
+      );
       if (result == null) return false;
 
       final partId = result['part_id'] as String;
@@ -858,7 +908,11 @@ class WorkOrderRepository {
 
       await DbHelper.transaction((tx) async {
         // 1. Delete from work_order_parts
-        await DbHelper.txExecute(tx, 'DELETE FROM work_order_parts WHERE wo_part_id = @id', params: {'id': woPartId});
+        await DbHelper.txExecute(
+          tx,
+          'DELETE FROM work_order_parts WHERE wo_part_id = @id',
+          params: {'id': woPartId},
+        );
 
         // 2. Insert transaction (return)
         await DbHelper.txExecute(
@@ -881,11 +935,7 @@ class WorkOrderRepository {
           '''UPDATE spare_parts_inventory 
              SET quantity_on_hand = quantity_on_hand + @qty, updated_at = @now
              WHERE part_id = @partId''',
-          params: {
-            'qty': quantity,
-            'now': now,
-            'partId': partId,
-          },
+          params: {'qty': quantity, 'now': now, 'partId': partId},
         );
       });
       return true;
@@ -953,9 +1003,10 @@ class WorkOrderFilter {
   int get hashCode => Object.hash(status, search, machineId);
 }
 
-final workOrderListProvider =
-    FutureProvider.family<List<WorkOrder>, WorkOrderFilter>(
-        (ref, filter) async {
+final workOrderListProvider = FutureProvider.family<List<WorkOrder>, WorkOrderFilter>((
+  ref,
+  filter,
+) async {
   try {
     final where = <String>['1=1'];
     final params = <String, dynamic>{};
@@ -963,7 +1014,10 @@ final workOrderListProvider =
     if (filter.status != null) {
       if (filter.status!.contains(',')) {
         final statuses = filter.status!.split(',');
-        final placeholders = List.generate(statuses.length, (i) => '@status$i').join(', ');
+        final placeholders = List.generate(
+          statuses.length,
+          (i) => '@status$i',
+        ).join(', ');
         where.add('wo.status IN ($placeholders)');
         for (int i = 0; i < statuses.length; i++) {
           params['status$i'] = statuses[i];
@@ -979,7 +1033,8 @@ final workOrderListProvider =
     }
     if (filter.search != null && filter.search!.isNotEmpty) {
       where.add(
-          '(wo.wo_no LIKE @search OR wo.title LIKE @search OR s.machine_no LIKE @search)');
+        '(wo.wo_no LIKE @search OR wo.title LIKE @search OR s.machine_no LIKE @search)',
+      );
       params['search'] = '%${filter.search}%';
     }
 
@@ -1016,14 +1071,15 @@ final workOrderListProvider =
   }
 });
 
-final workOrderPartsProvider = FutureProvider.family<List<WorkOrderPart>, String>((ref, woId) async {
-  final rows = await DbHelper.query(
-    '''SELECT wp.*, sp.part_name, sp.part_code
+final workOrderPartsProvider =
+    FutureProvider.family<List<WorkOrderPart>, String>((ref, woId) async {
+      final rows = await DbHelper.query(
+        '''SELECT wp.*, sp.part_name, sp.part_code
        FROM work_order_parts wp
        JOIN spare_parts sp ON sp.part_id = wp.part_id
        WHERE wp.wo_id = @woId
        ORDER BY wp.created_at ASC''',
-    params: {'woId': woId},
-  );
-  return rows.map((r) => WorkOrderPart.fromMap(r)).toList();
-});
+        params: {'woId': woId},
+      );
+      return rows.map((r) => WorkOrderPart.fromMap(r)).toList();
+    });

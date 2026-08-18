@@ -170,10 +170,16 @@ const _navItems = [
   ),
   _NavItem(
     label: 'วิเคราะห์ & AI',
-    icon: HugeIcons.strokeRoundedAiMagic,
-    iconSelected: HugeIcons.strokeRoundedAiMagic,
+    icon: HugeIcons.strokeRoundedAnalytics01,
+    iconSelected: HugeIcons.strokeRoundedAnalytics01,
     route: '/analytics',
     roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
+    label: 'AI Assistant',
+    icon: HugeIcons.strokeRoundedAiMagic,
+    iconSelected: HugeIcons.strokeRoundedAiMagic,
+    route: '/ai-chat',
   ),
   _NavItem(
     label: 'บันทึก OEE',

@@ -22,6 +22,8 @@ class MasApp extends ConsumerStatefulWidget {
 
 class _MasAppState extends ConsumerState<MasApp> {
   bool _initialized = false;
+  String? _startupError;
+  bool _startupErrorShown = false;
 
   @override
   void initState() {
@@ -34,7 +36,12 @@ class _MasAppState extends ConsumerState<MasApp> {
     if (config != null) {
       try {
         await DbConnection.instance.connect(config);
-      } catch (_) {}
+      } catch (e) {
+        AppConfigService.clearCache();
+        _startupError =
+            'เชื่อมต่อฐานข้อมูลเดิมไม่สำเร็จ กรุณาตรวจสอบ path หรือสิทธิ์การเข้าถึง';
+        debugPrint('Startup DB connect failed for ${config.dbPath}: $e');
+      }
     }
     if (mounted) setState(() => _initialized = true);
   }
@@ -67,7 +74,7 @@ class _MasAppState extends ConsumerState<MasApp> {
       themeMode: themeMode,
       debugShowCheckedModeBanner: false,
       routerConfig: router,
-      materialThemeBuilder: (context, theme) => 
+      materialThemeBuilder: (context, theme) =>
           themeMode == ThemeMode.light ? AppTheme.light : AppTheme.dark,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -77,42 +84,65 @@ class _MasAppState extends ConsumerState<MasApp> {
       supportedLocales: const [Locale('th', 'TH'), Locale('en', 'US')],
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        
+
         final scale = ref.watch(uiScaleProvider);
-        
+
         return ScaffoldMessenger(
-          child: CircularThemeRevealOverlay(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Determine logical size to fill the window at the given scale
-                final logicalWidth = constraints.maxWidth / scale;
-                final logicalHeight = constraints.maxHeight / scale;
-                
-                return MediaQuery(
-                  data: MediaQuery.of(context).copyWith(
-                    size: Size(logicalWidth, logicalHeight - 38 / scale), // Adjust for title bar
-                    textScaler: TextScaler.linear(scale),
-                  ),
-                  child: Column(
-                    children: [
-                      const WindowTitleBar(),
-                      Expanded(
-                        child: OverflowBox(
-                          alignment: Alignment.topLeft,
-                          maxWidth: logicalWidth,
-                          maxHeight: logicalHeight - 38 / scale,
-                          child: Transform.scale(
-                            scale: scale,
-                            alignment: Alignment.topLeft,
-                            child: child,
-                          ),
-                        ),
+          child: Builder(
+            builder: (context) {
+              if (_startupError != null && !_startupErrorShown) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted || _startupErrorShown) return;
+                  final messenger = ScaffoldMessenger.maybeOf(context);
+                  if (messenger == null) return;
+
+                  setState(() => _startupErrorShown = true);
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(_startupError!),
+                      backgroundColor: Colors.orange.shade700,
+                    ),
+                  );
+                });
+              }
+
+              return CircularThemeRevealOverlay(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Determine logical size to fill the window at the given scale
+                    final logicalWidth = constraints.maxWidth / scale;
+                    final logicalHeight = constraints.maxHeight / scale;
+
+                    return MediaQuery(
+                      data: MediaQuery.of(context).copyWith(
+                        size: Size(
+                          logicalWidth,
+                          logicalHeight - 38 / scale,
+                        ), // Adjust for title bar
+                        textScaler: TextScaler.linear(scale),
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                      child: Column(
+                        children: [
+                          const WindowTitleBar(),
+                          Expanded(
+                            child: OverflowBox(
+                              alignment: Alignment.topLeft,
+                              maxWidth: logicalWidth,
+                              maxHeight: logicalHeight - 38 / scale,
+                              child: Transform.scale(
+                                scale: scale,
+                                alignment: Alignment.topLeft,
+                                child: child,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
           ),
         );
       },
@@ -136,7 +166,7 @@ class _SplashScreen extends StatelessWidget {
             fit: BoxFit.cover,
             errorBuilder: (context, error, stackTrace) => const SizedBox(),
           ),
-          
+
           // Loading Indicator overlay at the bottom
           Positioned(
             bottom: 40,
@@ -146,7 +176,8 @@ class _SplashScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const SizedBox(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   child: CircularProgressIndicator(
                     strokeWidth: 3.0,
                     color: Color(0xFF2563EB),
@@ -154,13 +185,22 @@ class _SplashScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: const Text('กำลังเชื่อมต่อฐานข้อมูล...',
-                      style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w500)),
+                  child: const Text(
+                    'กำลังเชื่อมต่อฐานข้อมูล...',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 ),
               ],
             ),

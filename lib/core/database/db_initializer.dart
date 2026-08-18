@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:logger/logger.dart';
+import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:uuid/uuid.dart';
+import '../storage/attachment_storage_service.dart';
 import 'db_connection.dart';
 
 final _log = Logger();
@@ -17,6 +21,8 @@ final _log = Logger();
 class DbInitializer {
   static const _schemaAsset = 'db/schema_sqlite.sql';
   static const _seedAsset = 'db/seed_sqlite.sql';
+  static const _legacyFileMigrationSettingKey =
+      'file_assets_legacy_storage_migrated_v1';
 
   /// Initialize database: create schema if not exists, run seed if new.
   /// Accepts database instance directly to avoid singleton access issues.
@@ -265,12 +271,22 @@ class DbInitializer {
             )
           ''');
         } else {
-          final outsourceTableInfo = await db.rawQuery('PRAGMA table_info(work_order_outsource)');
-          if (!outsourceTableInfo.any((col) => col['name'] == 'is_passed_inspection')) {
-            _log.i('Migration: Adding is_passed_inspection to work_order_outsource and removing UNIQUE constraint...');
-            await db.execute('ALTER TABLE work_order_outsource ADD COLUMN is_passed_inspection INTEGER DEFAULT 1');
-            
-            await db.execute('ALTER TABLE work_order_outsource RENAME TO work_order_outsource_old');
+          final outsourceTableInfo = await db.rawQuery(
+            'PRAGMA table_info(work_order_outsource)',
+          );
+          if (!outsourceTableInfo.any(
+            (col) => col['name'] == 'is_passed_inspection',
+          )) {
+            _log.i(
+              'Migration: Adding is_passed_inspection to work_order_outsource and removing UNIQUE constraint...',
+            );
+            await db.execute(
+              'ALTER TABLE work_order_outsource ADD COLUMN is_passed_inspection INTEGER DEFAULT 1',
+            );
+
+            await db.execute(
+              'ALTER TABLE work_order_outsource RENAME TO work_order_outsource_old',
+            );
             await db.execute('''
               CREATE TABLE work_order_outsource (
                 outsource_id      TEXT PRIMARY KEY,
@@ -310,10 +326,14 @@ class DbInitializer {
         }
 
         // 10. Check for approved_by in pm_am_plans
-        final pmAmPlansTableInfo = await db.rawQuery('PRAGMA table_info(pm_am_plans)');
+        final pmAmPlansTableInfo = await db.rawQuery(
+          'PRAGMA table_info(pm_am_plans)',
+        );
         if (!pmAmPlansTableInfo.any((col) => col['name'] == 'approved_by')) {
           _log.i('Migration: Adding approved_by to pm_am_plans...');
-          await db.execute('ALTER TABLE pm_am_plans ADD COLUMN approved_by TEXT REFERENCES users(user_id)');
+          await db.execute(
+            'ALTER TABLE pm_am_plans ADD COLUMN approved_by TEXT REFERENCES users(user_id)',
+          );
         }
 
         // 9. Make machine_id nullable in work_orders
@@ -356,7 +376,9 @@ class DbInitializer {
               attachments       TEXT
             )
           ''');
-          final oldCols = woTableInfo3.map((c) => c['name'] as String).join(', ');
+          final oldCols = woTableInfo3
+              .map((c) => c['name'] as String)
+              .join(', ');
           await db.execute(
             'INSERT INTO work_orders ($oldCols) SELECT $oldCols FROM work_orders_old;',
           );
@@ -374,7 +396,9 @@ class DbInitializer {
         }
 
         // 10. Add attachments to work_orders
-        final woTableInfo4 = await db.rawQuery('PRAGMA table_info(work_orders)');
+        final woTableInfo4 = await db.rawQuery(
+          'PRAGMA table_info(work_orders)',
+        );
         final bool hasAttachments = woTableInfo4.any(
           (col) => col['name'] == 'attachments',
         );
@@ -456,7 +480,9 @@ class DbInitializer {
         }
 
         // 11. Add attachments to pm_am_schedules (Added 2026-08)
-        final pmSchedulesInfo = await db.rawQuery('PRAGMA table_info(pm_am_schedules)');
+        final pmSchedulesInfo = await db.rawQuery(
+          'PRAGMA table_info(pm_am_schedules)',
+        );
         if (!pmSchedulesInfo.any((col) => col['name'] == 'attachments')) {
           _log.i('Migration: Adding attachments to pm_am_schedules...');
           await db.execute(
@@ -502,7 +528,7 @@ class DbInitializer {
               UNIQUE(part_id, machine_id)
             )
           ''');
-          
+
           await db.execute('''
             CREATE TABLE purchase_requests (
               pr_id             TEXT PRIMARY KEY,
@@ -528,11 +554,17 @@ class DbInitializer {
         }
 
         // 12. Add image_path to spare_parts
-        final sparePartsCols = await db.rawQuery('PRAGMA table_info(spare_parts)');
-        final hasSparePartsImage = sparePartsCols.any((col) => col['name'] == 'image_path');
+        final sparePartsCols = await db.rawQuery(
+          'PRAGMA table_info(spare_parts)',
+        );
+        final hasSparePartsImage = sparePartsCols.any(
+          (col) => col['name'] == 'image_path',
+        );
         if (!hasSparePartsImage) {
           _log.i('Migration: Adding image_path to spare_parts...');
-          await db.execute('ALTER TABLE spare_parts ADD COLUMN image_path TEXT');
+          await db.execute(
+            'ALTER TABLE spare_parts ADD COLUMN image_path TEXT',
+          );
         }
 
         // 13. Add tools and tool_transactions
@@ -610,12 +642,23 @@ class DbInitializer {
         }
 
         // Check if technician_skills has score column
-        final skillColumns = await db.rawQuery("PRAGMA table_info(technician_skills)");
-        if (skillColumns.isNotEmpty && !skillColumns.any((col) => col['name'] == 'score')) {
-          _log.i('Migration: Adding score, rated_by, rated_at to technician_skills...');
-          await db.execute('ALTER TABLE technician_skills ADD COLUMN score INTEGER');
-          await db.execute('ALTER TABLE technician_skills ADD COLUMN rated_by TEXT REFERENCES users(user_id)');
-          await db.execute('ALTER TABLE technician_skills ADD COLUMN rated_at DATETIME');
+        final skillColumns = await db.rawQuery(
+          "PRAGMA table_info(technician_skills)",
+        );
+        if (skillColumns.isNotEmpty &&
+            !skillColumns.any((col) => col['name'] == 'score')) {
+          _log.i(
+            'Migration: Adding score, rated_by, rated_at to technician_skills...',
+          );
+          await db.execute(
+            'ALTER TABLE technician_skills ADD COLUMN score INTEGER',
+          );
+          await db.execute(
+            'ALTER TABLE technician_skills ADD COLUMN rated_by TEXT REFERENCES users(user_id)',
+          );
+          await db.execute(
+            'ALTER TABLE technician_skills ADD COLUMN rated_at DATETIME',
+          );
         }
 
         // 16. Create work_order_parts table
@@ -656,20 +699,36 @@ class DbInitializer {
         }
 
         // 18. Add fuel/gas consumption columns to machine_specs
-        final msColumns = await db.rawQuery("PRAGMA table_info('machine_specs')");
+        final msColumns = await db.rawQuery(
+          "PRAGMA table_info('machine_specs')",
+        );
         if (!msColumns.any((c) => c['name'] == 'fuel_consumption_rate')) {
           _log.i('Migration: Adding fuel columns to machine_specs table...');
-          await db.execute('ALTER TABLE machine_specs ADD COLUMN fuel_consumption_rate REAL;');
-          await db.execute('ALTER TABLE machine_specs ADD COLUMN fuel_type TEXT;');
-          
+          await db.execute(
+            'ALTER TABLE machine_specs ADD COLUMN fuel_consumption_rate REAL;',
+          );
+          await db.execute(
+            'ALTER TABLE machine_specs ADD COLUMN fuel_type TEXT;',
+          );
+
           // Migration for default_workers
-          var specCols3 = await db.rawQuery("PRAGMA table_info('machine_specs');");
-          bool hasDefaultWorkers = specCols3.any((col) => col['name'] == 'default_workers');
+          var specCols3 = await db.rawQuery(
+            "PRAGMA table_info('machine_specs');",
+          );
+          bool hasDefaultWorkers = specCols3.any(
+            (col) => col['name'] == 'default_workers',
+          );
           if (!hasDefaultWorkers) {
-            await db.execute('ALTER TABLE machine_specs ADD COLUMN default_workers INTEGER;');
+            await db.execute(
+              'ALTER TABLE machine_specs ADD COLUMN default_workers INTEGER;',
+            );
           }
         }
       }
+
+      await _ensureFileAssetsSchema(db);
+      await _backfillLegacyFileAssets(db);
+      await _migrateLegacyFileAssetsToManagedStorage(db);
 
       return true;
     } catch (e) {
@@ -711,6 +770,500 @@ class DbInitializer {
       }
     });
     _log.i('Database machine data wipe completed.');
+  }
+
+  static Future<void> _ensureFileAssetsSchema(Database db) async {
+    final table = await db.query(
+      'sqlite_master',
+      where: 'type = ? AND name = ?',
+      whereArgs: ['table', 'file_assets'],
+    );
+
+    if (table.isEmpty) {
+      _log.i('Migration: Creating file_assets table...');
+      await db.execute('''
+        CREATE TABLE file_assets (
+          asset_id        TEXT PRIMARY KEY,
+          module_type     TEXT NOT NULL,
+          entity_id       TEXT NOT NULL,
+          category        TEXT NOT NULL DEFAULT 'attachment',
+          display_name    TEXT NOT NULL,
+          source_path     TEXT NOT NULL,
+          storage_path    TEXT NOT NULL,
+          preview_path    TEXT,
+          thumbnail_path  TEXT,
+          mime_type       TEXT,
+          file_ext        TEXT,
+          file_size       INTEGER,
+          width           INTEGER,
+          height          INTEGER,
+          page_count      INTEGER,
+          is_primary      INTEGER NOT NULL DEFAULT 0,
+          created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_file_assets_entity ON file_assets(module_type, entity_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_file_assets_category ON file_assets(category)',
+    );
+    await db.execute(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_file_assets_unique_path ON file_assets(module_type, entity_id, storage_path)',
+    );
+  }
+
+  static Future<void> _backfillLegacyFileAssets(Database db) async {
+    await _backfillHandoverAttachments(db);
+    await _backfillWorkOrderAttachments(db);
+    await _backfillSparePartImages(db);
+    await _backfillToolImages(db);
+  }
+
+  static Future<void> _migrateLegacyFileAssetsToManagedStorage(
+    Database db,
+  ) async {
+    final alreadyMigrated = await _readAppSetting(
+      db,
+      _legacyFileMigrationSettingKey,
+    );
+    if (alreadyMigrated == 'true') {
+      return;
+    }
+
+    final storageService = AttachmentStorageService.instance;
+    final rows = await db.rawQuery('''
+      SELECT
+        asset_id,
+        module_type,
+        entity_id,
+        category,
+        display_name,
+        source_path,
+        storage_path,
+        mime_type,
+        is_primary
+      FROM file_assets
+      ORDER BY created_at ASC
+    ''');
+
+    var migratedCount = 0;
+    var failedCount = 0;
+
+    for (final row in rows) {
+      final assetId = row['asset_id']?.toString() ?? '';
+      final moduleType = row['module_type']?.toString() ?? '';
+      final entityId = row['entity_id']?.toString() ?? '';
+      final category = row['category']?.toString() ?? 'attachment';
+      final displayName = row['display_name']?.toString() ?? '';
+      final currentStoragePath = row['storage_path']?.toString().trim() ?? '';
+      final sourcePath = row['source_path']?.toString().trim() ?? '';
+      final lookupPath = sourcePath.isNotEmpty
+          ? sourcePath
+          : currentStoragePath;
+
+      if (assetId.isEmpty ||
+          moduleType.isEmpty ||
+          entityId.isEmpty ||
+          lookupPath.isEmpty ||
+          storageService.looksManagedPath(currentStoragePath)) {
+        continue;
+      }
+
+      try {
+        final migrated = await storageService.migrateLegacyFile(
+          moduleType: moduleType,
+          entityId: entityId,
+          sourcePath: lookupPath,
+          displayName: displayName,
+          category: category,
+          isPrimary: (row['is_primary'] as num?)?.toInt() == 1,
+          mimeType: row['mime_type']?.toString(),
+          storageRootPath: db.path,
+        );
+
+        await db.update(
+          'file_assets',
+          {
+            'display_name': migrated.displayName,
+            'storage_path': migrated.storagePath,
+            'preview_path': migrated.previewPath,
+            'thumbnail_path': migrated.thumbnailPath,
+            'mime_type': migrated.mimeType,
+            'file_ext': p.extension(migrated.storagePath).toLowerCase(),
+            'file_size': migrated.fileSize,
+            'width': migrated.width,
+            'height': migrated.height,
+            'page_count': migrated.pageCount,
+            'updated_at': DateTime.now().toIso8601String(),
+          },
+          where: 'asset_id = ?',
+          whereArgs: [assetId],
+        );
+
+        await _rewriteLegacyAssetReferences(
+          db,
+          moduleType: moduleType,
+          entityId: entityId,
+          oldPath: currentStoragePath,
+          newPath: migrated.storagePath,
+          displayName: migrated.displayName,
+          fileSize: migrated.fileSize,
+          mimeType: migrated.mimeType,
+        );
+
+        migratedCount++;
+      } catch (e) {
+        failedCount++;
+        _log.w('Legacy asset migration skipped for $lookupPath: $e');
+      }
+    }
+
+    if (failedCount == 0) {
+      await _writeAppSetting(db, _legacyFileMigrationSettingKey, 'true');
+    }
+
+    _log.i(
+      'Legacy file asset migration complete: migrated=$migratedCount failed=$failedCount',
+    );
+  }
+
+  static Future<void> _backfillHandoverAttachments(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT handover_id, file_name, file_path, file_size, mime_type, uploaded_at
+      FROM handover_attachments
+      WHERE file_path IS NOT NULL AND TRIM(file_path) != ''
+    ''');
+
+    for (final row in rows) {
+      final path = row['file_path']?.toString().trim() ?? '';
+      if (path.isEmpty) continue;
+
+      await _insertLegacyAsset(
+        db,
+        moduleType: 'machine_handover',
+        entityId: row['handover_id']?.toString() ?? '',
+        category: 'attachment',
+        displayName: row['file_name']?.toString().trim().isNotEmpty == true
+            ? row['file_name']!.toString().trim()
+            : p.basename(path),
+        sourcePath: path,
+        storagePath: path,
+        mimeType: row['mime_type']?.toString(),
+        fileSize: (row['file_size'] as num?)?.toInt(),
+        createdAt: row['uploaded_at']?.toString(),
+        updatedAt: row['uploaded_at']?.toString(),
+      );
+    }
+  }
+
+  static Future<void> _backfillWorkOrderAttachments(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT wo_id, attachments, created_at, updated_at
+      FROM work_orders
+      WHERE attachments IS NOT NULL AND TRIM(attachments) != ''
+    ''');
+
+    for (final row in rows) {
+      final entityId = row['wo_id']?.toString() ?? '';
+      if (entityId.isEmpty) continue;
+
+      final raw = row['attachments']?.toString() ?? '';
+      if (raw.trim().isEmpty) continue;
+
+      List<dynamic> paths;
+      try {
+        paths = jsonDecode(raw) as List<dynamic>;
+      } catch (_) {
+        continue;
+      }
+
+      for (final entry in paths) {
+        final path = entry?.toString().trim() ?? '';
+        if (path.isEmpty) continue;
+
+        await _insertLegacyAsset(
+          db,
+          moduleType: 'work_order',
+          entityId: entityId,
+          category: 'attachment',
+          displayName: p.basename(path),
+          sourcePath: path,
+          storagePath: path,
+          createdAt: row['created_at']?.toString(),
+          updatedAt: row['updated_at']?.toString(),
+        );
+      }
+    }
+  }
+
+  static Future<void> _backfillSparePartImages(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT part_id, part_name, image_path, created_at
+      FROM spare_parts
+      WHERE image_path IS NOT NULL AND TRIM(image_path) != ''
+    ''');
+
+    for (final row in rows) {
+      final path = row['image_path']?.toString().trim() ?? '';
+      final entityId = row['part_id']?.toString() ?? '';
+      if (path.isEmpty || entityId.isEmpty) continue;
+
+      await _insertLegacyAsset(
+        db,
+        moduleType: 'spare_part',
+        entityId: entityId,
+        category: 'image',
+        displayName: row['part_name']?.toString().trim().isNotEmpty == true
+            ? row['part_name']!.toString().trim()
+            : p.basename(path),
+        sourcePath: path,
+        storagePath: path,
+        isPrimary: true,
+        createdAt: row['created_at']?.toString(),
+        updatedAt: row['created_at']?.toString(),
+      );
+    }
+  }
+
+  static Future<void> _backfillToolImages(Database db) async {
+    final rows = await db.rawQuery('''
+      SELECT tool_id, tool_name, image_path, created_at
+      FROM tools
+      WHERE image_path IS NOT NULL AND TRIM(image_path) != ''
+    ''');
+
+    for (final row in rows) {
+      final path = row['image_path']?.toString().trim() ?? '';
+      final entityId = row['tool_id']?.toString() ?? '';
+      if (path.isEmpty || entityId.isEmpty) continue;
+
+      await _insertLegacyAsset(
+        db,
+        moduleType: 'tool',
+        entityId: entityId,
+        category: 'image',
+        displayName: row['tool_name']?.toString().trim().isNotEmpty == true
+            ? row['tool_name']!.toString().trim()
+            : p.basename(path),
+        sourcePath: path,
+        storagePath: path,
+        isPrimary: true,
+        createdAt: row['created_at']?.toString(),
+        updatedAt: row['created_at']?.toString(),
+      );
+    }
+  }
+
+  static Future<void> _insertLegacyAsset(
+    Database db, {
+    required String moduleType,
+    required String entityId,
+    required String category,
+    required String displayName,
+    required String sourcePath,
+    required String storagePath,
+    String? mimeType,
+    int? fileSize,
+    bool isPrimary = false,
+    String? createdAt,
+    String? updatedAt,
+  }) async {
+    if (moduleType.isEmpty || entityId.isEmpty || storagePath.trim().isEmpty) {
+      return;
+    }
+
+    final path = storagePath.trim();
+    final ext = p.extension(path).toLowerCase();
+    final resolvedMimeType = (mimeType?.trim().isNotEmpty ?? false)
+        ? mimeType!.trim()
+        : _guessMimeType(ext);
+
+    final metadata = <String, Object?>{
+      'asset_id': const Uuid().v4(),
+      'module_type': moduleType,
+      'entity_id': entityId,
+      'category': category,
+      'display_name': displayName.trim().isNotEmpty
+          ? displayName.trim()
+          : p.basename(path),
+      'source_path': sourcePath.trim().isNotEmpty ? sourcePath.trim() : path,
+      'storage_path': path,
+      'mime_type': resolvedMimeType,
+      'file_ext': ext,
+      'file_size': _resolveLegacyFileSize(path, fileSize),
+      'is_primary': isPrimary ? 1 : 0,
+    };
+
+    if (createdAt != null && createdAt.trim().isNotEmpty) {
+      metadata['created_at'] = createdAt.trim();
+    }
+    if (updatedAt != null && updatedAt.trim().isNotEmpty) {
+      metadata['updated_at'] = updatedAt.trim();
+    }
+
+    await db.insert(
+      'file_assets',
+      metadata,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  static Future<void> _rewriteLegacyAssetReferences(
+    Database db, {
+    required String moduleType,
+    required String entityId,
+    required String oldPath,
+    required String newPath,
+    required String displayName,
+    required int fileSize,
+    required String mimeType,
+  }) async {
+    if (oldPath.trim().isEmpty || newPath.trim().isEmpty) return;
+
+    switch (moduleType) {
+      case 'machine_handover':
+        await db.rawUpdate(
+          '''
+          UPDATE handover_attachments
+          SET file_path = ?,
+              file_name = ?,
+              file_size = ?,
+              mime_type = ?
+          WHERE handover_id = ?
+            AND file_path = ?
+          ''',
+          [newPath, displayName, fileSize, mimeType, entityId, oldPath],
+        );
+        break;
+      case 'work_order':
+        final row = await db.rawQuery(
+          'SELECT attachments FROM work_orders WHERE wo_id = ? LIMIT 1',
+          [entityId],
+        );
+        if (row.isEmpty) break;
+
+        final raw = row.first['attachments']?.toString() ?? '';
+        if (raw.trim().isEmpty) break;
+
+        try {
+          final items = List<String>.from(jsonDecode(raw) as List);
+          var changed = false;
+          final updated = items.map((item) {
+            if (item.trim() == oldPath.trim()) {
+              changed = true;
+              return newPath;
+            }
+            return item;
+          }).toList();
+
+          if (changed) {
+            await db.rawUpdate(
+              '''
+              UPDATE work_orders
+              SET attachments = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE wo_id = ?
+              ''',
+              [jsonEncode(updated), entityId],
+            );
+          }
+        } catch (_) {}
+        break;
+      case 'spare_part':
+        await db.rawUpdate(
+          '''
+          UPDATE spare_parts
+          SET image_path = ?
+          WHERE part_id = ?
+            AND image_path = ?
+          ''',
+          [newPath, entityId, oldPath],
+        );
+        break;
+      case 'tool':
+        await db.rawUpdate(
+          '''
+          UPDATE tools
+          SET image_path = ?
+          WHERE tool_id = ?
+            AND image_path = ?
+          ''',
+          [newPath, entityId, oldPath],
+        );
+        break;
+    }
+  }
+
+  static Future<String?> _readAppSetting(Database db, String key) async {
+    final rows = await db.rawQuery(
+      'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
+      [key],
+    );
+    if (rows.isEmpty) return null;
+    final value = rows.first['setting_value']?.toString().trim();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  static Future<void> _writeAppSetting(
+    Database db,
+    String key,
+    String value,
+  ) async {
+    await db.rawInsert(
+      '''
+      INSERT INTO app_settings(setting_key, setting_value, description, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(setting_key) DO UPDATE SET
+        setting_value = excluded.setting_value,
+        description = excluded.description,
+        updated_at = CURRENT_TIMESTAMP
+      ''',
+      [
+        key,
+        value,
+        'Internal migration marker for legacy managed storage rewrite',
+      ],
+    );
+  }
+
+  static int? _resolveLegacyFileSize(String path, int? fallback) {
+    if (fallback != null && fallback > 0) return fallback;
+
+    try {
+      final file = File(path);
+      if (file.existsSync()) {
+        return file.lengthSync();
+      }
+    } catch (_) {}
+
+    return fallback;
+  }
+
+  static String _guessMimeType(String ext) {
+    switch (ext.toLowerCase()) {
+      case '.jpg':
+      case '.jpeg':
+        return 'image/jpeg';
+      case '.png':
+        return 'image/png';
+      case '.gif':
+        return 'image/gif';
+      case '.webp':
+        return 'image/webp';
+      case '.bmp':
+        return 'image/bmp';
+      case '.pdf':
+        return 'application/pdf';
+      case '.doc':
+        return 'application/msword';
+      case '.docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   /// Load and execute schema SQL from asset.

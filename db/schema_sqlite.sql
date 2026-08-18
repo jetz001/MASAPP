@@ -9,6 +9,7 @@ PRAGMA foreign_keys = OFF;
 
 -- Drop ALL tables in reverse order of dependencies to ensure clean slate
 DROP TABLE IF EXISTS handover_attachments;
+DROP TABLE IF EXISTS file_assets;
 DROP TABLE IF EXISTS handover_checklist_results;
 DROP TABLE IF EXISTS handover_checklist_templates;
 DROP TABLE IF EXISTS machine_handover;
@@ -240,6 +241,31 @@ CREATE TABLE app_settings (
   description   TEXT,
   updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE file_assets (
+  asset_id        TEXT PRIMARY KEY,
+  module_type     TEXT NOT NULL,
+  entity_id       TEXT NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'attachment',
+  display_name    TEXT NOT NULL,
+  source_path     TEXT NOT NULL,
+  storage_path    TEXT NOT NULL,
+  preview_path    TEXT,
+  thumbnail_path  TEXT,
+  mime_type       TEXT,
+  file_ext        TEXT,
+  file_size       INTEGER,
+  width           INTEGER,
+  height          INTEGER,
+  page_count      INTEGER,
+  is_primary      INTEGER NOT NULL DEFAULT 0,
+  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_file_assets_entity ON file_assets(module_type, entity_id);
+CREATE INDEX idx_file_assets_category ON file_assets(category);
+CREATE UNIQUE INDEX idx_file_assets_unique_path ON file_assets(module_type, entity_id, storage_path);
 
 -- =============================================================================
 -- MODULE 5: WORK ORDERS & REPAIRS
@@ -604,3 +630,21 @@ CREATE TABLE notifications (
   is_read INTEGER NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- =============================================================================
+-- MODULE AI CHAT: Conversation History
+-- =============================================================================
+DROP TABLE IF EXISTS ai_chat_history;
+
+CREATE TABLE ai_chat_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT NOT NULL,
+  user_id     TEXT,
+  role        TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
+  content     TEXT NOT NULL,
+  tool_calls  TEXT,  -- JSON: list of tool calls made by AI
+  created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_chat_session ON ai_chat_history(session_id, created_at);
+

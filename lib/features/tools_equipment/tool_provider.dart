@@ -1,6 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/storage/attachment_storage_service.dart';
 import 'tool_models.dart';
 
 final toolsProvider = FutureProvider<List<ToolItem>>((ref) async {
@@ -30,12 +33,16 @@ class ToolsRepository {
     String? notes,
   }) async {
     final toolId = const Uuid().v4();
+    final normalizedImagePath = await _normalizeImagePath(
+      entityId: toolId,
+      imagePath: imagePath,
+    );
     final tool = ToolItem(
       toolId: toolId,
       toolCode: toolCode,
       toolName: toolName,
       category: category,
-      imagePath: imagePath,
+      imagePath: normalizedImagePath,
       status: 'available',
       purchaseDate: purchaseDate,
       price: price,
@@ -43,16 +50,13 @@ class ToolsRepository {
       createdAt: DateTime.now(),
       isActive: true,
     );
-    await DbHelper.execute(
-      '''
+    await DbHelper.execute('''
       INSERT INTO tools (
         tool_id, tool_code, tool_name, category, image_path, status, purchase_date, price, notes, created_at, is_active
       ) VALUES (
         @tool_id, @tool_code, @tool_name, @category, @image_path, @status, @purchase_date, @price, @notes, @created_at, @is_active
       )
-      ''',
-      params: tool.toMap(),
-    );
+      ''', params: tool.toMap());
   }
 
   Future<void> updateTool({
@@ -65,6 +69,16 @@ class ToolsRepository {
     double? price,
     String? notes,
   }) async {
+    final current = await DbHelper.queryOne(
+      'SELECT image_path FROM tools WHERE tool_id = @toolId',
+      params: {'toolId': toolId},
+    );
+    final normalizedImagePath = await _normalizeImagePath(
+      entityId: toolId,
+      imagePath: imagePath,
+      existingPath: current?['image_path']?.toString(),
+    );
+
     await DbHelper.execute(
       '''
       UPDATE tools SET 
@@ -82,7 +96,7 @@ class ToolsRepository {
         'tool_code': toolCode,
         'tool_name': toolName,
         'category': category,
-        'image_path': imagePath,
+        'image_path': normalizedImagePath,
         'purchase_date': purchaseDate?.toIso8601String(),
         'price': price,
         'notes': notes,
@@ -153,11 +167,35 @@ class ToolsRepository {
       await DbHelper.txExecute(
         txn,
         'UPDATE tools SET status = @status WHERE tool_id = @tool_id',
-        params: {
-          'status': newStatus,
-          'tool_id': toolId,
-        },
+        params: {'status': newStatus, 'tool_id': toolId},
       );
     });
+  }
+
+  Future<String?> _normalizeImagePath({
+    required String entityId,
+    required String? imagePath,
+    String? existingPath,
+  }) async {
+    final trimmed = imagePath?.trim() ?? '';
+    if (trimmed.isEmpty) return null;
+    if (existingPath != null && trimmed == existingPath) return existingPath;
+
+    final file = File(trimmed);
+    if (!await file.exists()) {
+      return trimmed;
+    }
+
+    final asset = await AttachmentStorageService.instance.ingestFile(
+      moduleType: 'tool',
+      entityId: entityId,
+      sourcePath: trimmed,
+      displayName: file.uri.pathSegments.isNotEmpty
+          ? file.uri.pathSegments.last
+          : null,
+      category: 'image',
+      isPrimary: true,
+    );
+    return asset.storagePath;
   }
 }

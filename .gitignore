@@ -37,3 +37,7 @@ local.properties
 
 # Scripts
 bin/
+
+# Local app config / release outputs
+.masapp/
+Output/

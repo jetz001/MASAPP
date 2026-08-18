@@ -38,7 +38,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'แก้ไขใบแจ้งซ่อม',
-              onPressed: () => context.push('/work-orders/new', extra: woAsync.value),
+              onPressed: () =>
+                  context.push('/work-orders/new', extra: woAsync.value),
             ),
           IconButton(
             icon: const Icon(Icons.print),
@@ -114,30 +115,38 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text(
-                            'ไฟล์แนบ:',
-                            style: AppTextStyles.labelMedium,
-                          ),
+                          Text('ไฟล์แนบ:', style: AppTextStyles.labelMedium),
                           TextButton.icon(
                             onPressed: () async {
-                              final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+                              final result = await FilePicker.platform
+                                  .pickFiles(allowMultiple: true);
                               if (result != null && result.paths.isNotEmpty) {
-                                final validPaths = result.paths.whereType<String>().toList();
-                                final current = List<String>.from(wo.attachments ?? []);
+                                final validPaths = result.paths
+                                    .whereType<String>()
+                                    .toList();
+                                final current = List<String>.from(
+                                  wo.attachments ?? [],
+                                );
                                 current.addAll(validPaths);
-                                
-                                final success = await ref.read(workOrderRepositoryProvider).updateAttachments(wo.woId, current);
-                                if (success && context.mounted) {
+
+                                final saved = await ref
+                                    .read(workOrderRepositoryProvider)
+                                    .updateAttachments(wo.woId, current);
+                                if (saved != null && context.mounted) {
                                   ref.invalidate(workOrderProvider(woId));
                                 }
                               }
                             },
-                            icon: const Icon(Icons.add_circle_outline, size: 18),
+                            icon: const Icon(
+                              Icons.add_circle_outline,
+                              size: 18,
+                            ),
                             label: const Text('เพิ่มไฟล์แนบ'),
                           ),
                         ],
                       ),
-                      if (wo.attachments != null && wo.attachments!.isNotEmpty) ...[
+                      if (wo.attachments != null &&
+                          wo.attachments!.isNotEmpty) ...[
                         const SizedBox(height: AppSpacing.sm),
                         Wrap(
                           spacing: AppSpacing.sm,
@@ -146,15 +155,22 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                             final fileName = p.basename(path);
                             return InputChip(
                               avatar: const Icon(Icons.attach_file, size: 16),
-                              label: Text(fileName, style: const TextStyle(fontSize: 12)),
+                              label: Text(
+                                fileName,
+                                style: const TextStyle(fontSize: 12),
+                              ),
                               onPressed: () {
                                 OpenFilex.open(path);
                               },
                               onDeleted: () async {
-                                final current = List<String>.from(wo.attachments!);
+                                final current = List<String>.from(
+                                  wo.attachments!,
+                                );
                                 current.remove(path);
-                                final success = await ref.read(workOrderRepositoryProvider).updateAttachments(wo.woId, current);
-                                if (success && context.mounted) {
+                                final saved = await ref
+                                    .read(workOrderRepositoryProvider)
+                                    .updateAttachments(wo.woId, current);
+                                if (saved != null && context.mounted) {
                                   ref.invalidate(workOrderProvider(woId));
                                 }
                               },
@@ -179,7 +195,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ข้อมูลเครื่องจักร',
                           icon: HugeIcons.strokeRoundedSettings01,
-                          onEdit: () => context.push('/work-orders/new', extra: wo),
+                          onEdit: () =>
+                              context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'เครื่องจักร',
@@ -195,7 +212,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ผู้เกี่ยวข้อง',
                           icon: HugeIcons.strokeRoundedUserGroup,
-                          onEdit: () => context.push('/work-orders/new', extra: wo),
+                          onEdit: () =>
+                              context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'ผู้แจ้ง',
@@ -216,19 +234,24 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               ),
                           ],
                         ),
-                        if (wo.rca != null || (wo.closureNotes != null && wo.closureNotes!.isNotEmpty)) ...[
+                        if (wo.rca != null ||
+                            (wo.closureNotes != null &&
+                                wo.closureNotes!.isNotEmpty)) ...[
                           const SizedBox(height: AppSpacing.lg),
                           _buildInfoCard(
                             title: 'บันทึกการซ่อม (ช่างซ่อมบำรุง)',
                             icon: HugeIcons.strokeRoundedWrench01,
-                            onEdit: () => _showEditRepairLogDialog(context, ref, wo),
+                            onEdit: () =>
+                                _showEditRepairLogDialog(context, ref, wo),
                             children: [
-                              if (wo.rca?.rootCause != null && wo.rca!.rootCause!.isNotEmpty)
+                              if (wo.rca?.rootCause != null &&
+                                  wo.rca!.rootCause!.isNotEmpty)
                                 _InfoRow(
                                   label: 'สาเหตุของปัญหา',
                                   value: wo.rca!.rootCause!,
                                 ),
-                              if (wo.closureNotes != null && wo.closureNotes!.isNotEmpty)
+                              if (wo.closureNotes != null &&
+                                  wo.closureNotes!.isNotEmpty)
                                 _InfoRow(
                                   label: 'รายละเอียดการซ่อม',
                                   value: wo.closureNotes!,
@@ -241,7 +264,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           _buildInfoCard(
                             title: 'ข้อมูลการส่งซ่อมภายนอก',
                             icon: Icons.local_shipping,
-                            onEdit: () => _showEditOutsourceDialog(context, ref, wo),
+                            onEdit: () =>
+                                _showEditOutsourceDialog(context, ref, wo),
                             children: [
                               _InfoRow(
                                 label: 'ผู้รับเหมา',
@@ -250,32 +274,46 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               if (wo.outsource!.createdAt != null)
                                 _InfoRow(
                                   label: 'วันเวลาที่ส่งซ่อม',
-                                  value: DateFormat('dd MMM yyyy HH:mm', 'th').format(wo.outsource!.createdAt!),
+                                  value: DateFormat(
+                                    'dd MMM yyyy HH:mm',
+                                    'th',
+                                  ).format(wo.outsource!.createdAt!),
                                 ),
-                              if (wo.outsource!.repairDetails != null && wo.outsource!.repairDetails!.isNotEmpty)
+                              if (wo.outsource!.repairDetails != null &&
+                                  wo.outsource!.repairDetails!.isNotEmpty)
                                 _InfoRow(
                                   label: 'อาการ/รายการซ่อม',
-                                  value: _formatRepairDetailsForView(wo.outsource!.repairDetails!),
+                                  value: _formatRepairDetailsForView(
+                                    wo.outsource!.repairDetails!,
+                                  ),
                                 ),
                               if (wo.outsource!.expectedReturnDate != null)
                                 _InfoRow(
                                   label: 'วันที่คาดว่าจะเสร็จ',
-                                  value: DateFormat('dd MMM yyyy', 'th').format(wo.outsource!.expectedReturnDate!),
+                                  value: DateFormat(
+                                    'dd MMM yyyy',
+                                    'th',
+                                  ).format(wo.outsource!.expectedReturnDate!),
                                 ),
-                              if (wo.outsource!.notes != null && wo.outsource!.notes!.isNotEmpty)
+                              if (wo.outsource!.notes != null &&
+                                  wo.outsource!.notes!.isNotEmpty)
                                 _InfoRow(
                                   label: 'หมายเหตุการตรวจรับ',
                                   value: wo.outsource!.notes!,
                                 ),
-                              if (wo.outsource!.gatePassNo != null && wo.outsource!.gatePassNo!.isNotEmpty)
+                              if (wo.outsource!.gatePassNo != null &&
+                                  wo.outsource!.gatePassNo!.isNotEmpty)
                                 _InfoRow(
                                   label: 'ใบนำของออก (Gate Pass)',
                                   value: wo.outsource!.gatePassNo!,
                                 ),
-                              if (wo.status == WorkOrderStatus.completed && wo.outsource!.actualReturnDate != null)
+                              if (wo.status == WorkOrderStatus.completed &&
+                                  wo.outsource!.actualReturnDate != null)
                                 _InfoRow(
                                   label: 'วันที่รับกลับ',
-                                  value: fmt.format(wo.outsource!.actualReturnDate!),
+                                  value: fmt.format(
+                                    wo.outsource!.actualReturnDate!,
+                                  ),
                                 ),
                             ],
                           ),
@@ -292,7 +330,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ความสำคัญ',
                           icon: HugeIcons.strokeRoundedAlert02,
-                          onEdit: () => context.push('/work-orders/new', extra: wo),
+                          onEdit: () =>
+                              context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'ระดับ',
@@ -304,7 +343,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'เวลาดำเนินการ',
                           icon: HugeIcons.strokeRoundedTime04,
-                          onEdit: () => context.push('/work-orders/new', extra: wo),
+                          onEdit: () =>
+                              context.push('/work-orders/new', extra: wo),
                           children: [
                             _InfoRow(
                               label: 'เริ่มซ่อม',
@@ -321,7 +361,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           ],
                         ),
                         const SizedBox(height: AppSpacing.lg),
-                        _WorkOrderPartsCard(woId: wo.woId, machineId: wo.machineId),
+                        _WorkOrderPartsCard(
+                          woId: wo.woId,
+                          machineId: wo.machineId,
+                        ),
                       ],
                     ),
                   ),
@@ -388,15 +431,17 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     try {
       final decoded = jsonDecode(details);
       if (decoded is List) {
-        return decoded.map((e) {
-          final item = e['item'] ?? '';
-          final qty = e['qty']?.toString().trim() ?? '';
-          final note = e['note']?.toString().trim() ?? '';
-          final parts = <String>[item];
-          if (qty.isNotEmpty) parts.add('($qty)');
-          if (note.isNotEmpty) parts.add('- $note');
-          return parts.join(' ');
-        }).join('\n');
+        return decoded
+            .map((e) {
+              final item = e['item'] ?? '';
+              final qty = e['qty']?.toString().trim() ?? '';
+              final note = e['note']?.toString().trim() ?? '';
+              final parts = <String>[item];
+              if (qty.isNotEmpty) parts.add('($qty)');
+              if (note.isNotEmpty) parts.add('- $note');
+              return parts.join(' ');
+            })
+            .join('\n');
       }
     } catch (_) {}
     return details;
@@ -741,7 +786,8 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                     TextFormField(
                       controller: correctionCtrl,
                       decoration: const InputDecoration(
-                        labelText: 'วิธีการแก้ไข / รายละเอียดการซ่อม (Repair Details)',
+                        labelText:
+                            'วิธีการแก้ไข / รายละเอียดการซ่อม (Repair Details)',
                         border: OutlineInputBorder(),
                       ),
                       maxLines: 2,
@@ -805,7 +851,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
           hours = DateTime.now().difference(wo.startedAt!).inMinutes / 60.0;
           if (hours <= 0) hours = 0.1;
         }
-        
+
         final completeSuccess = await repo.completeWorkOrder(
           wo.woId,
           closureNotes: correctionCtrl.text,
@@ -844,7 +890,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     if (!context.mounted) return;
     String? selectedVendorId;
     final rootCauseCtrl = TextEditingController(text: wo.rca?.rootCause ?? '');
-    List<Map<String, String>> outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
+    List<Map<String, String>> outsourceItems = [
+      {'item': '', 'qty': '', 'note': ''},
+    ];
     final partsCtrl = TextEditingController();
     DateTime? selectedExpectedDate;
     final formKey = GlobalKey<FormState>();
@@ -909,14 +957,19 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         const SizedBox(height: AppSpacing.md),
                         const Align(
                           alignment: Alignment.centerLeft,
-                          child: Text('รายการที่ส่งซ่อม *', style: TextStyle(fontWeight: FontWeight.bold)),
+                          child: Text(
+                            'รายการที่ส่งซ่อม *',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
                         ),
                         const SizedBox(height: AppSpacing.sm),
                         ...outsourceItems.asMap().entries.map((e) {
                           final index = e.key;
                           final item = e.value;
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.sm,
+                            ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -924,9 +977,15 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                                   flex: 3,
                                   child: TextFormField(
                                     initialValue: item['item'],
-                                    decoration: const InputDecoration(labelText: 'รายการ *', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'รายการ *',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['item'] = val,
-                                    validator: (v) => v == null || v.trim().isEmpty ? 'ระบุรายการ' : null,
+                                    validator: (v) =>
+                                        v == null || v.trim().isEmpty
+                                        ? 'ระบุรายการ'
+                                        : null,
                                   ),
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
@@ -934,7 +993,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                                   flex: 1,
                                   child: TextFormField(
                                     initialValue: item['qty'],
-                                    decoration: const InputDecoration(labelText: 'จำนวน', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'จำนวน',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['qty'] = val,
                                   ),
                                 ),
@@ -943,15 +1005,23 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                                   flex: 2,
                                   child: TextFormField(
                                     initialValue: item['note'],
-                                    decoration: const InputDecoration(labelText: 'หมายเหตุ', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'หมายเหตุ',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['note'] = val,
                                   ),
                                 ),
                                 if (outsourceItems.length > 1)
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
                                     onPressed: () {
-                                      setState(() => outsourceItems.removeAt(index));
+                                      setState(
+                                        () => outsourceItems.removeAt(index),
+                                      );
                                     },
                                   )
                                 else
@@ -964,7 +1034,13 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           alignment: Alignment.centerLeft,
                           child: TextButton.icon(
                             onPressed: () {
-                              setState(() => outsourceItems.add({'item': '', 'qty': '', 'note': ''}));
+                              setState(
+                                () => outsourceItems.add({
+                                  'item': '',
+                                  'qty': '',
+                                  'note': '',
+                                }),
+                              );
                             },
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('เพิ่มรายการ'),
@@ -984,9 +1060,12 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           onTap: () async {
                             final date = await showDatePicker(
                               context: context,
-                              initialDate: selectedExpectedDate ?? DateTime.now(),
+                              initialDate:
+                                  selectedExpectedDate ?? DateTime.now(),
                               firstDate: DateTime.now(),
-                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
                             );
                             if (date != null) {
                               setState(() => selectedExpectedDate = date);
@@ -1002,7 +1081,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               children: [
                                 Text(
                                   selectedExpectedDate != null
-                                      ? DateFormat('dd MMM yyyy', 'th').format(selectedExpectedDate!)
+                                      ? DateFormat(
+                                          'dd MMM yyyy',
+                                          'th',
+                                        ).format(selectedExpectedDate!)
                                       : 'ยังไม่กำหนด',
                                 ),
                                 const Icon(Icons.calendar_today, size: 18),
@@ -1038,7 +1120,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     if (result == true && context.mounted) {
       final repo = ref.read(workOrderRepositoryProvider);
 
-      final validItems = outsourceItems.where((e) => e['item']!.trim().isNotEmpty).toList();
+      final validItems = outsourceItems
+          .where((e) => e['item']!.trim().isNotEmpty)
+          .toList();
       final repairDetailsJson = jsonEncode(validItems);
 
       final success = await repo.outsourceWorkOrder(
@@ -1071,11 +1155,15 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _showEditRepairLogDialog(BuildContext context, WidgetRef ref, WorkOrder wo) async {
+  Future<void> _showEditRepairLogDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
     final rootCauseCtrl = TextEditingController(text: wo.rca?.rootCause ?? '');
     final correctionCtrl = TextEditingController(text: wo.closureNotes ?? '');
     final formKey = GlobalKey<FormState>();
-    
+
     String? selectedFailureType = wo.rca?.failureType;
     String? selectedCauseCategory = wo.rca?.causeCategory;
 
@@ -1089,8 +1177,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
       'บำรุงรักษาเชิงป้องกัน (PM)',
       'อื่นๆ (Others)',
     ];
-    
-    if (selectedFailureType != null && selectedFailureType.isNotEmpty && !failureCategories.contains(selectedFailureType)) {
+
+    if (selectedFailureType != null &&
+        selectedFailureType.isNotEmpty &&
+        !failureCategories.contains(selectedFailureType)) {
       failureCategories.add(selectedFailureType);
     }
 
@@ -1102,8 +1192,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
       'ปัจจัยภายนอก/อุบัติเหตุ (External/Accident)',
       'อื่นๆ (Others)',
     ];
-    
-    if (selectedCauseCategory != null && selectedCauseCategory.isNotEmpty && !causeCategories.contains(selectedCauseCategory)) {
+
+    if (selectedCauseCategory != null &&
+        selectedCauseCategory.isNotEmpty &&
+        !causeCategories.contains(selectedCauseCategory)) {
       causeCategories.add(selectedCauseCategory);
     }
 
@@ -1129,18 +1221,41 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                             labelText: 'หมวดหมู่อาการเสีย (Failure Category)',
                             border: OutlineInputBorder(),
                           ),
-                          items: failureCategories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14)))).toList(),
-                          onChanged: (v) => setState(() => selectedFailureType = v),
+                          items: failureCategories
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Text(
+                                    c,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => selectedFailureType = v),
                         ),
                         const SizedBox(height: AppSpacing.md),
                         DropdownButtonFormField<String>(
                           value: selectedCauseCategory,
                           decoration: const InputDecoration(
-                            labelText: 'หมวดหมู่สาเหตุหลัก (Root Cause Category)',
+                            labelText:
+                                'หมวดหมู่สาเหตุหลัก (Root Cause Category)',
                             border: OutlineInputBorder(),
                           ),
-                          items: causeCategories.map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 14)))).toList(),
-                          onChanged: (v) => setState(() => selectedCauseCategory = v),
+                          items: causeCategories
+                              .map(
+                                (c) => DropdownMenuItem(
+                                  value: c,
+                                  child: Text(
+                                    c,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) =>
+                              setState(() => selectedCauseCategory = v),
                         ),
                         const SizedBox(height: AppSpacing.lg),
                         TextFormField(
@@ -1186,14 +1301,14 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                 ),
               ],
             );
-          }
+          },
         );
       },
     );
 
     if (result == true && context.mounted) {
       final repo = ref.read(workOrderRepositoryProvider);
-      
+
       final rcaSuccess = await repo.saveRCA(
         woId: wo.woId,
         why1: '',
@@ -1207,12 +1322,16 @@ class WorkOrderDetailScreen extends ConsumerWidget {
       );
 
       if (rcaSuccess) {
-        await repo.updateRepairLog(wo.woId, rootCauseCtrl.text, correctionCtrl.text);
+        await repo.updateRepairLog(
+          wo.woId,
+          rootCauseCtrl.text,
+          correctionCtrl.text,
+        );
         ref.invalidate(workOrderProvider(wo.woId));
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('บันทึกการซ่อมสำเร็จ')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('บันทึกการซ่อมสำเร็จ')));
         }
       } else {
         if (context.mounted) {
@@ -1224,18 +1343,30 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _showEditOutsourceDialog(BuildContext context, WidgetRef ref, WorkOrder wo) async {
+  Future<void> _showEditOutsourceDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
     final formKey = GlobalKey<FormState>();
-    List<Map<String, dynamic>> outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
+    List<Map<String, dynamic>> outsourceItems = [
+      {'item': '', 'qty': '', 'note': ''},
+    ];
     DateTime? selectedExpectedDate = wo.outsource?.expectedReturnDate;
     final notesCtrl = TextEditingController(text: wo.outsource?.notes ?? '');
 
-    if (wo.outsource?.repairDetails != null && wo.outsource!.repairDetails!.isNotEmpty) {
+    if (wo.outsource?.repairDetails != null &&
+        wo.outsource!.repairDetails!.isNotEmpty) {
       try {
         final decoded = jsonDecode(wo.outsource!.repairDetails!);
         if (decoded is List) {
-          outsourceItems = decoded.map((e) => Map<String, dynamic>.from(e)).toList();
-          if (outsourceItems.isEmpty) outsourceItems = [{'item': '', 'qty': '', 'note': ''}];
+          outsourceItems = decoded
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+          if (outsourceItems.isEmpty)
+            outsourceItems = [
+              {'item': '', 'qty': '', 'note': ''},
+            ];
         }
       } catch (_) {}
     }
@@ -1257,21 +1388,32 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Text('รายการที่ส่งซ่อม', style: TextStyle(fontWeight: FontWeight.bold)),
+                        const Text(
+                          'รายการที่ส่งซ่อม',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         const SizedBox(height: AppSpacing.sm),
                         ...List.generate(outsourceItems.length, (index) {
                           final item = outsourceItems[index];
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.sm,
+                            ),
                             child: Row(
                               children: [
                                 Expanded(
                                   flex: 2,
                                   child: TextFormField(
                                     initialValue: item['item'],
-                                    decoration: const InputDecoration(labelText: 'รายการ *', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'รายการ *',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['item'] = val,
-                                    validator: (v) => v == null || v.trim().isEmpty ? 'ระบุรายการ' : null,
+                                    validator: (v) =>
+                                        v == null || v.trim().isEmpty
+                                        ? 'ระบุรายการ'
+                                        : null,
                                   ),
                                 ),
                                 const SizedBox(width: AppSpacing.sm),
@@ -1279,7 +1421,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                                   flex: 1,
                                   child: TextFormField(
                                     initialValue: item['qty'],
-                                    decoration: const InputDecoration(labelText: 'จำนวน', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'จำนวน',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['qty'] = val,
                                   ),
                                 ),
@@ -1288,15 +1433,23 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                                   flex: 2,
                                   child: TextFormField(
                                     initialValue: item['note'],
-                                    decoration: const InputDecoration(labelText: 'หมายเหตุ', border: OutlineInputBorder()),
+                                    decoration: const InputDecoration(
+                                      labelText: 'หมายเหตุ',
+                                      border: OutlineInputBorder(),
+                                    ),
                                     onChanged: (val) => item['note'] = val,
                                   ),
                                 ),
                                 if (outsourceItems.length > 1)
                                   IconButton(
-                                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                    ),
                                     onPressed: () {
-                                      setState(() => outsourceItems.removeAt(index));
+                                      setState(
+                                        () => outsourceItems.removeAt(index),
+                                      );
                                     },
                                   )
                                 else
@@ -1309,7 +1462,13 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           alignment: Alignment.centerLeft,
                           child: TextButton.icon(
                             onPressed: () {
-                              setState(() => outsourceItems.add({'item': '', 'qty': '', 'note': ''}));
+                              setState(
+                                () => outsourceItems.add({
+                                  'item': '',
+                                  'qty': '',
+                                  'note': '',
+                                }),
+                              );
                             },
                             icon: const Icon(Icons.add, size: 18),
                             label: const Text('เพิ่มรายการ'),
@@ -1320,9 +1479,14 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           onTap: () async {
                             final date = await showDatePicker(
                               context: context,
-                              initialDate: selectedExpectedDate ?? DateTime.now(),
-                              firstDate: DateTime.now().subtract(const Duration(days: 30)),
-                              lastDate: DateTime.now().add(const Duration(days: 365)),
+                              initialDate:
+                                  selectedExpectedDate ?? DateTime.now(),
+                              firstDate: DateTime.now().subtract(
+                                const Duration(days: 30),
+                              ),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
                             );
                             if (date != null) {
                               setState(() => selectedExpectedDate = date);
@@ -1338,7 +1502,10 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                               children: [
                                 Text(
                                   selectedExpectedDate != null
-                                      ? DateFormat('dd MMM yyyy', 'th').format(selectedExpectedDate!)
+                                      ? DateFormat(
+                                          'dd MMM yyyy',
+                                          'th',
+                                        ).format(selectedExpectedDate!)
                                       : 'ยังไม่กำหนด',
                                 ),
                                 const Icon(Icons.calendar_today, size: 18),
@@ -1384,9 +1551,13 @@ class WorkOrderDetailScreen extends ConsumerWidget {
       },
     );
 
-    if (result == true && context.mounted && wo.outsource?.outsourceId != null) {
+    if (result == true &&
+        context.mounted &&
+        wo.outsource?.outsourceId != null) {
       final repo = ref.read(workOrderRepositoryProvider);
-      final validItems = outsourceItems.where((e) => e['item']!.trim().isNotEmpty).toList();
+      final validItems = outsourceItems
+          .where((e) => e['item']!.trim().isNotEmpty)
+          .toList();
       final repairDetailsJson = jsonEncode(validItems);
 
       final success = await repo.updateOutsourceInfo(
@@ -1398,9 +1569,13 @@ class WorkOrderDetailScreen extends ConsumerWidget {
 
       if (success && context.mounted) {
         ref.invalidate(workOrderProvider(wo.woId));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('แก้ไขข้อมูลส่งซ่อมสำเร็จ')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('แก้ไขข้อมูลส่งซ่อมสำเร็จ')),
+        );
       } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('เกิดข้อผิดพลาดในการบันทึก')),
+        );
       }
     }
   }
@@ -1459,7 +1634,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         children: [
                           Expanded(
                             child: RadioListTile<bool>(
-                              title: const Text('ใช้งานได้ปกติ (ซ่อมเสร็จสิ้น)'),
+                              title: const Text(
+                                'ใช้งานได้ปกติ (ซ่อมเสร็จสิ้น)',
+                              ),
                               value: true,
                               groupValue: isPassed,
                               onChanged: (val) {
@@ -1469,7 +1646,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           ),
                           Expanded(
                             child: RadioListTile<bool>(
-                              title: const Text('ใช้งานไม่ได้ (ตีกลับซ่อมใหม่)'),
+                              title: const Text(
+                                'ใช้งานไม่ได้ (ตีกลับซ่อมใหม่)',
+                              ),
                               value: false,
                               groupValue: isPassed,
                               onChanged: (val) {
@@ -1483,12 +1662,15 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                       TextFormField(
                         controller: notesCtrl,
                         decoration: InputDecoration(
-                          labelText: isPassed ? 'หมายเหตุการตรวจรับ' : 'ระบุอาการที่ยังเสียอยู่',
+                          labelText: isPassed
+                              ? 'หมายเหตุการตรวจรับ'
+                              : 'ระบุอาการที่ยังเสียอยู่',
                           border: const OutlineInputBorder(),
                         ),
                         maxLines: 3,
                         validator: (val) {
-                          if (!isPassed && (val == null || val.trim().isEmpty)) {
+                          if (!isPassed &&
+                              (val == null || val.trim().isEmpty)) {
                             return 'กรุณาระบุอาการที่ยังเสียอยู่';
                           }
                           return null;
@@ -1507,23 +1689,35 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                   onPressed: () {
                     if (selectedDate == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('กรุณาระบุวันที่ได้รับของ')),
+                        const SnackBar(
+                          content: Text('กรุณาระบุวันที่ได้รับของ'),
+                        ),
                       );
                       return;
                     }
                     if (!isPassed && notesCtrl.text.trim().isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('กรุณาระบุอาการที่ยังเสียอยู่')),
+                        const SnackBar(
+                          content: Text('กรุณาระบุอาการที่ยังเสียอยู่'),
+                        ),
                       );
                       return;
                     }
-                    Navigator.of(context).pop({'date': selectedDate, 'isPassed': isPassed});
+                    Navigator.of(
+                      context,
+                    ).pop({'date': selectedDate, 'isPassed': isPassed});
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isPassed ? AppColors.success : AppColors.error,
+                    backgroundColor: isPassed
+                        ? AppColors.success
+                        : AppColors.error,
                     foregroundColor: Colors.white,
                   ),
-                  child: Text(isPassed ? 'ยืนยันรับของและปิดงาน' : 'บันทึกและตีกลับซ่อมใหม่'),
+                  child: Text(
+                    isPassed
+                        ? 'ยืนยันรับของและปิดงาน'
+                        : 'บันทึกและตีกลับซ่อมใหม่',
+                  ),
                 ),
               ],
             );
@@ -1548,7 +1742,13 @@ class WorkOrderDetailScreen extends ConsumerWidget {
         ref.invalidate(workOrderProvider(woId));
         ref.invalidate(workOrderListProvider);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(isPassed ? 'ตรวจรับและปิดงานสำเร็จ' : 'บันทึกตีกลับซ่อมใหม่สำเร็จ (สถานะ: ส่งซ่อมภายนอก)'))
+          SnackBar(
+            content: Text(
+              isPassed
+                  ? 'ตรวจรับและปิดงานสำเร็จ'
+                  : 'บันทึกตีกลับซ่อมใหม่สำเร็จ (สถานะ: ส่งซ่อมภายนอก)',
+            ),
+          ),
         );
       } else {
         if (context.mounted) {
@@ -1620,7 +1820,11 @@ class _WorkOrderPartsCard extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.inventory_2_outlined, size: 20, color: AppColors.primary),
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
                 const SizedBox(width: AppSpacing.sm),
                 const Text(
                   'รายการอะไหล่ที่ใช้',
@@ -1628,18 +1832,27 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.add_circle_outline, size: 20, color: AppColors.primary),
+                  icon: const Icon(
+                    Icons.add_circle_outline,
+                    size: 20,
+                    color: AppColors.primary,
+                  ),
                   tooltip: 'เบิกอะไหล่เพิ่ม',
                   onPressed: () async {
                     if (machineId == null || machineId!.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('กรุณาระบุเครื่องจักรในใบแจ้งซ่อมก่อนเบิกอะไหล่')),
+                        const SnackBar(
+                          content: Text(
+                            'กรุณาระบุเครื่องจักรในใบแจ้งซ่อมก่อนเบิกอะไหล่',
+                          ),
+                        ),
                       );
                       return;
                     }
                     final res = await showDialog(
                       context: context,
-                      builder: (c) => AddWoPartDialog(woId: woId, machineId: machineId!),
+                      builder: (c) =>
+                          AddWoPartDialog(woId: woId, machineId: machineId!),
                     );
                     if (res == true) {
                       ref.invalidate(workOrderPartsProvider(woId));
@@ -1650,23 +1863,33 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                   icon: const Icon(Icons.print_outlined, size: 20),
                   tooltip: 'พิมพ์ใบเบิกอะไหล่',
                   onPressed: () {
-                    WorkOrderPdfService.generateSparePartRequisition(woId: woId);
+                    WorkOrderPdfService.generateSparePartRequisition(
+                      woId: woId,
+                    );
                   },
                 ),
               ],
             ),
             const Divider(),
             partsAsync.when(
-              loading: () => const Center(child: Padding(
-                padding: EdgeInsets.all(8.0),
-                child: CircularProgressIndicator(),
-              )),
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
               error: (e, st) => Text('Error: $e'),
               data: (parts) {
                 if (parts.isEmpty) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8.0),
-                    child: Text('ยังไม่มีการเบิกอะไหล่', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic)),
+                    child: Text(
+                      'ยังไม่มีการเบิกอะไหล่',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                   );
                 }
                 return Column(
@@ -1682,12 +1905,26 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('$index. ${p.partName ?? "-"}', style: const TextStyle(fontWeight: FontWeight.w500)),
-                                Text('(${p.partCode ?? "-"})', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                Text(
+                                  '$index. ${p.partName ?? "-"}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  '(${p.partCode ?? "-"})',
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 12,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
-                          Text('${p.quantity} ชิ้น', style: const TextStyle(fontWeight: FontWeight.w500)),
+                          Text(
+                            '${p.quantity} ชิ้น',
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
                           const SizedBox(width: 8),
                           InkWell(
                             onTap: () async {
@@ -1695,28 +1932,48 @@ class _WorkOrderPartsCard extends ConsumerWidget {
                                 context: context,
                                 builder: (c) => AlertDialog(
                                   title: const Text('ยืนยันการคืนอะไหล่?'),
-                                  content: Text('คุณต้องการคืน ${p.partName} จำนวน ${p.quantity} ชิ้น กลับเข้าคลังใช่หรือไม่?'),
+                                  content: Text(
+                                    'คุณต้องการคืน ${p.partName} จำนวน ${p.quantity} ชิ้น กลับเข้าคลังใช่หรือไม่?',
+                                  ),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('ยกเลิก')),
                                     TextButton(
-                                      onPressed: () => Navigator.pop(c, true), 
-                                      child: const Text('ยืนยันคืนอะไหล่', style: TextStyle(color: Colors.red)),
+                                      onPressed: () => Navigator.pop(c, false),
+                                      child: const Text('ยกเลิก'),
+                                    ),
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text(
+                                        'ยืนยันคืนอะไหล่',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
                                     ),
                                   ],
                                 ),
                               );
                               if (confirm == true) {
-                                final success = await ref.read(workOrderRepositoryProvider).removePartFromWorkOrder(p.woPartId);
+                                final success = await ref
+                                    .read(workOrderRepositoryProvider)
+                                    .removePartFromWorkOrder(p.woPartId);
                                 if (success) {
                                   ref.invalidate(workOrderPartsProvider(woId));
                                 } else {
                                   if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('เกิดข้อผิดพลาดในการคืนอะไหล่')));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'เกิดข้อผิดพลาดในการคืนอะไหล่',
+                                        ),
+                                      ),
+                                    );
                                   }
                                 }
                               }
                             },
-                            child: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                            child: const Icon(
+                              Icons.delete_outline,
+                              size: 18,
+                              color: Colors.red,
+                            ),
                           ),
                         ],
                       ),
@@ -1731,5 +1988,3 @@ class _WorkOrderPartsCard extends ConsumerWidget {
     );
   }
 }
-
-

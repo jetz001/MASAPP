@@ -1,103 +1,142 @@
-# MASAPP - Modern Maintenance & Asset Management System
+# MASAPP
 
-[![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)](https://flutter.dev)
-[![Riverpod](https://img.shields.io/badge/State--Management-Riverpod-blue?style=for-the-badge)](https://riverpod.dev)
-[![SQLite](https://img.shields.io/badge/Database-SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+MASAPP (Maintenance & Asset System Application) เป็นแอป Flutter สำหรับ Windows ที่ใช้ SQLite แบบ offline-first เพื่อบริหารงานซ่อมบำรุง ทะเบียนเครื่องจักร อะไหล่ เครื่องมือ และเอกสารประกอบในโรงงาน
 
-**MASAPP** (Maintenance & Asset System Application) เป็นแพลตฟอร์มสำหรับบริหารจัดการงานซ่อมบำรุงและทะเบียนเครื่องจักรที่ทันสมัย ออกแบบมาเพื่อเพิ่มประสิทธิภาพในการติดตามสถานะเครื่องจักรในโรงงาน (Factory Floor Plan) แบบ Real-time และการจัดการข้อมูลเชิงเทคนิคที่ครบวงจร
+## ภาพรวมระบบ
 
----
+- Frontend: Flutter Desktop
+- Database: SQLite ผ่าน `sqflite_common_ffi`
+- State management: Riverpod
+- Routing: GoRouter
+- AI assistant: multi-provider + DB-first exploration + external search แบบติดป้ายข้อมูลภายนอก
+- File assets: ใช้ `file_assets` เป็น metadata กลาง และเก็บไฟล์จริงใน managed storage ข้างฐานข้อมูล
 
-## ✨ Key Features
+## ความสามารถหลัก
 
-### 🏢 Interactive Factory Layout
-*   **Visual Floor Plan**: แสดงแผนผังโรงงานแบบโต้ตอบได้ รองรับการซูมและแพนภาพ
-*   **Precision Alignment**: ระบบจัดตำแหน่งผังพื้น (Ruler Tool) ที่มีความแม่นยำสูง พร้อมตารางกริด (Grid Lines) ขนาด 5x5m เพื่อการวัดระยะที่ถูกต้อง
-*   **Machine Tracking**: ติดตามตำแหน่งและสถานะของเครื่องจักรด้วยรหัสสี (Green: Normal, Red: Breakdown, Yellow: Maintenance)
-*   **AI Floor Plan Scanning**: ระบบอัจฉริยะช่วยสแกนและตรวจจับพื้นที่โซนและตำแหน่งเครื่องจักรจากไฟล์ผังพื้น
+- จัดการทะเบียนเครื่องจักรและกระบวนการรับมอบเครื่อง
+- เปิด/แนบรูปและ PDF ใน 4 โมดูลหลัก: เครื่องจักร, งานซ่อม, อะไหล่, เครื่องมือ
+- แสดงผล AI chat ได้ทั้งข้อความ, code block, table, image, PDF card และ `timeline`
+- รองรับ AI หลายเจ้า เช่น Gemini, OpenAI, Claude, DeepSeek, Grok, Mistral และ Ollama
+- รองรับ external search และ image search โดยยึดหลัก DB-first
 
-### 📋 Machine Registry & Intake
-*   **Comprehensive Data**: จัดเก็บข้อมูลเครื่องจักรอย่างละเอียด (Brand, Model, Serial No, Manuals)
-*   **6-Stage Intake Process**: ระบบการนำเข้าเครื่องจักรใหม่ที่เป็นลำดับขั้นตอน ตั้งแต่ตรวจสอบเอกสารไปจนถึงการอนุมัติใช้งาน
-*   **Handover Conclusion**: ระบบตัดสินใจ Pass/Fail สำหรับการรับมอบเครื่องจักร
-
-### 📊 Reporting & Documentation
-*   **High-Resolution PDF Export**: สร้างป้ายกำกับเครื่องจักร (Machine Tags) และรายงานตำแหน่งในรูปแบบ PDF ที่มีความละเอียดสูง
-*   **Dashboard & Analytics**: สรุปสถิติการซ่อมบำรุงและสถานะเครื่องจักรทั้งหมดในรูปแบบกราฟ (fl_chart)
-
----
-
-## 🛠 Technology Stack
-
-*   **Frontend**: [Flutter](https://flutter.dev) (Desktop Optimized)
-*   **State Management**: [Riverpod](https://riverpod.dev) (Robust & Testable)
-*   **Database**: [SQLite (FFI)](https://pub.dev/packages/sqflite_common_ffi) สำหรับการจัดเก็บข้อมูลแบบ Offline-first และ **Serverless LAN Deployment** บน Desktop
-*   **Navigation**: [GoRouter](https://pub.dev/packages/go_router)
-*   **UI Components**: 
-    *   [Syncfusion DataGrid](https://www.syncfusion.com/flutter-widgets/flutter-datagrid) สำหรับจัดการข้อมูลตารางขนาดใหญ่
-    *   [HugeIcons](https://hugeicons.com/) สำหรับชุดไอคอนระดับพรีเมียม
-    *   [Form Builder](https://pub.dev/packages/flutter_form_builder) สำหรับการจัดการฟอร์มที่ซับซ้อน
-
----
-
-## 🔐 Default Credentials (Fresh Install)
-
-เมื่อระบบสร้างฐานข้อมูลใหม่ (Fresh Install) ข้อมูลเข้าใช้งานระดับผู้ดูแลระบบ (Admin) เริ่มต้นคือ:
-
-*   **รหัสพนักงาน / Username**: `admin`
-*   **รหัสผ่าน**: `Admin@1234`
-*   **รหัส PIN (สำหรับอนุมัติ)**: `123456`
-
-*(หมายเหตุ: แนะนำให้ผู้ดูแลระบบเปลี่ยนรหัสผ่านทันทีที่เข้าสู่ระบบครั้งแรกเพื่อความปลอดภัย)*
-
----
-
-## 🚀 Getting Started
+## เริ่มต้นใช้งาน
 
 ### Prerequisites
-*   Flutter SDK (3.x หรือสูงกว่า)
-*   Visual Studio (สำหรับ Windows Desktop Development)
 
-### Installation
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/your-repo/masapp.git
-    ```
-2.  Install dependencies:
-    ```bash
-    flutter pub get
-    ```
-3.  Run the application:
-    ```bash
-    flutter run -d windows
-    ```
+- Flutter SDK 3.x ขึ้นไป
+- Visual Studio พร้อม Windows Desktop workload
+- Inno Setup 6 เมื่อต้องการ build installer
 
-### 🗄️ Database Setup (Serverless LAN)
-แอปพลิเคชันถูกออกแบบมาให้รองรับการใช้งานผ่านเครือข่าย LAN ร่วมกันโดยไม่ต้องพึ่งพา Server:
-1. กดที่ปุ่ม **ตั้งค่าฐานข้อมูล** ในหน้าล็อกอิน
-2. เลือกเชื่อมต่อฐานข้อมูลบนโฟลเดอร์ Network Share (เช่น `\\Server\Maintenance\masapp.db`)
-3. ระบบจะจัดการการอ่านเขียน (Concurrency) ผ่าน `PRAGMA busy_timeout` เพื่อรองรับผู้ใช้งานหลายคนพร้อมกัน
+### Run แอป
 
----
+```bash
+flutter pub get
+flutter run -d windows
+```
 
-## 📁 Project Structure
+### ตั้งค่าฐานข้อมูล
+
+1. เปิดหน้าล็อกอิน
+2. กด `ตั้งค่าฐานข้อมูล`
+3. เลือกไฟล์ฐานข้อมูล SQLite หรือสร้างใหม่
+4. หากใช้ network share ให้ใช้ path ที่เข้าถึงได้จริง เช่น `\\server\share\masapp.db`
+
+## Seed Database
+
+- ไฟล์ seed สำหรับ SQLite อยู่ที่ `db/seed_sqlite.sql`
+- ไฟล์ seed สำหรับ schema เดิมอีกชุดอยู่ที่ `db/seed.sql`
+- `seedDB` ปัจจุบันตั้งค่าให้ fresh database ใช้ managed storage ตั้งแต่แรก
+- ค่า `file_assets_legacy_storage_migrated_v1 = true` ถูก seed มาให้สำหรับฐานข้อมูลใหม่ เพื่อบอกว่าฐานใหม่ไม่ต้อง migrate path เก่า
+
+ค่าเริ่มต้นที่เกี่ยวกับไฟล์แนบ:
+
+- `assets.storage_mode = managed_storage`
+- `assets.storage_root_strategy = db_relative_storage`
+
+สรุปคือ fresh install หรือฐานข้อมูลที่สร้างใหม่จาก seed จะไม่ย้อนกลับไปใช้ path ลอยแบบ legacy flow เดิม เพราะฝั่งอัปโหลดใหม่ทุกจุดวิ่งผ่าน `AttachmentStorageService`
+
+## Managed Storage และ Migration
+
+- ไฟล์แนบใหม่จะถูก copy เข้า storage ที่ระบบจัดการเองข้างฐานข้อมูล
+- metadata จะถูกเก็บในตาราง `file_assets`
+- ระบบรองรับ preview/thumbnail สำหรับ image และ PDF
+- ฐานข้อมูลเก่าที่มี path เดิมจะถูก migrate อัตโนมัติใน `DbInitializer`
+- หลัง migrate สำเร็จ ระบบจะ rewrite path อ้างอิงในตารางเดิมให้ชี้มาที่ managed storage
+
+โมดูลที่อยู่ใน flow นี้:
+
+- `machine_handover`
+- `work_order`
+- `spare_part`
+- `tool`
+
+## Default Credentials
+
+สำหรับ fresh install:
+
+- Username: `admin`
+- Password: `Admin@1234`
+- PIN: `123456`
+
+ควรเปลี่ยนรหัสผ่านทันทีหลังเข้าใช้งานครั้งแรก
+
+## Build Installer
+
+ตัว installer ใช้ไฟล์ `masapp_installer.iss` และตอนนี้รองรับการรับเวอร์ชันจากภายนอกแทนการ hardcode ไว้ในไฟล์อย่างเดียว
+
+วิธีที่แนะนำ:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1
+```
+
+สิ่งที่ script ทำ:
+
+- อ่านเวอร์ชันจาก `pubspec.yaml`
+- ใช้เลขเวอร์ชันก่อน `+build` เป็นเวอร์ชัน installer
+- build Windows release
+- ส่งค่า version/build/output เข้า `masapp_installer.iss`
+
+ถ้าต้องการเช็กก่อนโดยยังไม่ build installer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1 -DryRun -SkipFlutterBuild
+```
+
+ดังนั้น flow ที่ควรใช้ต่อจากนี้คือ:
+
+1. อัปเดตเวอร์ชันใน `pubspec.yaml`
+2. push code เวอร์ชันนั้น
+3. รัน `scripts/build_installer.ps1`
+4. ได้ installer ที่ใช้เวอร์ชันเดียวกับแอป
+
+ไฟล์ output ปกติจะอยู่ในโฟลเดอร์ `Output\`
+
+## โครงสร้างโปรเจกต์
 
 ```text
 lib/
-├── core/               # Shared logic, theme, and database helpers
-├── features/           # Feature-based modules
-│   ├── auth/           # Authentication & User Management
-│   ├── dashboard/      # Analytics & Overview
-│   ├── factory_layout/ # Interactive Map & PDF Services
-│   ├── machine_intake/ # Step-by-step Machine Registry
-│   └── ...
-└── main.dart           # Application Entry Point
+├── core/
+│   ├── ai/
+│   ├── database/
+│   ├── files/
+│   └── storage/
+├── features/
+│   ├── ai_chat/
+│   ├── auth/
+│   ├── machine_intake/
+│   ├── spare_parts/
+│   ├── tools_equipment/
+│   └── work_orders/
+└── main.dart
 ```
 
----
+## หมายเหตุ
 
-## 📝 License
-This project is for internal use within the maintenance department. All rights reserved.
+- ระบบ AI ใช้หลัก DB-first ก่อนค้นหาภายนอกเสมอ
+- ข้อมูลจากภายนอกต้องถูกติดป้ายว่าเป็นข้อมูลภายนอก
+- ฐานข้อมูลของ AI เป็น read-only exploration สำหรับตารางที่ปลอดภัย
 
----
-*Developed with ❤️ by Antigravity (Advanced Agentic Coding)*
+## License
+
+Internal use only.

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
@@ -10,7 +9,6 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
-import '../settings/settings_provider.dart';
 import '../machine_intake/machine_provider.dart';
 import 'work_order_models.dart';
 import 'work_order_provider.dart';
@@ -108,6 +106,7 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
     try {
       final user = ref.read(authProvider);
       if (user == null) throw Exception('User not logged in');
+      final workOrderRepo = WorkOrderRepository();
 
       String createdId;
       if (widget.workOrder != null) {
@@ -115,29 +114,29 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
         createdId = widget.workOrder!.woId;
 
         // Process attachments for update
-        List<String>? currentAttachments = widget.workOrder!.attachments?.toList() ?? [];
+        List<String>? currentAttachments =
+            widget.workOrder!.attachments?.toList() ?? [];
         if (_attachments.isNotEmpty) {
-          final baseDir = Directory(p.join(File(DbHelper.dbPath).parent.path, 'attachments', createdId));
-          if (!await baseDir.exists()) {
-            await baseDir.create(recursive: true);
-          }
           for (final path in _attachments) {
             if (!currentAttachments.contains(path)) {
-              final file = File(path);
-              if (await file.exists()) {
-                final fileName = p.basename(path);
-                final destPath = p.join(baseDir.path, fileName);
-                await file.copy(destPath);
-                currentAttachments.add(destPath);
-              }
+              currentAttachments.add(path);
             }
           }
         }
-        final attachmentsJson = currentAttachments.isNotEmpty ? jsonEncode(currentAttachments) : null;
+        final savedAttachments = await workOrderRepo.updateAttachments(
+          createdId,
+          currentAttachments,
+        );
+        final attachmentsJson =
+            savedAttachments != null && savedAttachments.isNotEmpty
+            ? jsonEncode(savedAttachments)
+            : null;
 
         String? snapshotId;
         if (_workType == _WorkType.machine && _selectedMachineId != null) {
-          snapshotId = await MachineRepository().getOrCreateSnapshot(_selectedMachineId!);
+          snapshotId = await MachineRepository().getOrCreateSnapshot(
+            _selectedMachineId!,
+          );
         }
         await DbHelper.execute(
           '''
@@ -168,10 +167,12 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
         if (user == null) {
           throw Exception('ไม่พบข้อมูลผู้ใช้งาน (Session Expired)');
         }
-        
-        createdId = await WorkOrderRepository().createWorkOrder(
+
+        createdId = await workOrderRepo.createWorkOrder(
           machineId: _workType == _WorkType.machine ? _selectedMachineId! : '',
-          machineNo: _workType == _WorkType.machine ? _selectedMachineId! : '', // createWorkOrder will get proper snapshot
+          machineNo: _workType == _WorkType.machine
+              ? _selectedMachineId!
+              : '', // createWorkOrder will get proper snapshot
           description: _descCtrl.text,
           failureSymptom: _symptomCtrl.text,
           priority: _priority,
@@ -357,14 +358,19 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: _attachments.length,
-                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final path = _attachments[index];
                       final fileName = p.basename(path);
                       return ListTile(
                         dense: true,
                         leading: const Icon(Icons.insert_drive_file, size: 20),
-                        title: Text(fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        title: Text(
+                          fileName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         trailing: IconButton(
                           icon: const Icon(Icons.close, size: 20),
                           onPressed: () => _removeAttachment(index),
@@ -402,4 +408,3 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
     );
   }
 }
-

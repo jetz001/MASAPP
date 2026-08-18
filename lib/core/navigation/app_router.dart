@@ -28,6 +28,7 @@ import '../../features/oee_logs/oee_logs_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_detail_screen.dart';
+import '../../features/ai_chat/ai_chat_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -174,6 +175,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/analytics',
             builder: (context, state) => const AnalyticsDashboardScreen(),
+          ),
+
+          // AI Assistant
+          GoRoute(
+            path: '/ai-chat',
+            builder: (context, state) => const AiChatScreen(),
           ),
 
           // OEE Logs

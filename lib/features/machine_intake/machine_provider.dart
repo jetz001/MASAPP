@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/database/db_connection.dart';
+import '../../core/storage/attachment_storage_service.dart';
 import '../../core/utils/crypto_utils.dart';
 import 'machine_models.dart';
 
@@ -20,8 +23,10 @@ class MachineRepository {
   }) async {
     // Debug log to confirm DB path used for this request
     final dbPath = DbConnection.instance.isConnected ? "active" : "unconnected";
-    debugPrint('🔎 [Registry] Fetching machines from database (Path accessibility: $dbPath)');
-    
+    debugPrint(
+      '🔎 [Registry] Fetching machines from database (Path accessibility: $dbPath)',
+    );
+
     final where = <String>['1=1'];
     final params = <String, dynamic>{};
 
@@ -46,7 +51,8 @@ class MachineRepository {
       params['q'] = '%${searchQuery.toLowerCase()}%';
     }
 
-    final sql = '''
+    final sql =
+        '''
       SELECT
         m.machine_id, m.machine_no, m.machine_name, m.asset_no, m.brand, m.model, m.serial_no,
         m.status, m.location, m.installation_date, m.purchase_cost,
@@ -71,18 +77,20 @@ class MachineRepository {
     if (rows.isEmpty) return [];
 
     final machineIds = rows.map((r) => r['machine_id'] as String).toList();
-    final placeholders = List.generate(machineIds.length, (i) => '@m$i').join(',');
-    final attParams = { for (var i = 0; i < machineIds.length; i++) 'm$i': machineIds[i] };
-    
-    final attRows = await DbHelper.query(
-      '''
+    final placeholders = List.generate(
+      machineIds.length,
+      (i) => '@m$i',
+    ).join(',');
+    final attParams = {
+      for (var i = 0; i < machineIds.length; i++) 'm$i': machineIds[i],
+    };
+
+    final attRows = await DbHelper.query('''
       SELECT h.machine_id, a.attachment_id, a.file_name, a.file_path, a.file_size, a.mime_type 
       FROM handover_attachments a
       JOIN machine_handover h ON h.handover_id = a.handover_id
       WHERE h.machine_id IN ($placeholders)
-      ''',
-      params: attParams,
-    );
+      ''', params: attParams);
 
     final attachmentsByMachine = <String, List<Map<String, dynamic>>>{};
     for (final att in attRows) {
@@ -93,9 +101,7 @@ class MachineRepository {
     return rows.map((row) {
       final mid = row['machine_id'] as String;
       final m = MachineModel.fromMap(row);
-      return m.copyWithDetails(
-        attachments: attachmentsByMachine[mid] ?? [],
-      );
+      return m.copyWithDetails(attachments: attachmentsByMachine[mid] ?? []);
     }).toList();
   }
 
@@ -139,10 +145,10 @@ class MachineRepository {
     HandoverInfo? s1, s2, s3;
     for (final h in handoverRows) {
       final info = HandoverInfo.fromMap(h);
-      final results = info.handoverId != null 
+      final results = info.handoverId != null
           ? await fetchHandoverResults(info.handoverId!)
           : <ChecklistResult>[];
-      
+
       final infoWithResults = info.copyWith(results: results);
 
       switch (info.stage) {
@@ -154,7 +160,7 @@ class MachineRepository {
           s3 = infoWithResults;
       }
     }
-    
+
     // Attachments
     final attachments = await fetchAttachments(machineId);
 
@@ -163,23 +169,31 @@ class MachineRepository {
       stage1: s1,
       stage2: s2,
       stage3: s3,
-      attachments: attachments.map((a) => {
-        'attachment_id': a['attachment_id'],
-        'file_name': a['file_name'],
-        'file_path': a['file_path'],
-        'file_size': a['file_size'],
-        'mime_type': a['mime_type'],
-        'stage': a['stage'],
-      }).toList(),
+      attachments: attachments
+          .map(
+            (a) => {
+              'attachment_id': a['attachment_id'],
+              'file_name': a['file_name'],
+              'file_path': a['file_path'],
+              'file_size': a['file_size'],
+              'mime_type': a['mime_type'],
+              'stage': a['stage'],
+            },
+          )
+          .toList(),
     );
   }
 
   /// Check if a specific field (machine_no, asset_no) already exists
-  Future<bool> isDuplicate(String field, String value, {String? excludeId}) async {
+  Future<bool> isDuplicate(
+    String field,
+    String value, {
+    String? excludeId,
+  }) async {
     final sql = excludeId != null
         ? 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND machine_id != @ex AND is_active = 1'
         : 'SELECT COUNT(*) as cnt FROM machines WHERE $field = @val AND is_active = 1';
-    
+
     final params = {'val': value};
     if (excludeId != null) params['ex'] = excludeId;
 
@@ -225,7 +239,8 @@ class MachineRepository {
               @dim_width_mm, @dim_height_mm, @rpm
             )
           ''',
-          params: specsData..addAll({'machine_id': machineId, 'sid': const Uuid().v4()}),
+          params: specsData
+            ..addAll({'machine_id': machineId, 'sid': const Uuid().v4()}),
         );
       }
 
@@ -253,9 +268,7 @@ class MachineRepository {
   }) async {
     await DbHelper.transaction((tx) async {
       // Update basic info
-      await DbHelper.txExecute(
-        tx,
-        '''
+      await DbHelper.txExecute(tx, '''
         UPDATE machines SET
           machine_no = @machine_no, machine_name = @machine_name, asset_no = @asset_no,
           brand = @brand, model = @model, serial_no = @serial_no,
@@ -266,21 +279,18 @@ class MachineRepository {
            handover_conclusion = @handover_conclusion,
            updated_at = CURRENT_TIMESTAMP
         WHERE machine_id = @id
-        ''',
-        params: machineData..['id'] = machineId,
-      );
+        ''', params: machineData..['id'] = machineId);
 
       // Update or Insert specs
       if (specsData != null && specsData.isNotEmpty) {
         final existing = await DbHelper.txQuery(
-          tx, 'SELECT spec_id FROM machine_specs WHERE machine_id = @id',
+          tx,
+          'SELECT spec_id FROM machine_specs WHERE machine_id = @id',
           params: {'id': machineId},
         );
 
         if (existing.isNotEmpty) {
-          await DbHelper.txExecute(
-            tx,
-            '''
+          await DbHelper.txExecute(tx, '''
             UPDATE machine_specs SET
               power_kw = @power_kw, voltage_v = @voltage_v, current_a = @current_a,
               frequency_hz = @frequency_hz, capacity = @capacity,
@@ -288,9 +298,7 @@ class MachineRepository {
               dim_length_mm = @dim_length_mm, dim_width_mm = @dim_width_mm,
               dim_height_mm = @dim_height_mm, rpm = @rpm
             WHERE machine_id = @machine_id
-            ''',
-            params: specsData..['machine_id'] = machineId,
-          );
+            ''', params: specsData..['machine_id'] = machineId);
         } else {
           await DbHelper.txExecute(
             tx,
@@ -305,7 +313,8 @@ class MachineRepository {
               @dim_width_mm, @dim_height_mm, @rpm
             )
             ''',
-            params: specsData..addAll({'machine_id': machineId, 'sid': const Uuid().v4()}),
+            params: specsData
+              ..addAll({'machine_id': machineId, 'sid': const Uuid().v4()}),
           );
         }
       }
@@ -344,31 +353,41 @@ class MachineRepository {
   Future<void> deleteMachine(String machineId) async {
     await DbHelper.transaction((tx) async {
       // 1. Delete layout positions (no cascade in schema)
-      await DbHelper.txExecute(tx, 
-          'DELETE FROM machine_positions WHERE machine_id = @id', 
-          params: {'id': machineId});
-          
+      await DbHelper.txExecute(
+        tx,
+        'DELETE FROM machine_positions WHERE machine_id = @id',
+        params: {'id': machineId},
+      );
+
       // 2. Delete work permits & safety checks (no cascade in schema)
-      await DbHelper.txExecute(tx, 
-          '''
+      await DbHelper.txExecute(
+        tx,
+        '''
           DELETE FROM permit_safety_checks 
           WHERE permit_id IN (SELECT permit_id FROM work_permits WHERE machine_id = @id)
-          ''', 
-          params: {'id': machineId});
-      await DbHelper.txExecute(tx, 
-          'DELETE FROM work_permits WHERE machine_id = @id', 
-          params: {'id': machineId});
+          ''',
+        params: {'id': machineId},
+      );
+      await DbHelper.txExecute(
+        tx,
+        'DELETE FROM work_permits WHERE machine_id = @id',
+        params: {'id': machineId},
+      );
 
       // 3. Delete work orders (cascades to labor and RCA, but from machine needs manual trigger if not cascading)
-      await DbHelper.txExecute(tx, 
-          'DELETE FROM work_orders WHERE machine_id = @id', 
-          params: {'id': machineId});
+      await DbHelper.txExecute(
+        tx,
+        'DELETE FROM work_orders WHERE machine_id = @id',
+        params: {'id': machineId},
+      );
 
       // 4. Delete the machine itself
       // (Cascades to specs, handover, results, attachments, pm_plans, running_hours)
-      await DbHelper.txExecute(tx, 
-          'DELETE FROM machines WHERE machine_id = @id', 
-          params: {'id': machineId});
+      await DbHelper.txExecute(
+        tx,
+        'DELETE FROM machines WHERE machine_id = @id',
+        params: {'id': machineId},
+      );
     });
   }
 
@@ -397,7 +416,9 @@ class MachineRepository {
   /// Find user by PIN (for shared terminals)
   Future<Map<String, dynamic>?> getUserByPin(String pin) async {
     // Note: This is an expensive lookup for 4-digit PINs but necessary for identifying individuals on shared terminals
-    final users = await DbHelper.query('SELECT user_id, full_name, approval_pin_hash FROM users WHERE approval_pin_hash IS NOT NULL');
+    final users = await DbHelper.query(
+      'SELECT user_id, full_name, approval_pin_hash FROM users WHERE approval_pin_hash IS NOT NULL',
+    );
     for (final row in users) {
       final hash = row['approval_pin_hash'].toString();
       if (CryptoUtils.verifyPassword(pin, hash)) {
@@ -408,7 +429,11 @@ class MachineRepository {
   }
 
   /// Change current user PIN
-  Future<String?> changeUserPin(String userId, String oldPin, String newPin) async {
+  Future<String?> changeUserPin(
+    String userId,
+    String oldPin,
+    String newPin,
+  ) async {
     final row = await DbHelper.queryOne(
       'SELECT approval_pin_hash FROM users WHERE user_id = @uid',
       params: {'uid': userId},
@@ -448,8 +473,8 @@ class MachineRepository {
     String? handoverConclusion,
   }) async {
     final isApproval = status == HandoverStatus.approved;
-    final sql = isApproval 
-      ? '''
+    final sql = isApproval
+        ? '''
         UPDATE machine_handover SET
           status = @status,
           approved_by = @user,
@@ -458,7 +483,7 @@ class MachineRepository {
           updated_at = CURRENT_TIMESTAMP
         WHERE machine_id = @mid AND stage = @stage
         '''
-      : '''
+        : '''
         UPDATE machine_handover SET
           status = @status,
           performed_by = @user,
@@ -475,7 +500,10 @@ class MachineRepository {
       params: {
         'mid': machineId,
         'stage': stage.dbValue,
-        'status': status.name.replaceAll('InProgress', '_in_progress').toLowerCase().replaceAll('inprogress', 'in_progress'),
+        'status': status.name
+            .replaceAll('InProgress', '_in_progress')
+            .toLowerCase()
+            .replaceAll('inprogress', 'in_progress'),
         'user': performedBy,
         'notes': notes,
       },
@@ -495,7 +523,9 @@ class MachineRepository {
       params: {'mid': machineId},
     );
     final allApproved = stages.every((s) => s['status'] == 'approved');
-    final s3Approved = stages.any((s) => s['stage'] == 'stage3' && s['status'] == 'approved');
+    final s3Approved = stages.any(
+      (s) => s['stage'] == 'stage3' && s['status'] == 'approved',
+    );
 
     if (allApproved || s3Approved) {
       await DbHelper.execute(
@@ -511,13 +541,17 @@ class MachineRepository {
       'SELECT * FROM handover_checklist_results WHERE handover_id = @hid',
       params: {'hid': handoverId},
     );
-    return rows.map((r) => ChecklistResult(
-      resultId: r['result_id'].toString(),
-      itemName: r['item_name'].toString(),
-      result: r['result']?.toString(),
-      actualValue: r['actual_value']?.toString(),
-      remarks: r['remarks']?.toString(),
-    )).toList();
+    return rows
+        .map(
+          (r) => ChecklistResult(
+            resultId: r['result_id'].toString(),
+            itemName: r['item_name'].toString(),
+            result: r['result']?.toString(),
+            actualValue: r['actual_value']?.toString(),
+            remarks: r['remarks']?.toString(),
+          ),
+        )
+        .toList();
   }
 
   /// Save checklist results for a handover stage
@@ -557,7 +591,8 @@ class MachineRepository {
   // --- Machine BOM ---
 
   Future<List<MachineBomItem>> fetchMachineBom(String machineId) async {
-    final res = await DbHelper.query('''
+    final res = await DbHelper.query(
+      '''
       SELECT 
         m.map_id,
         m.machine_id,
@@ -572,7 +607,9 @@ class MachineRepository {
       LEFT JOIN spare_parts_inventory i ON p.part_id = i.part_id
       WHERE m.machine_id = @mid
       ORDER BY p.part_name ASC
-    ''', params: {'mid': machineId});
+    ''',
+      params: {'mid': machineId},
+    );
     return res.map((e) => MachineBomItem.fromMap(e)).toList();
   }
 
@@ -582,51 +619,66 @@ class MachineRepository {
     required int quantity,
     String? notes,
   }) async {
-    await DbHelper.execute('''
+    await DbHelper.execute(
+      '''
       INSERT INTO part_machine_map (map_id, machine_id, part_id, quantity, notes)
       VALUES (@id, @mid, @pid, @qty, @notes)
-    ''', params: {
-      'id': 'MAP-${DateTime.now().millisecondsSinceEpoch}',
-      'mid': machineId,
-      'pid': partId,
-      'qty': quantity,
-      'notes': notes,
-    });
+    ''',
+      params: {
+        'id': 'MAP-${DateTime.now().millisecondsSinceEpoch}',
+        'mid': machineId,
+        'pid': partId,
+        'qty': quantity,
+        'notes': notes,
+      },
+    );
   }
 
   Future<void> removeMachineBomItem(String mapId) async {
-    await DbHelper.execute('DELETE FROM part_machine_map WHERE map_id = @id', params: {'id': mapId});
+    await DbHelper.execute(
+      'DELETE FROM part_machine_map WHERE map_id = @id',
+      params: {'id': mapId},
+    );
   }
 
   Future<void> updateMachineBomItemQuantity(String mapId, int quantity) async {
-    await DbHelper.execute('UPDATE part_machine_map SET quantity = @qty WHERE map_id = @id', params: {
-      'qty': quantity,
-      'id': mapId,
-    });
+    await DbHelper.execute(
+      'UPDATE part_machine_map SET quantity = @qty WHERE map_id = @id',
+      params: {'qty': quantity, 'id': mapId},
+    );
   }
 
   Future<List<Map<String, dynamic>>> searchSpareParts(String query) async {
-    return DbHelper.query('''
+    return DbHelper.query(
+      '''
       SELECT part_id, part_code, part_name, category
       FROM spare_parts
       WHERE is_active = 1 AND (part_code LIKE @q OR part_name LIKE @q)
       ORDER BY part_name LIMIT 20
-    ''', params: {'q': '%$query%'});
+    ''',
+      params: {'q': '%$query%'},
+    );
   }
 
   /// Fetch categories for dropdown
   Future<List<Map<String, dynamic>>> fetchCategories() async {
-    return DbHelper.query('SELECT category_id, code, name FROM machine_categories ORDER BY name');
+    return DbHelper.query(
+      'SELECT category_id, code, name FROM machine_categories ORDER BY name',
+    );
   }
 
   /// Fetch departments for dropdown
   Future<List<Map<String, dynamic>>> fetchDepartments() async {
-    return DbHelper.query('SELECT dept_id, dept_code, dept_name FROM departments ORDER BY dept_name');
+    return DbHelper.query(
+      'SELECT dept_id, dept_code, dept_name FROM departments ORDER BY dept_name',
+    );
   }
 
   /// Fetch suppliers for dropdown
   Future<List<Map<String, dynamic>>> fetchSuppliers() async {
-    return DbHelper.query("SELECT supplier_id, supplier_code, name FROM suppliers WHERE is_active = 1 ORDER BY name");
+    return DbHelper.query(
+      "SELECT supplier_id, supplier_code, name FROM suppliers WHERE is_active = 1 ORDER BY name",
+    );
   }
 
   /// Save an attachment record to the database
@@ -638,6 +690,28 @@ class MachineRepository {
     required String mimeType,
     required String userId,
   }) async {
+    var resolvedFileName = fileName;
+    var resolvedFilePath = filePath;
+    var resolvedFileSize = fileSize;
+    var resolvedMimeType = mimeType;
+
+    if (filePath.trim().isNotEmpty) {
+      final sourceFile = File(filePath);
+      if (await sourceFile.exists()) {
+        final asset = await AttachmentStorageService.instance.ingestFile(
+          moduleType: 'machine_handover',
+          entityId: handoverId,
+          sourcePath: filePath,
+          displayName: fileName,
+          category: 'attachment',
+        );
+        resolvedFileName = asset.displayName;
+        resolvedFilePath = asset.storagePath;
+        resolvedFileSize = asset.fileSize;
+        resolvedMimeType = asset.mimeType;
+      }
+    }
+
     await DbHelper.execute(
       '''
       INSERT INTO handover_attachments (
@@ -647,10 +721,10 @@ class MachineRepository {
       params: {
         'id': const Uuid().v4(),
         'hid': handoverId,
-        'name': fileName,
-        'path': filePath,
-        'size': fileSize,
-        'mime': mimeType,
+        'name': resolvedFileName,
+        'path': resolvedFilePath,
+        'size': resolvedFileSize,
+        'mime': resolvedMimeType,
         'uid': userId,
       },
     );
@@ -737,16 +811,17 @@ final machineRepositoryProvider = Provider<MachineRepository>(
 );
 
 final machineListProvider =
-    FutureProvider.family<List<MachineModel>, MachineListFilter>(
-  (ref, filter) async {
-    final repo = ref.watch(machineRepositoryProvider);
-    return repo.fetchAll(
-      searchQuery: filter.searchQuery,
-      statusFilter: filter.status,
-      categoryId: filter.categoryId,
-    );
-  },
-);
+    FutureProvider.family<List<MachineModel>, MachineListFilter>((
+      ref,
+      filter,
+    ) async {
+      final repo = ref.watch(machineRepositoryProvider);
+      return repo.fetchAll(
+        searchQuery: filter.searchQuery,
+        statusFilter: filter.status,
+        categoryId: filter.categoryId,
+      );
+    });
 
 class MachineListFilter {
   final String? searchQuery;
@@ -766,8 +841,10 @@ class MachineListFilter {
   int get hashCode => Object.hash(searchQuery, status, categoryId);
 }
 
-final singleMachineProvider =
-    FutureProvider.family<MachineModel?, String>((ref, id) async {
+final singleMachineProvider = FutureProvider.family<MachineModel?, String>((
+  ref,
+  id,
+) async {
   final repo = ref.watch(machineRepositoryProvider);
   return repo.fetchById(id);
 });
@@ -784,7 +861,10 @@ final suppliersProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
   return ref.watch(machineRepositoryProvider).fetchSuppliers();
 });
 
-final machineBomProvider = FutureProvider.family<List<MachineBomItem>, String>((ref, machineId) async {
+final machineBomProvider = FutureProvider.family<List<MachineBomItem>, String>((
+  ref,
+  machineId,
+) async {
   final repo = ref.watch(machineRepositoryProvider);
   return repo.fetchMachineBom(machineId);
 });

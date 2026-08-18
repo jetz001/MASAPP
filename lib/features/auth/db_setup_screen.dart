@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
@@ -31,7 +30,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
   final _adminPassCtrl = TextEditingController();
   final _serialKeyCtrl = TextEditingController();
   String? _logoBase64;
-
 
   bool _loading = false;
   bool _isCreatingNew = false;
@@ -86,7 +84,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
     }
   }
 
-
   Future<void> _pickLogo() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -96,6 +93,15 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
         _logoBase64 = base64Encode(bytes);
       });
     }
+  }
+
+  void _setFailure(String message) {
+    if (!mounted) return;
+    setState(() {
+      _statusOk = false;
+      _statusMessage = message;
+      _loading = false;
+    });
   }
 
   Future<void> _testAndSave() async {
@@ -117,7 +123,8 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
       if (!exists) {
         setState(() {
           _statusOk = false;
-          _statusMessage = 'ไม่พบไฟล์ฐานข้อมูลที่ระบุ กรุณาตรวจสอบเส้นทางอีกครั้ง';
+          _statusMessage =
+              'ไม่พบไฟล์ฐานข้อมูลที่ระบุ กรุณาตรวจสอบเส้นทางอีกครั้ง';
           _loading = false;
         });
         return;
@@ -205,33 +212,39 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
             final hashedPass = CryptoUtils.hashPassword(adminPass);
             await txn.execute(
               "UPDATE users SET username = ?, password_hash = ? WHERE role = 'admin'",
-              [adminUser, hashedPass]
+              [adminUser, hashedPass],
             );
           }
         });
         Logger().i('[Setup] Successfully executed $executed statements.');
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('ตั้งค่าข้อมูลเริ่มต้นสำเร็จ'), backgroundColor: Colors.green),
+            const SnackBar(
+              content: Text('ตั้งค่าข้อมูลเริ่มต้นสำเร็จ'),
+              backgroundColor: Colors.green,
+            ),
           );
         }
       } catch (e) {
         Logger().e('[Setup] Error during init: $e');
-        setState(() {
-          _statusOk = false;
-          _statusMessage = 'เกิดข้อผิดพลาดในการสร้างฐานข้อมูล: $e';
-          _loading = false;
-        });
+        _setFailure('เกิดข้อผิดพลาดในการสร้างฐานข้อมูล: $e');
         return;
       }
     }
 
     // Double check connection
-    final ok = await DbConnection.instance.testConnection(config);
-    if (!mounted) return;
+    try {
+      final ok = await DbConnection.instance.testConnection(config);
+      if (!mounted) return;
 
-    if (ok) {
+      if (!ok) {
+        _setFailure(
+          'ไม่สามารถเปิดไฟล์ฐานข้อมูลได้ กรุณาตรวจสอบสิทธิ์การเข้าถึง',
+        );
+        return;
+      }
+
       await AppConfigService.save(config);
       await DbConnection.instance.connect(config);
       setState(() {
@@ -243,13 +256,9 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
       if (mounted) {
         widget.onConnected();
       }
-    } else {
-      setState(() {
-        _statusOk = false;
-        _statusMessage =
-            'ไม่สามารถเปิดไฟล์ฐานข้อมูลได้ กรุณาตรวจสอบสิทธิ์การเข้าถึง';
-        _loading = false;
-      });
+    } catch (e) {
+      Logger().e('[Setup] Error while saving config or connecting DB: $e');
+      _setFailure('บันทึกการตั้งค่าหรือเชื่อมต่อฐานข้อมูลไม่สำเร็จ: $e');
     }
   }
 
@@ -277,188 +286,312 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(40),
                 child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // --- Mode Selection ---
-                        Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isCreatingNew = false),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  decoration: BoxDecoration(
-                                    color: !_isCreatingNew ? AppColors.primary : Colors.white10,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: !_isCreatingNew ? AppColors.primary : Colors.white24),
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // --- Mode Selection ---
+                      Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () =>
+                                  setState(() => _isCreatingNew = false),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: !_isCreatingNew
+                                      ? AppColors.primary
+                                      : Colors.white10,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: !_isCreatingNew
+                                        ? AppColors.primary
+                                        : Colors.white24,
                                   ),
-                                  child: Column(
-                                    children: [
-                                      Icon(Icons.link, color: !_isCreatingNew ? Colors.white : Colors.white54, size: 28),
-                                      const SizedBox(height: 8),
-                                      Text('เชื่อมต่อฐานข้อมูลเดิม', style: TextStyle(color: !_isCreatingNew ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)),
-                                      Text('(สำหรับเครื่องลูกข่าย)', style: TextStyle(color: !_isCreatingNew ? Colors.white70 : Colors.white38, fontSize: 12)),
-                                    ],
-                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.link,
+                                      color: !_isCreatingNew
+                                          ? Colors.white
+                                          : Colors.white54,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'เชื่อมต่อฐานข้อมูลเดิม',
+                                      style: TextStyle(
+                                        color: !_isCreatingNew
+                                            ? Colors.white
+                                            : Colors.white54,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      '(สำหรับเครื่องลูกข่าย)',
+                                      style: TextStyle(
+                                        color: !_isCreatingNew
+                                            ? Colors.white70
+                                            : Colors.white38,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isCreatingNew = true),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  decoration: BoxDecoration(
-                                    color: _isCreatingNew ? AppColors.primary : Colors.white10,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: _isCreatingNew ? AppColors.primary : Colors.white24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () =>
+                                  setState(() => _isCreatingNew = true),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _isCreatingNew
+                                      ? AppColors.primary
+                                      : Colors.white10,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: _isCreatingNew
+                                        ? AppColors.primary
+                                        : Colors.white24,
                                   ),
-                                  child: Column(
-                                    children: [
-                                      Icon(Icons.add_box, color: _isCreatingNew ? Colors.white : Colors.white54, size: 28),
-                                      const SizedBox(height: 8),
-                                      Text('สร้างฐานข้อมูลใหม่', style: TextStyle(color: _isCreatingNew ? Colors.white : Colors.white54, fontWeight: FontWeight.bold)),
-                                      Text('(สำหรับลงครั้งแรก)', style: TextStyle(color: _isCreatingNew ? Colors.white70 : Colors.white38, fontSize: 12)),
-                                    ],
-                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Icon(
+                                      Icons.add_box,
+                                      color: _isCreatingNew
+                                          ? Colors.white
+                                          : Colors.white54,
+                                      size: 28,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'สร้างฐานข้อมูลใหม่',
+                                      style: TextStyle(
+                                        color: _isCreatingNew
+                                            ? Colors.white
+                                            : Colors.white54,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      '(สำหรับลงครั้งแรก)',
+                                      style: TextStyle(
+                                        color: _isCreatingNew
+                                            ? Colors.white70
+                                            : Colors.white38,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 32),
 
-                        // --- Path Selection (Always visible) ---
+                      // --- Path Selection (Always visible) ---
+                      Text(
+                        'ที่อยู่ไฟล์ฐานข้อมูล (.db)',
+                        style: AppTextStyles.labelLarge.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: _pathCtrl,
+                              style: AppTextStyles.bodyMedium,
+                              decoration: InputDecoration(
+                                hintText: _isCreatingNew
+                                    ? r'C:\MASAPP\masapp.db'
+                                    : '\\\\SERVER\\Shared\\masapp.db',
+                                prefixIcon: const Icon(
+                                  Icons.description_outlined,
+                                ),
+                              ),
+                              validator: (v) => v == null || v.isEmpty
+                                  ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: _isCreatingNew
+                                ? _selectFolder
+                                : _pickFile,
+                            icon: const Icon(Icons.folder_open),
+                            label: Text(
+                              _isCreatingNew ? 'เลือกโฟลเดอร์' : 'เลือกไฟล์',
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 32),
+
+                      // --- New Database Fields (Only visible if _isCreatingNew) ---
+                      if (_isCreatingNew) ...[
                         Text(
-                          'ที่อยู่ไฟล์ฐานข้อมูล (.db)',
+                          'โลโก้บริษัท',
                           style: AppTextStyles.labelLarge.copyWith(
                             color: AppColors.textSecondary,
                           ),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                controller: _pathCtrl,
-                                style: AppTextStyles.bodyMedium,
-                                decoration: InputDecoration(
-                                  hintText: _isCreatingNew ? 'C:\MASAPP\masapp.db' : '\\\\SERVER\\Shared\\masapp.db',
-                                  prefixIcon: const Icon(Icons.description_outlined),
-                                ),
-                                validator: (v) => v == null || v.isEmpty
-                                    ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
-                                    : null,
-                              ),
+                        const SizedBox(height: 8),
+                        GestureDetector(
+                          onTap: _pickLogo,
+                          child: Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              color: Colors.white10,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.white24),
                             ),
-                            const SizedBox(width: 12),
-                            ElevatedButton.icon(
-                              onPressed: _pickFile,
-                              icon: const Icon(Icons.folder_open),
-                              label: const Text('เลือกไฟล์'),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 16,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 32),
-
-                        // --- New Database Fields (Only visible if _isCreatingNew) ---
-                        if (_isCreatingNew) ...[
-                          Text('โลโก้บริษัท', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: _pickLogo,
-                            child: Container(
-                              width: 100,
-                              height: 100,
-                              decoration: BoxDecoration(
-                                color: Colors.white10,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.white24),
-                              ),
-                              child: _logoBase64 != null
-                                  ? ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Image.memory(base64Decode(_logoBase64!), fit: BoxFit.cover),
-                                    )
-                                  : const Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.add_a_photo, color: Colors.white54, size: 32),
-                                        SizedBox(height: 8),
-                                        Text('เลือกโลโก้', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                                      ],
+                            child: _logoBase64 != null
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.memory(
+                                      base64Decode(_logoBase64!),
+                                      fit: BoxFit.cover,
                                     ),
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          Text('ชื่อบริษัท / องค์กร', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _companyCtrl,
-                            style: AppTextStyles.bodyMedium,
-                            decoration: const InputDecoration(hintText: 'โรงงานตัวอย่าง จำกัด', prefixIcon: Icon(Icons.business)),
-                          ),
-                          const SizedBox(height: 20),
-
-                          Text('ชื่อผู้ใช้งาน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _adminUsernameCtrl,
-                            style: AppTextStyles.bodyMedium,
-                            decoration: const InputDecoration(prefixIcon: Icon(Icons.person)),
-                            validator: (v) => _isCreatingNew && (v == null || v.isEmpty) ? 'กรุณาระบุ Username' : null,
-                          ),
-                          const SizedBox(height: 20),
-
-                          Text('รหัสผ่าน Admin', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _adminPassCtrl,
-                            style: AppTextStyles.bodyMedium,
-                            obscureText: true,
-                            decoration: const InputDecoration(hintText: 'ปล่อยว่างหากต้องการใช้รหัสผ่านตั้งต้น', prefixIcon: Icon(Icons.lock)),
-                          ),
-                          const SizedBox(height: 20),
-
-                          Text('Serial Key / License (ถ้ามี)', style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _serialKeyCtrl,
-                            style: AppTextStyles.bodyMedium,
-                            decoration: const InputDecoration(hintText: 'XXXX-XXXX-XXXX-XXXX', prefixIcon: Icon(Icons.key)),
-                          ),
-                          const SizedBox(height: 40),
-                        ],
-
-                        // --- Submit Button ---
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: ElevatedButton(
-                            onPressed: _loading ? null : _testAndSave,
-                            child: _loading
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
                                   )
-                                : Text(
-                                    _isCreatingNew ? 'สร้างและเริ่มต้นใช้งาน' : 'เชื่อมต่อฐานข้อมูล',
-                                    style: const TextStyle(fontSize: 18),
+                                : const Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.add_a_photo,
+                                        color: Colors.white54,
+                                        size: 32,
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'เลือกโลโก้',
+                                        style: TextStyle(
+                                          color: Colors.white54,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
 
-                        if (_statusMessage != null) ...[
+                        Text(
+                          'ชื่อบริษัท / องค์กร',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _companyCtrl,
+                          style: AppTextStyles.bodyMedium,
+                          decoration: const InputDecoration(
+                            hintText: 'โรงงานตัวอย่าง จำกัด',
+                            prefixIcon: Icon(Icons.business),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        Text(
+                          'ชื่อผู้ใช้งาน Admin',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _adminUsernameCtrl,
+                          style: AppTextStyles.bodyMedium,
+                          decoration: const InputDecoration(
+                            prefixIcon: Icon(Icons.person),
+                          ),
+                          validator: (v) =>
+                              _isCreatingNew && (v == null || v.isEmpty)
+                              ? 'กรุณาระบุ Username'
+                              : null,
+                        ),
+                        const SizedBox(height: 20),
+
+                        Text(
+                          'รหัสผ่าน Admin',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _adminPassCtrl,
+                          style: AppTextStyles.bodyMedium,
+                          obscureText: true,
+                          decoration: const InputDecoration(
+                            hintText: 'ปล่อยว่างหากต้องการใช้รหัสผ่านตั้งต้น',
+                            prefixIcon: Icon(Icons.lock),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+
+                        Text(
+                          'Serial Key / License (ถ้ามี)',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _serialKeyCtrl,
+                          style: AppTextStyles.bodyMedium,
+                          decoration: const InputDecoration(
+                            hintText: 'XXXX-XXXX-XXXX-XXXX',
+                            prefixIcon: Icon(Icons.key),
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                      ],
+
+                      // --- Submit Button ---
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _loading ? null : _testAndSave,
+                          child: _loading
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                              : Text(
+                                  _isCreatingNew
+                                      ? 'สร้างและเริ่มต้นใช้งาน'
+                                      : 'เชื่อมต่อฐานข้อมูล',
+                                  style: const TextStyle(fontSize: 18),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      if (_statusMessage != null) ...[
                         const SizedBox(height: 24),
                         Container(
                           padding: const EdgeInsets.all(12),

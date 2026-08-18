@@ -8,8 +8,11 @@ import '../../../core/theme/app_text_styles.dart';
 import '../auth/auth_provider.dart';
 import '../machine_intake/machine_provider.dart';
 import '../machine_intake/widgets/pin_keypad.dart';
-import '../admin/admin_screen.dart'; 
+import '../admin/admin_screen.dart';
 import '../../../core/theme/ui_scale_provider.dart';
+import '../../../core/ai/ai_provider_config.dart';
+import '../../../core/ai/ai_service.dart';
+import '../ai_chat/ai_chat_provider.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:window_manager/window_manager.dart';
 import 'settings_provider.dart';
@@ -41,6 +44,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         content: const _DocumentSystemTab(),
       ),
       _SettingsTabItem(
+        icon: Icons.auto_awesome_rounded,
+        label: 'AI Assistant',
+        content: const _AiSettingsTab(),
+      ),
+      _SettingsTabItem(
         icon: Icons.brush_outlined,
         label: 'การแสดงผล',
         content: const _DisplaySettingsTab(),
@@ -65,7 +73,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           width: 250,
           decoration: BoxDecoration(
             border: Border(
-              right: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+              right: BorderSide(
+                color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
+              ),
             ),
           ),
           child: Column(
@@ -78,13 +88,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.settings_suggest_outlined, color: AppColors.primary, size: 24),
+                        const Icon(
+                          Icons.settings_suggest_outlined,
+                          color: AppColors.primary,
+                          size: 24,
+                        ),
                         const SizedBox(width: AppSpacing.sm),
                         Text('การตั้งค่า', style: AppTextStyles.headlineMedium),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text('จัดการระบบและองค์กร', style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
+                    Text(
+                      'จัดการระบบและองค์กร',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: Colors.grey,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -97,7 +116,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     final item = tabs[index];
                     final isSelected = _selectedIndex == index;
                     return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 2,
+                      ),
                       child: ListTile(
                         leading: Icon(
                           item.icon,
@@ -108,14 +130,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           item.label,
                           style: TextStyle(
                             fontSize: 14,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
                             color: isSelected ? AppColors.primary : null,
                           ),
                         ),
                         onTap: () => setState(() => _selectedIndex = index),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         selected: isSelected,
-                        selectedTileColor: AppColors.primary.withValues(alpha: 0.1),
+                        selectedTileColor: AppColors.primary.withValues(
+                          alpha: 0.1,
+                        ),
                       ),
                     );
                   },
@@ -141,7 +169,11 @@ class _SettingsTabItem {
   final IconData icon;
   final String label;
   final Widget content;
-  _SettingsTabItem({required this.icon, required this.label, required this.content});
+  _SettingsTabItem({
+    required this.icon,
+    required this.label,
+    required this.content,
+  });
 }
 
 // ─── Tab: Organization Info ─────────────────────────────────────────────────
@@ -150,7 +182,8 @@ class _OrganizationInfoTab extends ConsumerStatefulWidget {
   const _OrganizationInfoTab();
 
   @override
-  ConsumerState<_OrganizationInfoTab> createState() => _OrganizationInfoTabState();
+  ConsumerState<_OrganizationInfoTab> createState() =>
+      _OrganizationInfoTabState();
 }
 
 class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
@@ -165,10 +198,18 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
   void initState() {
     super.initState();
     final settings = ref.read(appSettingsProvider).valueOrNull;
-    _nameCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgName) ?? '');
-    _addressCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgAddress) ?? '');
-    _taxIdCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgTaxId) ?? '');
-    _phoneCtrl = TextEditingController(text: settings?.get(AppSettingKeys.orgPhone) ?? '');
+    _nameCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgName) ?? '',
+    );
+    _addressCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgAddress) ?? '',
+    );
+    _taxIdCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgTaxId) ?? '',
+    );
+    _phoneCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgPhone) ?? '',
+    );
   }
 
   @override
@@ -191,7 +232,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     await notifier.updateSetting(AppSettingKeys.orgAddress, _addressCtrl.text);
     await notifier.updateSetting(AppSettingKeys.orgTaxId, _taxIdCtrl.text);
     await notifier.updateSetting(AppSettingKeys.orgPhone, _phoneCtrl.text);
-    
+
     setState(() {
       _isDirty = false;
       _isSaved = true;
@@ -210,7 +251,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
       error: (e, _) => Center(child: Text('Error: $e')),
       data: (settings) {
         final logoBase64 = settings.get(AppSettingKeys.orgLogo);
-        
+
         return SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
@@ -218,16 +259,36 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
             children: [
               Text('ข้อมูลองค์กร', style: AppTextStyles.headlineSmall),
               const SizedBox(height: 4),
-              Text('ข้อมูลนี้จะปรากฏในรายงาน PDF และส่วนต่างๆ ของแอป', style: AppTextStyles.bodySmall),
+              Text(
+                'ข้อมูลนี้จะปรากฏในรายงาน PDF และส่วนต่างๆ ของแอป',
+                style: AppTextStyles.bodySmall,
+              ),
               const SizedBox(height: 32),
 
               _buildLogoSection(context, ref, logoBase64),
               const SizedBox(height: 32),
 
-              _buildField(_nameCtrl, 'ชื่อบริษัท / องค์กร', Icons.business_rounded),
-              _buildField(_addressCtrl, 'ที่อยู่สำนักงาน', Icons.location_on_rounded, maxLines: 3),
-              _buildField(_taxIdCtrl, 'เลขประจำตัวผู้เสียภาษี', Icons.badge_rounded),
-              _buildField(_phoneCtrl, 'เบอร์โทรศัพท์ติดต่อ', Icons.phone_rounded),
+              _buildField(
+                _nameCtrl,
+                'ชื่อบริษัท / องค์กร',
+                Icons.business_rounded,
+              ),
+              _buildField(
+                _addressCtrl,
+                'ที่อยู่สำนักงาน',
+                Icons.location_on_rounded,
+                maxLines: 3,
+              ),
+              _buildField(
+                _taxIdCtrl,
+                'เลขประจำตัวผู้เสียภาษี',
+                Icons.badge_rounded,
+              ),
+              _buildField(
+                _phoneCtrl,
+                'เบอร์โทรศัพท์ติดต่อ',
+                Icons.phone_rounded,
+              ),
 
               const SizedBox(height: 16),
               SizedBox(
@@ -235,10 +296,14 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                 height: 50,
                 child: ElevatedButton.icon(
                   onPressed: _isDirty ? _save : null,
-                  icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
+                  icon: Icon(
+                    _isSaved ? Icons.check_circle_outline : Icons.save_outlined,
+                  ),
                   label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกข้อมูลองค์กร'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
+                    backgroundColor: _isDirty
+                        ? AppColors.primary
+                        : Colors.grey.withValues(alpha: 0.1),
                     foregroundColor: _isDirty ? Colors.white : Colors.grey,
                     elevation: _isDirty ? 2 : 0,
                   ),
@@ -252,20 +317,30 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     );
   }
 
-  Widget _buildField(TextEditingController controller, String label, IconData icon, {int maxLines = 1}) {
+  Widget _buildField(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    int maxLines = 1,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
           const SizedBox(height: 8),
           TextFormField(
             controller: controller,
             maxLines: maxLines,
             decoration: InputDecoration(
               prefixIcon: Icon(icon, size: 18),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
             onChanged: (_) => _onChanged(),
           ),
@@ -274,7 +349,11 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     );
   }
 
-  Widget _buildLogoSection(BuildContext context, WidgetRef ref, String logoBase64) {
+  Widget _buildLogoSection(
+    BuildContext context,
+    WidgetRef ref,
+    String logoBase64,
+  ) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
@@ -291,9 +370,14 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
               child: logoBase64.isNotEmpty
                   ? ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.memory(base64Decode(logoBase64), fit: BoxFit.contain),
+                      child: Image.memory(
+                        base64Decode(logoBase64),
+                        fit: BoxFit.contain,
+                      ),
                     )
-                  : const Center(child: Icon(Icons.image_outlined, color: Colors.grey)),
+                  : const Center(
+                      child: Icon(Icons.image_outlined, color: Colors.grey),
+                    ),
             ),
             const SizedBox(width: 24),
             Expanded(
@@ -302,7 +386,10 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                 children: [
                   Text('โลโก้บริษัท', style: AppTextStyles.titleMedium),
                   const SizedBox(height: 4),
-                  Text('แนะนำไฟล์ PNG/JPG ขนาดไม่เกิน 500 KB', style: AppTextStyles.bodySmall),
+                  Text(
+                    'แนะนำไฟล์ PNG/JPG ขนาดไม่เกิน 500 KB',
+                    style: AppTextStyles.bodySmall,
+                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
@@ -314,8 +401,13 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                       if (logoBase64.isNotEmpty) ...[
                         const SizedBox(width: 12),
                         TextButton(
-                          onPressed: () => ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.orgLogo, ''),
-                          child: const Text('ลบรูปภาพ', style: TextStyle(color: Colors.red)),
+                          onPressed: () => ref
+                              .read(appSettingsProvider.notifier)
+                              .updateSetting(AppSettingKeys.orgLogo, ''),
+                          child: const Text(
+                            'ลบรูปภาพ',
+                            style: TextStyle(color: Colors.red),
+                          ),
                         ),
                       ],
                     ],
@@ -334,7 +426,9 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     if (result != null && result.files.single.path != null) {
       final bytes = await result.files.single.xFile.readAsBytes();
       final base64String = base64Encode(bytes);
-      await ref.read(appSettingsProvider.notifier).updateSetting(AppSettingKeys.orgLogo, base64String);
+      await ref
+          .read(appSettingsProvider.notifier)
+          .updateSetting(AppSettingKeys.orgLogo, base64String);
     }
   }
 }
@@ -363,13 +457,62 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
   void initState() {
     super.initState();
     final settings = ref.read(appSettingsProvider).valueOrNull;
-    _docIntakeCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docIntakeRef, defaultValue: 'F-MA-15 Rev1') ?? 'F-MA-15 Rev1');
-    _docPmAmCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docPmAmRef, defaultValue: 'F-MA-16 Rev1') ?? 'F-MA-16 Rev1');
-    _docAreaCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docAreaRegistryRef, defaultValue: 'F-MA-17 Rev1') ?? 'F-MA-17 Rev1');
-    _docTagCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docMachineTagRef, defaultValue: 'F-MA-18 Rev1') ?? 'F-MA-18 Rev1');
-    _docWorkOrderCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docWorkOrderRef, defaultValue: 'F-MA-06 Rev2') ?? 'F-MA-06 Rev2');
-    _docGatePassCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docGatePassRef, defaultValue: 'F-MA-07 Rev1') ?? 'F-MA-07 Rev1');
-    _docWorkOrderLogSheetCtrl = TextEditingController(text: settings?.get(AppSettingKeys.docWorkOrderLogSheetRef, defaultValue: 'F-MA-19 Rev1') ?? 'F-MA-19 Rev1');
+    _docIntakeCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docIntakeRef,
+            defaultValue: 'F-MA-15 Rev1',
+          ) ??
+          'F-MA-15 Rev1',
+    );
+    _docPmAmCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docPmAmRef,
+            defaultValue: 'F-MA-16 Rev1',
+          ) ??
+          'F-MA-16 Rev1',
+    );
+    _docAreaCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docAreaRegistryRef,
+            defaultValue: 'F-MA-17 Rev1',
+          ) ??
+          'F-MA-17 Rev1',
+    );
+    _docTagCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docMachineTagRef,
+            defaultValue: 'F-MA-18 Rev1',
+          ) ??
+          'F-MA-18 Rev1',
+    );
+    _docWorkOrderCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docWorkOrderRef,
+            defaultValue: 'F-MA-06 Rev2',
+          ) ??
+          'F-MA-06 Rev2',
+    );
+    _docGatePassCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docGatePassRef,
+            defaultValue: 'F-MA-07 Rev1',
+          ) ??
+          'F-MA-07 Rev1',
+    );
+    _docWorkOrderLogSheetCtrl = TextEditingController(
+      text:
+          settings?.get(
+            AppSettingKeys.docWorkOrderLogSheetRef,
+            defaultValue: 'F-MA-19 Rev1',
+          ) ??
+          'F-MA-19 Rev1',
+    );
   }
 
   @override
@@ -386,14 +529,32 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
 
   Future<void> _save() async {
     final notifier = ref.read(appSettingsProvider.notifier);
-    await notifier.updateSetting(AppSettingKeys.docIntakeRef, _docIntakeCtrl.text);
+    await notifier.updateSetting(
+      AppSettingKeys.docIntakeRef,
+      _docIntakeCtrl.text,
+    );
     await notifier.updateSetting(AppSettingKeys.docPmAmRef, _docPmAmCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.docAreaRegistryRef, _docAreaCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.docMachineTagRef, _docTagCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.docWorkOrderRef, _docWorkOrderCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.docGatePassRef, _docGatePassCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.docWorkOrderLogSheetRef, _docWorkOrderLogSheetCtrl.text);
-    
+    await notifier.updateSetting(
+      AppSettingKeys.docAreaRegistryRef,
+      _docAreaCtrl.text,
+    );
+    await notifier.updateSetting(
+      AppSettingKeys.docMachineTagRef,
+      _docTagCtrl.text,
+    );
+    await notifier.updateSetting(
+      AppSettingKeys.docWorkOrderRef,
+      _docWorkOrderCtrl.text,
+    );
+    await notifier.updateSetting(
+      AppSettingKeys.docGatePassRef,
+      _docGatePassCtrl.text,
+    );
+    await notifier.updateSetting(
+      AppSettingKeys.docWorkOrderLogSheetRef,
+      _docWorkOrderLogSheetCtrl.text,
+    );
+
     setState(() {
       _isDirty = false;
       _isSaved = true;
@@ -412,16 +573,34 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
         children: [
           Text('ระบบเอกสาร', style: AppTextStyles.headlineSmall),
           const SizedBox(height: 4),
-          Text('ตั้งค่ารหัสควบคุมเอกสารประจำฟอร์มต่างๆ', style: AppTextStyles.bodySmall),
+          Text(
+            'ตั้งค่ารหัสควบคุมเอกสารประจำฟอร์มต่างๆ',
+            style: AppTextStyles.bodySmall,
+          ),
           const SizedBox(height: 32),
 
-          _buildDocField('แบบฟอร์มตรวจรับเครื่องจักร (Machine Intake)', _docIntakeCtrl),
+          _buildDocField(
+            'แบบฟอร์มตรวจรับเครื่องจักร (Machine Intake)',
+            _docIntakeCtrl,
+          ),
           _buildDocField('แบบฟอร์มบำรุงรักษา PM / AM', _docPmAmCtrl),
-          _buildDocField('แบบฟอร์มทะเบียนพื้นที่โรงงาน (Area Registry)', _docAreaCtrl),
-          _buildDocField('แบบฟอร์มป้ายกำกับเครื่องจักร (Machine Tag)', _docTagCtrl),
+          _buildDocField(
+            'แบบฟอร์มทะเบียนพื้นที่โรงงาน (Area Registry)',
+            _docAreaCtrl,
+          ),
+          _buildDocField(
+            'แบบฟอร์มป้ายกำกับเครื่องจักร (Machine Tag)',
+            _docTagCtrl,
+          ),
           _buildDocField('แบบฟอร์มใบแจ้งซ่อม (Work Order)', _docWorkOrderCtrl),
-          _buildDocField('แบบฟอร์มใบนำของออก/เข้า (Gate Pass)', _docGatePassCtrl),
-          _buildDocField('รายงานใบแจ้งซ่อม (Work Order Log Sheet)', _docWorkOrderLogSheetCtrl),
+          _buildDocField(
+            'แบบฟอร์มใบนำของออก/เข้า (Gate Pass)',
+            _docGatePassCtrl,
+          ),
+          _buildDocField(
+            'รายงานใบแจ้งซ่อม (Work Order Log Sheet)',
+            _docWorkOrderLogSheetCtrl,
+          ),
 
           const SizedBox(height: 16),
           SizedBox(
@@ -429,10 +608,16 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
             height: 50,
             child: ElevatedButton.icon(
               onPressed: _isDirty ? _save : null,
-              icon: Icon(_isSaved ? Icons.check_circle_outline : Icons.save_outlined),
-              label: Text(_isSaved ? 'บันทึกสำเร็จ' : 'บันทึกการเปลี่ยนแปลงทั้งหมด'),
+              icon: Icon(
+                _isSaved ? Icons.check_circle_outline : Icons.save_outlined,
+              ),
+              label: Text(
+                _isSaved ? 'บันทึกสำเร็จ' : 'บันทึกการเปลี่ยนแปลงทั้งหมด',
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isDirty ? AppColors.primary : Colors.grey.withValues(alpha: 0.1),
+                backgroundColor: _isDirty
+                    ? AppColors.primary
+                    : Colors.grey.withValues(alpha: 0.1),
                 foregroundColor: _isDirty ? Colors.white : Colors.grey,
                 elevation: _isDirty ? 2 : 0,
               ),
@@ -469,8 +654,10 @@ class _DocumentSystemTabState extends ConsumerState<_DocumentSystemTab> {
                 }),
               ),
               const SizedBox(height: 8),
-              Text('รหัสนี้จะปรากฏที่มุมขวาล่างของรายงาน PDF สำหรับแบบฟอร์มนี้', 
-                  style: AppTextStyles.bodySmall.copyWith(color: Colors.grey)),
+              Text(
+                'รหัสนี้จะปรากฏที่มุมขวาล่างของรายงาน PDF สำหรับแบบฟอร์มนี้',
+                style: AppTextStyles.bodySmall.copyWith(color: Colors.grey),
+              ),
             ],
           ),
         ),
@@ -716,7 +903,11 @@ class _UnlockPinTab extends ConsumerWidget {
     );
   }
 
-  Future<void> _confirmReset(BuildContext context, WidgetRef ref, UserRecord targetUser) async {
+  Future<void> _confirmReset(
+    BuildContext context,
+    WidgetRef ref,
+    UserRecord targetUser,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -725,7 +916,10 @@ class _UnlockPinTab extends ConsumerWidget {
           'คุณต้องการล้างรหัส PIN ของ "${targetUser.fullName}" ใช่หรือไม่?\nพนักงานจะต้องตั้งรหัส PIN ใหม่ในการอนุมัติครั้งถัดไป',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('ยกเลิก'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
@@ -739,7 +933,11 @@ class _UnlockPinTab extends ConsumerWidget {
       await ref.read(machineRepositoryProvider).resetUserPin(targetUser.userId);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ปลดล็อก PIN ของ ${targetUser.fullName} เรียบร้อยแล้ว')),
+          SnackBar(
+            content: Text(
+              'ปลดล็อก PIN ของ ${targetUser.fullName} เรียบร้อยแล้ว',
+            ),
+          ),
         );
       }
     }
@@ -763,7 +961,8 @@ class _DisplaySettingsTab extends ConsumerWidget {
           _buildSection(
             context,
             title: 'ขนาดส่วนต่อประสานผู้ใช้ (UI Scale)',
-            subtitle: 'ปรับขนาดของตัวอักษรและองค์ประกอบต่างๆ ในแอปให้เล็กลงหรือใหญ่ขึ้น',
+            subtitle:
+                'ปรับขนาดของตัวอักษรและองค์ประกอบต่างๆ ในแอปให้เล็กลงหรือใหญ่ขึ้น',
             icon: HugeIcons.strokeRoundedAiView,
             child: Column(
               children: [
@@ -790,9 +989,13 @@ class _DisplaySettingsTab extends ConsumerWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('ปัจจุบัน: ${(scale * 100).toInt()}%', style: AppTextStyles.labelMedium),
+                      Text(
+                        'ปัจจุบัน: ${(scale * 100).toInt()}%',
+                        style: AppTextStyles.labelMedium,
+                      ),
                       TextButton(
-                        onPressed: () => ref.read(uiScaleProvider.notifier).setScale(1.0),
+                        onPressed: () =>
+                            ref.read(uiScaleProvider.notifier).setScale(1.0),
                         child: const Text('รีเซ็ตเป็นค่าเริ่มต้น'),
                       ),
                     ],
@@ -811,10 +1014,26 @@ class _DisplaySettingsTab extends ConsumerWidget {
               spacing: AppSpacing.md,
               runSpacing: AppSpacing.sm,
               children: [
-                _buildWindowSizeButton(context, 'XGA 1024x768', const Size(1024, 768)),
-                _buildWindowSizeButton(context, 'SXGA 1280x1024', const Size(1280, 1024)),
-                _buildWindowSizeButton(context, 'WXGA+ 1440x900', const Size(1440, 900)),
-                _buildWindowSizeButton(context, 'Full HD 1920x1080', const Size(1920, 1080)),
+                _buildWindowSizeButton(
+                  context,
+                  'XGA 1024x768',
+                  const Size(1024, 768),
+                ),
+                _buildWindowSizeButton(
+                  context,
+                  'SXGA 1280x1024',
+                  const Size(1280, 1024),
+                ),
+                _buildWindowSizeButton(
+                  context,
+                  'WXGA+ 1440x900',
+                  const Size(1440, 900),
+                ),
+                _buildWindowSizeButton(
+                  context,
+                  'Full HD 1920x1080',
+                  const Size(1920, 1080),
+                ),
               ],
             ),
           ),
@@ -823,19 +1042,32 @@ class _DisplaySettingsTab extends ConsumerWidget {
     );
   }
 
-  Widget _buildSection(BuildContext context, {required String title, required String subtitle, required dynamic icon, required Widget child}) {
+  Widget _buildSection(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required dynamic icon,
+    required Widget child,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            icon is IconData ? Icon(icon, size: 20, color: AppColors.primary) : HugeIcon(icon: icon, size: 20, color: AppColors.primary),
+            icon is IconData
+                ? Icon(icon, size: 20, color: AppColors.primary)
+                : HugeIcon(icon: icon, size: 20, color: AppColors.primary),
             const SizedBox(width: AppSpacing.sm),
             Text(title, style: AppTextStyles.titleLarge),
           ],
         ),
         const SizedBox(height: 4),
-        Text(subtitle, style: AppTextStyles.bodySmall.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        Text(
+          subtitle,
+          style: AppTextStyles.bodySmall.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         const SizedBox(height: AppSpacing.lg),
         child,
       ],
@@ -850,6 +1082,408 @@ class _DisplaySettingsTab extends ConsumerWidget {
         foregroundColor: Theme.of(context).colorScheme.onSurface,
       ),
       child: Text(label),
+    );
+  }
+}
+
+// ─── Tab: AI Assistant Settings ────────────────────────────────────────────
+
+class _AiSettingsTab extends ConsumerStatefulWidget {
+  const _AiSettingsTab();
+
+  @override
+  ConsumerState<_AiSettingsTab> createState() => _AiSettingsTabState();
+}
+
+class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
+  final _apiKeyController = TextEditingController();
+  final _modelController = TextEditingController();
+  final _baseUrlController = TextEditingController();
+  bool _obscureKey = true;
+  bool _testing = false;
+  bool _configured = false;
+  String? _statusMsg;
+  bool _statusSuccess = false;
+  AiProviderKind _selectedProvider = AiProviderKind.gemini;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadConfig();
+  }
+
+  @override
+  void dispose() {
+    _apiKeyController.dispose();
+    _modelController.dispose();
+    _baseUrlController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadConfig() async {
+    final config = await AiService.loadConfig();
+    if (!mounted) return;
+    setState(() {
+      _selectedProvider = config.provider;
+      _apiKeyController.text = config.apiKey;
+      _modelController.text = config.model;
+      _baseUrlController.text =
+          config.baseUrl ?? config.definition.defaultBaseUrl ?? '';
+      _configured = config.isComplete;
+    });
+  }
+
+  Future<void> _switchProvider(AiProviderKind provider) async {
+    final config = await AiService.loadConfigForProvider(provider);
+    if (!mounted) return;
+    setState(() {
+      _selectedProvider = provider;
+      _apiKeyController.text = config.apiKey;
+      _modelController.text = config.model;
+      _baseUrlController.text =
+          config.baseUrl ?? config.definition.defaultBaseUrl ?? '';
+      _statusMsg = null;
+    });
+  }
+
+  Future<void> _testAndSave() async {
+    final definition = AiProviderCatalog.of(_selectedProvider);
+    final config = AiProviderConfig(
+      provider: _selectedProvider,
+      apiKey: _apiKeyController.text.trim(),
+      model: _modelController.text.trim().isEmpty
+          ? definition.defaultModel
+          : _modelController.text.trim(),
+      baseUrl: definition.supportsCustomBaseUrl
+          ? _baseUrlController.text.trim()
+          : definition.defaultBaseUrl,
+    );
+
+    if (!config.isComplete) {
+      setState(() {
+        _statusMsg = definition.requiresApiKey
+            ? 'กรุณาใส่ API Key และ Model ให้ครบ'
+            : 'กรุณาใส่ Model และ Base URL ให้ครบ';
+        _statusSuccess = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _testing = true;
+      _statusMsg = null;
+    });
+
+    final ok = await AiService.testConfig(config);
+    if (ok) {
+      await AiService.saveConfig(config);
+      await ref.read(aiChatProvider.notifier).reloadModel();
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _configured = true;
+          _statusMsg = 'เชื่อมต่อสำเร็จ! บันทึก ${definition.displayName} แล้ว';
+          _statusSuccess = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ตั้งค่า ${definition.displayName} สำเร็จ!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _statusMsg =
+              '${definition.displayName} เชื่อมต่อไม่ได้ หรือข้อมูลไม่ถูกต้อง';
+          _statusSuccess = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final definition = AiProviderCatalog.of(_selectedProvider);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.xxl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'AI Assistant Configuration',
+            style: AppTextStyles.headlineSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'ตั้งค่า API สำหรับ AI Chat เพื่อให้ AI ช่วยค้นหาและวิเคราะห์ข้อมูลในระบบ',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 32),
+
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).colorScheme.primary,
+                              Theme.of(context).colorScheme.tertiary,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.auto_awesome,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              definition.displayName,
+                              style: AppTextStyles.titleLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${definition.helpText}\nAI จะอ่านและวิเคราะห์ได้เฉพาะข้อมูลในฐานข้อมูล MASAPP เท่านั้น${definition.kind == AiProviderKind.ollama ? '' : '\nถ้าไม่มีอินเทอร์เน็ต ระบบจะแจ้งก่อนส่งคำขอขึ้น cloud'}',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _configured
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.orange.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _configured
+                                  ? Icons.check_circle
+                                  : Icons.warning_amber_rounded,
+                              size: 14,
+                              color: _configured ? Colors.green : Colors.orange,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _configured ? 'Connected' : 'Not Configured',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _configured
+                                    ? Colors.green
+                                    : Colors.orange,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: AppSpacing.xl),
+                  const Divider(height: 1),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  DropdownButtonFormField<AiProviderKind>(
+                    initialValue: _selectedProvider,
+                    decoration: const InputDecoration(
+                      labelText: 'AI Provider',
+                      prefixIcon: Icon(Icons.hub_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: AiProviderCatalog.providers.map((provider) {
+                      return DropdownMenuItem(
+                        value: provider.kind,
+                        child: Text(provider.displayName),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        _switchProvider(value);
+                      }
+                    },
+                  ),
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  TextField(
+                    controller: _modelController,
+                    maxLines: 1,
+                    decoration: InputDecoration(
+                      labelText: 'Model',
+                      hintText: definition.defaultModel,
+                      prefixIcon: const Icon(Icons.memory_outlined),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+
+                  if (definition.supportsCustomBaseUrl) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    TextField(
+                      controller: _baseUrlController,
+                      maxLines: 1,
+                      decoration: const InputDecoration(
+                        labelText: 'Base URL',
+                        hintText: 'http://127.0.0.1:11434',
+                        prefixIcon: Icon(Icons.link_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  TextField(
+                    controller: _apiKeyController,
+                    obscureText: _obscureKey,
+                    maxLines: 1,
+                    decoration: InputDecoration(
+                      labelText: definition.keyLabel,
+                      hintText: definition.keyHint,
+                      prefixIcon: const Icon(Icons.key_outlined),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscureKey ? Icons.visibility_off : Icons.visibility,
+                        ),
+                        onPressed: () =>
+                            setState(() => _obscureKey = !_obscureKey),
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+
+                  if (_statusMsg != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: _statusSuccess
+                            ? Colors.green.withValues(alpha: 0.1)
+                            : Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: _statusSuccess ? Colors.green : Colors.red,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _statusSuccess
+                                ? Icons.check_circle
+                                : Icons.error_outline,
+                            size: 18,
+                            color: _statusSuccess ? Colors.green : Colors.red,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              _statusMsg!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _statusSuccess
+                                    ? Colors.green
+                                    : Colors.red,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: AppSpacing.xl),
+
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: _testing
+                        ? const Center(child: CircularProgressIndicator())
+                        : FilledButton.icon(
+                            onPressed: _testAndSave,
+                            icon: const Icon(Icons.rocket_launch_rounded),
+                            label: const Text('ทดสอบการเชื่อมต่อและบันทึก'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          Card(
+            color: Theme.of(
+              context,
+            ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.security_rounded,
+                        size: 18,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        'ขอบเขตการเข้าถึงข้อมูล',
+                        style: AppTextStyles.titleMedium,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    '• AI สามารถอ่านข้อมูลได้เฉพาะตารางที่อนุญาตเท่านั้น\n'
+                    '• ไม่สามารถเข้าถึงตาราง users, user_sessions, audit_log, app_settings, ai_chat_history\n'
+                    '• อนุญาตเฉพาะคำสั่ง SELECT เท่านั้น (Read-only)\n'
+                    '• ป้องกัน DROP, DELETE, UPDATE, INSERT, CREATE, ALTER และคำสั่งอื่นๆ ที่รุนแรง\n'
+                    '• จำกัดผลลัพธ์ไม่เกิน 100 แถวต่อ Query',
+                    style: AppTextStyles.bodySmall.copyWith(height: 1.8),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
