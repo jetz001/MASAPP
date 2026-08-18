@@ -77,7 +77,26 @@ class DashboardStats {
     }
 
     // Simulated WO trend (last 7 days values)
-    final trendValues = List.generate(7, (i) => (2 + (i * 1.3) % 5).toDouble());
+    // Real WO trend (last 7 days values)
+    final now = DateTime.now();
+    final List<double> trendValues = List.filled(7, 0.0);
+    
+    final trendRows = await DbHelper.query(
+      '''SELECT date(created_at) as d, COUNT(*) as c 
+         FROM work_orders 
+         WHERE created_at >= date('now', 'localtime', '-6 days')
+         GROUP BY date(created_at)'''
+    );
+
+    for (int i = 0; i < 7; i++) {
+      final date = now.subtract(Duration(days: 6 - i));
+      final dateStr = DateFormat('yyyy-MM-dd').format(date);
+      
+      final match = trendRows.firstWhere((r) => r['d'] == dateStr, orElse: () => <String, dynamic>{});
+      if (match.isNotEmpty) {
+        trendValues[i] = (match['c'] as int? ?? 0).toDouble();
+      }
+    }
 
     return DashboardStats(
       totalMachines: machines?['c'] as int? ?? 0,
@@ -406,7 +425,12 @@ class _WoTrendCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final days = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'];
+    final now = DateTime.now();
+    final dayNames = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'];
+    final days = List.generate(7, (i) {
+      final d = now.subtract(Duration(days: 6 - i));
+      return dayNames[d.weekday - 1];
+    });
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
