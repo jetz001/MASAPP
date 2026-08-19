@@ -24,6 +24,10 @@ class DbInitializer {
   static const _legacyFileMigrationSettingKey =
       'file_assets_legacy_storage_migrated_v1';
 
+  static const _defaultAdminUserId = '00000000-0000-0000-0001-000000000001';
+  static const _defaultAdminDeptId = '00000000-0000-0000-0000-000000000001';
+  static const _defaultAdminEmployeeNo = 'EMP001';
+
   /// Initialize database: create schema if not exists, run seed if new.
   /// Accepts database instance directly to avoid singleton access issues.
   /// Returns true if successful.
@@ -735,6 +739,105 @@ class DbInitializer {
       _log.e('Failed to initialize database: $e');
       return false;
     }
+  }
+
+  static Future<void> setupFreshDatabase(
+    Database db, {
+    required String adminUsername,
+    required String adminPasswordHash,
+    required String approvalPinHash,
+    String? companyName,
+    String? serialKey,
+    String? orgLogoBase64,
+  }) async {
+    await _createSchema(db);
+    await _seedInitialData(db);
+
+    final normalizedUsername = adminUsername.trim();
+    final normalizedCompany = companyName?.trim() ?? '';
+    final normalizedSerial = serialKey?.trim() ?? '';
+    final normalizedLogo = orgLogoBase64?.trim() ?? '';
+
+    await db.transaction((txn) async {
+      if (normalizedCompany.isNotEmpty) {
+        await txn.rawUpdate(
+          '''
+          UPDATE app_settings
+          SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE setting_key = 'app.company_name'
+          ''',
+          [normalizedCompany],
+        );
+      }
+
+      if (normalizedSerial.isNotEmpty) {
+        await txn.rawInsert(
+          '''
+          INSERT INTO app_settings(setting_key, setting_value, description, updated_at)
+          VALUES ('app.serial_key', ?, 'Serial License Key', CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET
+            setting_value = excluded.setting_value,
+            description = excluded.description,
+            updated_at = CURRENT_TIMESTAMP
+          ''',
+          [normalizedSerial],
+        );
+      }
+
+      if (normalizedLogo.isNotEmpty) {
+        await txn.rawInsert(
+          '''
+          INSERT INTO app_settings(setting_key, setting_value, description, updated_at)
+          VALUES ('org_logo', ?, 'Organization logo as base64', CURRENT_TIMESTAMP)
+          ON CONFLICT(setting_key) DO UPDATE SET
+            setting_value = excluded.setting_value,
+            description = excluded.description,
+            updated_at = CURRENT_TIMESTAMP
+          ''',
+          [normalizedLogo],
+        );
+      }
+
+      await txn.rawUpdate(
+        '''
+        UPDATE users
+        SET employee_no = ?,
+            username = ?,
+            full_name = ?,
+            password_hash = ?,
+            approval_pin_hash = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+        ''',
+        [
+          _defaultAdminEmployeeNo,
+          normalizedUsername,
+          'System Administrator',
+          adminPasswordHash,
+          approvalPinHash,
+          _defaultAdminUserId,
+        ],
+      );
+
+      await txn.rawInsert(
+        '''
+        INSERT OR IGNORE INTO users(
+          user_id, employee_no, username, full_name, email, role, dept_id,
+          password_hash, approval_pin_hash, theme_preference, is_active
+        ) VALUES (?, ?, ?, ?, ?, 'admin', ?, ?, ?, 'dark', 1)
+        ''',
+        [
+          _defaultAdminUserId,
+          _defaultAdminEmployeeNo,
+          normalizedUsername,
+          'System Administrator',
+          'admin@masapp.local',
+          _defaultAdminDeptId,
+          adminPasswordHash,
+          approvalPinHash,
+        ],
+      );
+    });
   }
 
   /// [TEMPORARY] Wipe all machine-related data to allow a fresh start.

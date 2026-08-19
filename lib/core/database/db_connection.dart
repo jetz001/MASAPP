@@ -32,7 +32,7 @@ class DbConnection {
   /// 2. Busy timeout: Clients wait up to 5000ms instead of immediate "database locked" error
   /// 3. Foreign key constraints
   /// 4. Synchronous mode optimized for network shares
-  Future<void> connect(AppConfig config) async {
+  Future<void> connect(AppConfig config, {bool skipInitialization = false}) async {
     await _db?.close();
 
     // Initialize FFI for Desktop only once
@@ -101,7 +101,9 @@ class DbConnection {
           // [TEMPORARY WIPE] Remove after one run
           // await DbInitializer.wipeMachineData(db);
 
-          await DbInitializer.initializeDatabase(db);
+          if (!skipInitialization) {
+            await DbInitializer.initializeDatabase(db);
+          }
         },
       ),
     );

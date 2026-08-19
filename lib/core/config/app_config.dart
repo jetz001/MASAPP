@@ -73,8 +73,12 @@ class AppConfig {
 
   /// Default config for development (local mode)
   static Future<AppConfig> createDefault() async {
-    final docDir = await getApplicationDocumentsDirectory();
-    final path = '${docDir.path}\\MASAPP\\masapp.db';
+    final appSupportDir = await getApplicationSupportDirectory();
+    final normalizedSupportPath = appSupportDir.path.replaceAll('/', '\\');
+    final baseDir = normalizedSupportPath.toLowerCase().endsWith(r'\masapp')
+        ? normalizedSupportPath
+        : '$normalizedSupportPath\\masapp';
+    final path = '$baseDir\\data\\masapp.db';
     return AppConfig(dbPath: path, isNetworkMode: false);
   }
 }
