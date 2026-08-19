@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logger/logger.dart';
@@ -13,7 +12,7 @@ import '../../core/database/db_initializer.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 
-/// First-launch screen for selecting or creating a shared SQLite database file.
+/// First-launch setup wizard — Windows OOBE-inspired two-column layout.
 class DbSetupScreen extends ConsumerStatefulWidget {
   final VoidCallback onConnected;
   const DbSetupScreen({super.key, required this.onConnected});
@@ -46,12 +45,12 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
 
   String? _statusMessage;
   bool _statusOk = false;
-  late final AnimationController _bgAnimationCtrl;
+  late final AnimationController _bgAnimCtrl;
 
   @override
   void initState() {
     super.initState();
-    _bgAnimationCtrl = AnimationController(
+    _bgAnimCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat(reverse: true);
@@ -72,7 +71,7 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
     _confirmAdminPassCtrl.dispose();
     _approvalPinCtrl.dispose();
     _serialKeyCtrl.dispose();
-    _bgAnimationCtrl.dispose();
+    _bgAnimCtrl.dispose();
     super.dispose();
   }
 
@@ -82,11 +81,8 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
       allowedExtensions: ['db', 'sqlite', 'sqlite3'],
       dialogTitle: 'เลือกไฟล์ฐานข้อมูล MASAPP',
     );
-
     if (result != null && result.files.single.path != null) {
-      setState(() {
-        _pathCtrl.text = result.files.single.path!;
-      });
+      setState(() => _pathCtrl.text = result.files.single.path!);
     }
   }
 
@@ -94,22 +90,17 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
     final result = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'เลือกโฟลเดอร์สำหรับสร้างฐานข้อมูลใหม่',
     );
-
     if (result != null) {
-      setState(() {
-        _pathCtrl.text = '$result\\masapp.db';
-      });
+      setState(() => _pathCtrl.text = '$result\\masapp.db');
     }
   }
 
   Future<void> _pickLogo() async {
-    final ImagePicker picker = ImagePicker();
+    final picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
       final bytes = await image.readAsBytes();
-      setState(() {
-        _logoBase64 = base64Encode(bytes);
-      });
+      setState(() => _logoBase64 = base64Encode(bytes));
     }
   }
 
@@ -132,18 +123,12 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
           'ตั้งค่า Admin',
           'สรุปก่อนเริ่มใช้งาน',
         ]
-      : const [
-          'รูปแบบการเริ่มต้น',
-          'ตำแหน่งฐานข้อมูล',
-          'สรุปก่อนเชื่อมต่อ',
-        ];
+      : const ['รูปแบบการเริ่มต้น', 'ตำแหน่งฐานข้อมูล', 'สรุปก่อนเชื่อมต่อ'];
 
   void _setMode(bool createNew) {
     setState(() {
       _isCreatingNew = createNew;
-      if (_currentStep > _maxStep) {
-        _currentStep = _maxStep;
-      }
+      if (_currentStep > _maxStep) _currentStep = _maxStep;
       _statusMessage = null;
     });
   }
@@ -159,14 +144,8 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
         }
         return true;
       case 2:
-        if (_isCreatingNew) {
-          return true;
-        }
-        return true;
       case 3:
-        if (!_isCreatingNew) {
-          return true;
-        }
+        if (!_isCreatingNew) return true;
         return _formKey.currentState?.validate() ?? false;
       case 4:
         return true;
@@ -180,9 +159,7 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
     FocusScope.of(context).unfocus();
     setState(() {
       _statusMessage = null;
-      if (_currentStep < _maxStep) {
-        _currentStep++;
-      }
+      if (_currentStep < _maxStep) _currentStep++;
     });
   }
 
@@ -223,8 +200,17 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
 
     final config = AppConfig(dbPath: path);
 
+    // Fresh initialization is intentionally restricted to this computer.
+    // A network database is shared data and must only ever be connected to,
+    // never created or reinitialized by this setup flow.
+    if (_isCreatingNew && DbConnection.isNetworkPath(path)) {
+      _setFailure(
+        'Cannot create a new database on a network drive. Select a local folder on this computer.',
+      );
+      return;
+    }
+
     if (!_isCreatingNew) {
-      // Connect to existing
       if (!exists) {
         setState(() {
           _statusOk = false;
@@ -235,7 +221,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
         return;
       }
     } else {
-      // Creating new
       if (exists) {
         final create = await showDialog<bool>(
           context: context,
@@ -263,7 +248,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
         }
       }
 
-      // Execute Initialization
       try {
         final dir = file.parent;
         if (!await dir.exists()) await dir.create(recursive: true);
@@ -295,7 +279,6 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
       }
     }
 
-    // Double check connection
     try {
       final ok = await DbConnection.instance.testConnection(config);
       if (!mounted) return;
@@ -335,288 +318,331 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
     }
   }
 
+  // ─── Illustration helpers ────────────────────────────────────────────────
+
+  IconData get _stepIcon {
+    switch (_currentStep) {
+      case 0:
+        return Icons.storage_rounded;
+      case 1:
+        return Icons.folder_open_rounded;
+      case 2:
+        return Icons.business_rounded;
+      case 3:
+        return Icons.shield_rounded;
+      case 4:
+        return Icons.fact_check_rounded;
+      default:
+        return Icons.settings_rounded;
+    }
+  }
+
+  Color get _stepColor {
+    switch (_currentStep) {
+      case 0:
+        return AppColors.primary;
+      case 1:
+        return const Color(0xFF0EA5E9);
+      case 2:
+        return const Color(0xFF10B981);
+      case 3:
+        return const Color(0xFF8B5CF6);
+      case 4:
+        return const Color(0xFFF59E0B);
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  // ─── build ──────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF070B1A),
+      backgroundColor: const Color(0xFFEBEFF9),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF64748B)),
           onPressed: () {
-            if (Navigator.of(context).canPop()) {
+            if (_currentStep > 0 && !_setupCompleted && !_showPreparing) {
+              _goBack();
+            } else if (Navigator.of(context).canPop()) {
               Navigator.of(context).pop();
             }
           },
         ),
       ),
       body: AnimatedBuilder(
-        animation: _bgAnimationCtrl,
-        builder: (context, _) {
-          final progress = _bgAnimationCtrl.value;
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF071226),
-                        Color.lerp(
-                          const Color(0xFF11193A),
-                          const Color(0xFF1A1440),
-                          progress,
-                        )!,
-                        const Color(0xFF090D1B),
-                      ],
-                    ),
-                  ),
-                ),
+        animation: _bgAnimCtrl,
+        builder: (context, child) {
+          final t = _bgAnimCtrl.value;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color.lerp(
+                    const Color(0xFFEDF1FB),
+                    const Color(0xFFE8ECFA),
+                    t,
+                  )!,
+                  Color.lerp(
+                    const Color(0xFFE2E8F7),
+                    const Color(0xFFDAE1F4),
+                    t,
+                  )!,
+                ],
               ),
-              Positioned(
-                left: -80 + (progress * 70),
-                top: 60,
-                child: _AnimatedGlowOrb(
-                  size: 240,
-                  colors: const [Color(0xFF5F5BFF), Color(0x003E37FF)],
-                ),
-              ),
-              Positioned(
-                right: -60,
-                top: 180 - (progress * 40),
-                child: _AnimatedGlowOrb(
-                  size: 200,
-                  colors: const [Color(0xFF27D2BF), Color(0x0027D2BF)],
-                ),
-              ),
-              Positioned(
-                right: 80 - (progress * 50),
-                bottom: -40,
-                child: _AnimatedGlowOrb(
-                  size: 260,
-                  colors: const [Color(0xFF6F6FFF), Color(0x001A1440)],
-                ),
-              ),
-              Center(
-                child: SingleChildScrollView(
-                  child: SizedBox(
-                    width: 720,
-                    child: Card(
-                      color: const Color(0xCC131426),
-                      elevation: 16,
-                      shadowColor: Colors.black.withValues(alpha: 0.22),
-                      child: Padding(
-                        padding: const EdgeInsets.all(40),
-                        child: Form(
-                          key: _formKey,
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 420),
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeInCubic,
-                            transitionBuilder: (child, animation) {
-                              final slide = Tween<Offset>(
-                                begin: const Offset(0.04, 0),
-                                end: Offset.zero,
-                              ).animate(animation);
-                              return FadeTransition(
-                                opacity: animation,
-                                child: SlideTransition(
-                                  position: slide,
-                                  child: child,
-                                ),
-                              );
-                            },
-                            child: _setupCompleted
-                                ? _buildCompletionView()
-                                : _showPreparing
-                                ? _buildPreparingView()
-                                : Column(
-                                    key: ValueKey(
-                                      'wizard-$_currentStep-${_isCreatingNew.toString()}',
-                                    ),
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Container(
-                                            width: 56,
-                                            height: 56,
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primary.withValues(
-                                                alpha: 0.16,
-                                              ),
-                                              borderRadius: BorderRadius.circular(16),
-                                            ),
-                                            child: const Icon(
-                                              Icons.storage_rounded,
-                                              color: AppColors.primary,
-                                              size: 28,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 16),
-                                          const Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  'ตั้งค่าระบบครั้งแรก',
-                                                  style: TextStyle(
-                                                    fontSize: 28,
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
-                                                ),
-                                                SizedBox(height: 6),
-                                                Text(
-                                                  'แนะนำให้สร้างฐานข้อมูลใหม่ในเครื่องนี้ก่อน แล้วค่อยเชื่อมฐานข้อมูลส่วนกลางภายหลังหากต้องการใช้งานหลายเครื่อง',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    color: AppColors.textSecondary,
-                                                    height: 1.5,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 20),
-                                      _SetupHintBox(
-                                        icon: Icons.lightbulb_outline_rounded,
-                                        title: _isCreatingNew
-                                            ? 'แนะนำสำหรับการติดตั้งครั้งแรก'
-                                            : 'สำหรับเครื่องที่ต้องการใช้ฐานข้อมูลร่วม',
-                                        message: _isCreatingNew
-                                            ? 'ระบบจะสร้างฐานข้อมูลใหม่แบบ local-first พร้อมตั้งค่า Admin คนแรกให้ทันทีหลังจบขั้นตอนนี้'
-                                            : 'ใช้โหมดนี้เมื่อมีไฟล์ฐานข้อมูล MASAPP อยู่แล้ว เช่น ฐานกลางบน server หรือฐานที่ย้ายมาจากอีกเครื่อง',
-                                      ),
-                                      const SizedBox(height: 24),
-                                      AnimatedSwitcher(
-                                        duration: const Duration(
-                                          milliseconds: 320,
-                                        ),
-                                        transitionBuilder: (child, animation) {
-                                          return FadeTransition(
-                                            opacity: animation,
-                                            child: SlideTransition(
-                                              position: Tween<Offset>(
-                                                begin: const Offset(0.03, 0),
-                                                end: Offset.zero,
-                                              ).animate(animation),
-                                              child: child,
-                                            ),
-                                          );
-                                        },
-                                        child: Container(
-                                          key: ValueKey(
-                                            'step-body-$_currentStep-${_isCreatingNew.toString()}',
-                                          ),
-                                          child: _buildWizardStep(),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 28),
-                                      Row(
-                                        children: [
-                                          if (_currentStep > 0)
-                                            Expanded(
-                                              child: OutlinedButton.icon(
-                                                onPressed: _loading
-                                                    ? null
-                                                    : _goBack,
-                                                icon: const Icon(
-                                                  Icons.arrow_back_rounded,
-                                                ),
-                                                label: const Text('ย้อนกลับ'),
-                                                style: OutlinedButton.styleFrom(
-                                                  minimumSize:
-                                                      const Size.fromHeight(56),
-                                                ),
-                                              ),
-                                            ),
-                                          if (_currentStep > 0)
-                                            const SizedBox(width: 12),
-                                          Expanded(
-                                            flex: 2,
-                                            child: SizedBox(
-                                              height: 56,
-                                              child: ElevatedButton.icon(
-                                                onPressed: _loading
-                                                    ? null
-                                                    : (_currentStep == _maxStep
-                                                          ? _testAndSave
-                                                          : _goNext),
-                                                icon: _loading
-                                                    ? const SizedBox(
-                                                        width: 20,
-                                                        height: 20,
-                                                        child:
-                                                            CircularProgressIndicator(
-                                                          color: Colors.white,
-                                                          strokeWidth: 2.2,
-                                                        ),
-                                                      )
-                                                    : Icon(
-                                                        _currentStep == _maxStep
-                                                            ? (_isCreatingNew
-                                                                  ? Icons
-                                                                        .rocket_launch_rounded
-                                                                  : Icons
-                                                                        .link_rounded)
-                                                            : Icons
-                                                                  .arrow_forward_rounded,
-                                                      ),
-                                                label: Text(
-                                                  _currentStep == _maxStep
-                                                      ? (_isCreatingNew
-                                                            ? 'เริ่มใช้งาน'
-                                                            : 'เชื่อมต่อฐานข้อมูล')
-                                                      : 'ถัดไป',
-                                                  style: const TextStyle(
-                                                    fontSize: 18,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 20),
-                                      _BottomStepDots(
-                                        currentStep: _currentStep,
-                                        totalSteps: _stepTitles.length,
-                                      ),
-                                      if (_statusMessage != null) ...[
-                                        const SizedBox(height: 20),
-                                        _StatusBanner(
-                                          ok: _statusOk,
-                                          message: _statusMessage!,
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
+            child: child,
           );
         },
+        child: Form(
+          key: _formKey,
+          child: Stack(
+            children: [
+              // ── Main body ──────────────────────────────────────────
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(64, 0, 64, 52),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: _setupCompleted
+                        ? _buildCompletionView()
+                        : _showPreparing
+                        ? _buildPreparingView()
+                        : _buildWizardLayout(),
+                  ),
+                ),
+              ),
+              // ── Step dots pinned at bottom ──────────────────────────
+              if (!_setupCompleted && !_showPreparing)
+                Positioned(
+                  bottom: 16,
+                  left: 0,
+                  right: 0,
+                  child: _BottomStepDots(
+                    currentStep: _currentStep,
+                    totalSteps: _stepTitles.length,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
+  // ─── Two-column wizard layout ────────────────────────────────────────────
+
+  Widget _buildWizardLayout() {
+    return Row(
+      key: ValueKey('wizard-$_currentStep-$_isCreatingNew'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── Left: animated illustration ──────────────────────────────
+        Expanded(
+          flex: 4,
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.86, end: 1.0).animate(
+                    CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOutBack,
+                    ),
+                  ),
+                  child: child,
+                ),
+              ),
+              child: _StepIllustration(
+                key: ValueKey('illus-$_currentStep'),
+                icon: _stepIcon,
+                color: _stepColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 40),
+        // ── Right: content column ────────────────────────────────────
+        Expanded(
+          flex: 5,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 4),
+              // Page header (fixed)
+              _buildPageHeader(),
+              const SizedBox(height: 10),
+              // Hint box
+              _SetupHintBox(
+                icon: Icons.lightbulb_outline_rounded,
+                title: _isCreatingNew
+                    ? 'แนะนำสำหรับการติดตั้งครั้งแรก'
+                    : 'สำหรับเครื่องที่ต้องการใช้ฐานข้อมูลร่วม',
+                message: _isCreatingNew
+                    ? 'ระบบจะสร้างฐานข้อมูลใหม่แบบ local-first พร้อมตั้งค่า Admin คนแรกให้ทันทีหลังจบขั้นตอนนี้'
+                    : 'ใช้โหมดนี้เมื่อมีไฟล์ฐานข้อมูล MASAPP อยู่แล้ว เช่น ฐานกลางบน server',
+              ),
+              const SizedBox(height: 16),
+              // Let long summary/setup steps scroll instead of overflowing the
+              // window; keep navigation visible at the bottom.
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 200),
+                        transitionBuilder: (child, animation) =>
+                            FadeTransition(opacity: animation, child: child),
+                        child: _buildWizardStep(),
+                      ),
+                      if (_statusMessage != null) ...[
+                        const SizedBox(height: 16),
+                        _StatusBanner(ok: _statusOk, message: _statusMessage!),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // Navigation
+              _buildNavRow(),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPageHeader() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.storage_rounded,
+            color: AppColors.primary,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'ตั้งค่าระบบครั้งแรก',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF1A1A2E),
+                  letterSpacing: -0.3,
+                ),
+              ),
+              Text(
+                'แนะนำให้สร้างฐานข้อมูลใหม่ในเครื่องนี้ก่อน'
+                ' แล้วค่อยเชื่อมฐานข้อมูลส่วนกลางภายหลัง',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNavRow() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        if (_currentStep > 0) ...[
+          TextButton(
+            onPressed: _loading ? null : _goBack,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFF64748B),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('← ย้อนกลับ', style: TextStyle(fontSize: 14)),
+          ),
+          const SizedBox(width: 8),
+        ],
+        SizedBox(
+          height: 46,
+          child: ElevatedButton(
+            onPressed: _loading
+                ? null
+                : (_currentStep == _maxStep ? _testAndSave : _goNext),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              elevation: 0,
+            ),
+            child: _loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Text(
+                    _currentStep == _maxStep
+                        ? (_isCreatingNew ? 'เริ่มใช้งาน  →' : 'เชื่อมต่อ  →')
+                        : 'ถัดไป  →',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─── Step content ────────────────────────────────────────────────────────
+
   Widget _buildFieldLabel(String title) {
-    return Text(
-      title,
-      style: AppTextStyles.labelLarge.copyWith(
-        color: AppColors.textSecondary,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF475569),
+        ),
       ),
     );
   }
@@ -624,437 +650,530 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
   Widget _buildWizardStep() {
     switch (_currentStep) {
       case 0:
-        return _SectionCard(
-          title: 'เลือกรูปแบบการเริ่มต้น',
-          subtitle:
+        return Column(
+          key: const ValueKey('step-0'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'เลือกรูปแบบการเริ่มต้น',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
               'คุณสามารถเริ่มจากฐานข้อมูลในเครื่องก่อน แล้วค่อยสลับไปฐานกลางในภายหลังได้',
-          child: Row(
-            children: [
-              Expanded(
-                child: _ModeOptionCard(
-                  icon: Icons.add_box_rounded,
-                  title: 'สร้างฐานข้อมูลใหม่',
-                  subtitle: 'แนะนำสำหรับลงครั้งแรก',
-                  selected: _isCreatingNew,
-                  onTap: () => _setMode(true),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _ModeOptionCard(
-                  icon: Icons.link_rounded,
-                  title: 'เชื่อมต่อฐานข้อมูลเดิม',
-                  subtitle: 'สำหรับเครื่องลูกข่าย',
-                  selected: !_isCreatingNew,
-                  onTap: () => _setMode(false),
-                ),
-              ),
-            ],
-          ),
+              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            _OobeListItem(
+              icon: Icons.add_box_rounded,
+              title: 'สร้างฐานข้อมูลใหม่',
+              subtitle: 'แนะนำสำหรับลงครั้งแรก',
+              selected: _isCreatingNew,
+              onTap: () => _setMode(true),
+            ),
+            const SizedBox(height: 8),
+            _OobeListItem(
+              icon: Icons.link_rounded,
+              title: 'เชื่อมต่อฐานข้อมูลเดิม',
+              subtitle: 'สำหรับเครื่องลูกข่าย',
+              selected: !_isCreatingNew,
+              onTap: () => _setMode(false),
+            ),
+          ],
         );
+
       case 1:
-        return _SectionCard(
-          title: 'ตำแหน่งฐานข้อมูล',
-          subtitle: _isCreatingNew
-              ? 'ค่าเริ่มต้นจะอยู่ในเครื่องผู้ใช้เพื่อให้เริ่มใช้งานได้ง่ายที่สุด'
-              : 'ระบุ path ของฐานข้อมูลที่มีอยู่แล้ว',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildFieldLabel('ที่อยู่ไฟล์ฐานข้อมูล (.db)'),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _pathCtrl,
-                      style: AppTextStyles.bodyMedium,
-                      decoration: InputDecoration(
-                        hintText: _isCreatingNew
-                            ? r'C:\Users\...\MASAPP\data\masapp.db'
-                            : '\\\\SERVER\\Shared\\masapp.db',
-                        prefixIcon: const Icon(Icons.description_outlined),
-                      ),
-                      validator: (v) {
-                        if (_currentStep != 1) return null;
-                        return v == null || v.isEmpty
-                            ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
-                            : null;
-                      },
+        return Column(
+          key: const ValueKey('step-1'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'ตำแหน่งฐานข้อมูล',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 8),
+            _buildFieldLabel('ที่อยู่ไฟล์ฐานข้อมูล (.db)'),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _pathCtrl,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: const Color(0xFF1E293B),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: _isCreatingNew
+                          ? r'C:\Users\...\MASAPP\data\masapp.db'
+                          : '\\\\SERVER\\Shared\\masapp.db',
+                      prefixIcon: const Icon(Icons.description_outlined),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    validator: (v) {
+                      if (_currentStep != 1) return null;
+                      return v == null || v.isEmpty
+                          ? 'กรุณาเลือกหรือระบุที่อยู่ไฟล์'
+                          : null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton.icon(
+                  onPressed: _isCreatingNew ? _selectFolder : _pickFile,
+                  icon: const Icon(Icons.folder_open),
+                  label: Text(_isCreatingNew ? 'เลือกโฟลเดอร์' : 'เลือกไฟล์'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 16,
+                    ),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  ElevatedButton.icon(
-                    onPressed: _isCreatingNew ? _selectFolder : _pickFile,
-                    icon: const Icon(Icons.folder_open),
-                    label: Text(_isCreatingNew ? 'เลือกโฟลเดอร์' : 'เลือกไฟล์'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 16,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _SetupHintBox(
-                icon: _isCreatingNew
-                    ? Icons.save_as_rounded
-                    : Icons.info_outline_rounded,
-                title: _isCreatingNew
-                    ? 'ฐานข้อมูลใหม่จะถูกสร้างตาม path นี้'
-                    : 'ระบบจะไม่แก้ไข path เดิมจนกว่าคุณจะกดเชื่อมต่อ',
-                message: _isCreatingNew
-                    ? 'ถ้าไฟล์นี้มีอยู่แล้ว ระบบจะถามยืนยันก่อนล้างข้อมูลเดิมทุกครั้ง'
-                    : 'ใช้ path ของไฟล์ฐานข้อมูล MASAPP ที่มีอยู่แล้วบนเครื่องนี้หรือบน network share',
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _SetupHintBox(
+              icon: _isCreatingNew
+                  ? Icons.save_as_rounded
+                  : Icons.info_outline_rounded,
+              title: _isCreatingNew
+                  ? 'ฐานข้อมูลใหม่จะถูกสร้างตาม path นี้'
+                  : 'ระบบจะไม่แก้ไข path เดิมจนกว่าคุณจะกดเชื่อมต่อ',
+              message: _isCreatingNew
+                  ? 'ถ้าไฟล์นี้มีอยู่แล้ว ระบบจะถามยืนยันก่อนล้างข้อมูลเดิมทุกครั้ง'
+                  : 'ใช้ path ของไฟล์ฐานข้อมูล MASAPP ที่มีอยู่แล้วบนเครื่องนี้หรือบน network share',
+            ),
+          ],
         );
+
       case 2:
-        if (!_isCreatingNew) {
-          return _buildSummaryStep();
-        }
-        return _SectionCard(
-          title: 'ข้อมูลองค์กร',
-          subtitle: 'ใช้สำหรับตั้งค่าระบบเริ่มต้น เอกสาร และ PDF ภายในระบบ',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildFieldLabel('โลโก้บริษัท'),
-              const SizedBox(height: 8),
-              GestureDetector(
-                onTap: _pickLogo,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: Colors.white10,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: _logoBase64 != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.memory(
-                            base64Decode(_logoBase64!),
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      : const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.add_a_photo_rounded,
-                              color: Colors.white54,
-                              size: 32,
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'เลือกโลโก้',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12,
+        if (!_isCreatingNew) return _buildSummaryStep();
+        return Column(
+          key: const ValueKey('step-2'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'ข้อมูลองค์กร',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Logo picker
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFieldLabel('โลโก้บริษัท'),
+                    GestureDetector(
+                      onTap: _pickLogo,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                        ),
+                        child: _logoBase64 != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.memory(
+                                  base64Decode(_logoBase64!),
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_a_photo_rounded,
+                                    color: Color(0xFF94A3B8),
+                                    size: 24,
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'เลือก',
+                                    style: TextStyle(
+                                      color: Color(0xFF94A3B8),
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                // Company + serial
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldLabel('ชื่อบริษัท / องค์กร'),
+                      TextFormField(
+                        controller: _companyCtrl,
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: const Color(0xFF1E293B),
                         ),
+                        decoration: const InputDecoration(
+                          hintText: 'โรงงานตัวอย่าง จำกัด',
+                          prefixIcon: Icon(Icons.business),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      _buildFieldLabel('Serial Key / License (ถ้ามี)'),
+                      TextFormField(
+                        controller: _serialKeyCtrl,
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: const Color(0xFF1E293B),
+                        ),
+                        decoration: const InputDecoration(
+                          hintText: 'XXXX-XXXX-XXXX-XXXX',
+                          prefixIcon: Icon(Icons.key),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              _buildFieldLabel('ชื่อบริษัท / องค์กร'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _companyCtrl,
-                style: AppTextStyles.bodyMedium,
-                decoration: const InputDecoration(
-                  hintText: 'โรงงานตัวอย่าง จำกัด',
-                  prefixIcon: Icon(Icons.business),
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildFieldLabel('Serial Key / License (ถ้ามี)'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _serialKeyCtrl,
-                style: AppTextStyles.bodyMedium,
-                decoration: const InputDecoration(
-                  hintText: 'XXXX-XXXX-XXXX-XXXX',
-                  prefixIcon: Icon(Icons.key),
-                ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         );
+
       case 3:
-        return _SectionCard(
-          title: 'ตั้งค่า Admin คนแรก',
-          subtitle: 'หลังจบขั้นตอนนี้ คุณจะใช้บัญชีนี้เข้าสู่ระบบได้ทันที',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildFieldLabel('ชื่อผู้ใช้งาน Admin คนแรก'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _adminUsernameCtrl,
-                style: AppTextStyles.bodyMedium,
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (v) {
-                  if (!_isCreatingNew || _currentStep != 3) return null;
-                  return v == null || v.isEmpty
-                      ? 'กรุณาระบุ Username'
-                      : null;
-                },
+        return Column(
+          key: const ValueKey('step-3'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'ตั้งค่า Admin คนแรก',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
               ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildFieldLabel('รหัสผ่าน Admin'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _adminPassCtrl,
-                          style: AppTextStyles.bodyMedium,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            hintText: 'อย่างน้อย 6 ตัวอักษร',
-                            prefixIcon: Icon(Icons.lock),
-                          ),
-                          validator: (v) {
-                            if (!_isCreatingNew || _currentStep != 3) {
-                              return null;
-                            }
-                            if (v == null || v.isEmpty) {
-                              return 'กรุณาระบุรหัสผ่าน Admin';
-                            }
-                            if (v.length < 6) {
-                              return 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร';
-                            }
-                            return null;
-                          },
+            ),
+            const SizedBox(height: 10),
+            _buildFieldLabel('ชื่อผู้ใช้งาน Admin คนแรก'),
+            TextFormField(
+              controller: _adminUsernameCtrl,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: const Color(0xFF1E293B),
+              ),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.person),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              validator: (v) {
+                if (!_isCreatingNew || _currentStep != 3) return null;
+                return v == null || v.isEmpty ? 'กรุณาระบุ Username' : null;
+              },
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldLabel('รหัสผ่าน Admin'),
+                      TextFormField(
+                        controller: _adminPassCtrl,
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: const Color(0xFF1E293B),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildFieldLabel('ยืนยันรหัสผ่าน'),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _confirmAdminPassCtrl,
-                          style: AppTextStyles.bodyMedium,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            hintText: 'กรอกรหัสผ่านเดิมอีกครั้ง',
-                            prefixIcon: Icon(Icons.verified_user_outlined),
-                          ),
-                          validator: (v) {
-                            if (!_isCreatingNew || _currentStep != 3) {
-                              return null;
-                            }
-                            if (v == null || v.isEmpty) {
-                              return 'กรุณายืนยันรหัสผ่าน';
-                            }
-                            if (v != _adminPassCtrl.text) {
-                              return 'รหัสผ่านไม่ตรงกัน';
-                            }
-                            return null;
-                          },
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          hintText: 'อย่างน้อย 6 ตัว',
+                          prefixIcon: Icon(Icons.lock),
+                          filled: true,
+                          fillColor: Colors.white,
                         ),
-                      ],
-                    ),
+                        validator: (v) {
+                          if (!_isCreatingNew || _currentStep != 3) {
+                            return null;
+                          }
+                          if (v == null || v.isEmpty) {
+                            return 'กรุณาระบุรหัสผ่าน';
+                          }
+                          if (v.length < 6) return 'อย่างน้อย 6 ตัวอักษร';
+                          return null;
+                        },
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              _buildFieldLabel('Approval PIN สำหรับอนุมัติ'),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _approvalPinCtrl,
-                style: AppTextStyles.bodyMedium,
-                keyboardType: TextInputType.number,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  hintText: 'ตัวเลขอย่างน้อย 4 หลัก',
-                  prefixIcon: Icon(Icons.pin_outlined),
                 ),
-                validator: (v) {
-                  if (!_isCreatingNew || _currentStep != 3) return null;
-                  final value = v?.trim() ?? '';
-                  if (value.isEmpty) {
-                    return 'กรุณาระบุ PIN สำหรับอนุมัติ';
-                  }
-                  if (!RegExp(r'^\d{4,}$').hasMatch(value)) {
-                    return 'PIN ต้องเป็นตัวเลขอย่างน้อย 4 หลัก';
-                  }
-                  return null;
-                },
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildFieldLabel('ยืนยันรหัสผ่าน'),
+                      TextFormField(
+                        controller: _confirmAdminPassCtrl,
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: const Color(0xFF1E293B),
+                        ),
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          hintText: 'กรอกซ้ำอีกครั้ง',
+                          prefixIcon: Icon(Icons.verified_user_outlined),
+                          filled: true,
+                          fillColor: Colors.white,
+                        ),
+                        validator: (v) {
+                          if (!_isCreatingNew || _currentStep != 3) {
+                            return null;
+                          }
+                          if (v == null || v.isEmpty) {
+                            return 'กรุณายืนยันรหัสผ่าน';
+                          }
+                          if (v != _adminPassCtrl.text) {
+                            return 'รหัสผ่านไม่ตรงกัน';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _buildFieldLabel('Approval PIN สำหรับอนุมัติ'),
+            TextFormField(
+              controller: _approvalPinCtrl,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: const Color(0xFF1E293B),
               ),
-            ],
-          ),
+              keyboardType: TextInputType.number,
+              obscureText: true,
+              decoration: const InputDecoration(
+                hintText: 'ตัวเลขอย่างน้อย 4 หลัก',
+                prefixIcon: Icon(Icons.pin_outlined),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              validator: (v) {
+                if (!_isCreatingNew || _currentStep != 3) return null;
+                final value = v?.trim() ?? '';
+                if (value.isEmpty) return 'กรุณาระบุ PIN';
+                if (!RegExp(r'^\d{4,}$').hasMatch(value)) {
+                  return 'PIN ต้องเป็นตัวเลขอย่างน้อย 4 หลัก';
+                }
+                return null;
+              },
+            ),
+          ],
         );
+
       case 4:
         return _buildSummaryStep();
+
       default:
         return const SizedBox.shrink();
     }
   }
 
   Widget _buildSummaryStep() {
-    return _SectionCard(
-      title: 'สรุปก่อนดำเนินการ',
-      subtitle: _isCreatingNew
-          ? 'ตรวจสอบข้อมูลทั้งหมดก่อนสร้างฐานข้อมูลและเริ่มใช้งาน'
-          : 'ตรวจสอบข้อมูลก่อนบันทึก config และเชื่อมต่อฐานข้อมูล',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SummaryRow(
-            label: 'รูปแบบ',
-            value: _isCreatingNew
-                ? 'สร้างฐานข้อมูลใหม่ในเครื่องนี้'
-                : 'เชื่อมต่อฐานข้อมูลเดิม',
-          ),
-          _SummaryRow(label: 'ไฟล์ฐานข้อมูล', value: _pathCtrl.text.trim()),
-          if (_isCreatingNew) ...[
-            _SummaryRow(
-              label: 'ชื่อองค์กร',
-              value: _companyCtrl.text.trim().isEmpty
-                  ? 'ยังไม่ได้ระบุ'
-                  : _companyCtrl.text.trim(),
-            ),
-            _SummaryRow(
-              label: 'Serial Key',
-              value: _serialKeyCtrl.text.trim().isEmpty
-                  ? 'ยังไม่ได้ระบุ'
-                  : _serialKeyCtrl.text.trim(),
-            ),
-            _SummaryRow(
-              label: 'Admin คนแรก',
-              value: _adminUsernameCtrl.text.trim().isEmpty
-                  ? 'ยังไม่ได้ระบุ'
-                  : _adminUsernameCtrl.text.trim(),
-            ),
-            _SummaryRow(
-              label: 'โลโก้บริษัท',
-              value: _logoBase64 == null ? 'ไม่ได้แนบ' : 'แนบแล้ว',
-            ),
-          ],
-          const SizedBox(height: 16),
-          _SetupHintBox(
-            icon: Icons.verified_user_outlined,
-            title: _isCreatingNew ? 'พร้อมสร้างระบบ' : 'พร้อมเชื่อมต่อ',
-            message: _isCreatingNew
-                ? 'เมื่อกดเริ่มใช้งาน ระบบจะสร้าง schema, seed ข้อมูลพื้นฐาน และตั้ง Admin คนแรกตามข้อมูลที่กรอกไว้'
-                : 'เมื่อกดเชื่อมต่อ ระบบจะบันทึก config ของเครื่องนี้โดยไม่แก้ไขข้อมูลในฐานเดิม',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompletionView() {
     return Column(
-      key: const ValueKey('setup-completed-view'),
-      crossAxisAlignment: CrossAxisAlignment.center,
+      key: const ValueKey('step-summary'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 88,
-          height: 88,
-          decoration: BoxDecoration(
-            color: AppColors.success.withValues(alpha: 0.14),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: AppColors.success.withValues(alpha: 0.35),
-              width: 2,
-            ),
-          ),
-          child: const Icon(
-            Icons.check_rounded,
-            color: AppColors.success,
-            size: 46,
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          _completionTitle,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w700,
+        const Text(
+          'สรุปก่อนดำเนินการ',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF334155),
           ),
         ),
         const SizedBox(height: 10),
-        Text(
-          _completionMessage,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.textSecondary,
-            height: 1.6,
-          ),
+        _SummaryRow(
+          label: 'รูปแบบ',
+          value: _isCreatingNew
+              ? 'สร้างฐานข้อมูลใหม่ในเครื่องนี้'
+              : 'เชื่อมต่อฐานข้อมูลเดิม',
         ),
-        const SizedBox(height: 28),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white12),
+        _SummaryRow(label: 'ไฟล์ฐานข้อมูล', value: _pathCtrl.text.trim()),
+        if (_isCreatingNew) ...[
+          _SummaryRow(
+            label: 'ชื่อองค์กร',
+            value: _companyCtrl.text.trim().isEmpty
+                ? 'ยังไม่ได้ระบุ'
+                : _companyCtrl.text.trim(),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'สิ่งที่พร้อมใช้งานแล้ว',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 14),
-              _CompletionBullet(
-                text: _isCreatingNew
-                    ? 'ฐานข้อมูลเริ่มต้นถูกสร้างเรียบร้อย'
-                    : 'เครื่องนี้จดจำฐานข้อมูลที่เชื่อมต่อไว้แล้ว',
-              ),
-              _CompletionBullet(
-                text: _isCreatingNew
-                    ? 'บัญชี Admin คนแรกพร้อมเข้าสู่ระบบ'
-                    : 'พร้อมเข้าสู่ระบบด้วยบัญชีที่มีอยู่ในฐานข้อมูล',
-              ),
-              _CompletionBullet(
-                text: 'สามารถกลับมาแก้ไขการตั้งค่าฐานข้อมูลได้ในภายหลัง',
-              ),
-            ],
+          _SummaryRow(
+            label: 'Serial Key',
+            value: _serialKeyCtrl.text.trim().isEmpty
+                ? 'ยังไม่ได้ระบุ'
+                : _serialKeyCtrl.text.trim(),
           ),
-        ),
-        const SizedBox(height: 28),
-        SizedBox(
-          width: double.infinity,
-          height: 56,
-          child: ElevatedButton.icon(
-            onPressed: widget.onConnected,
-            icon: const Icon(Icons.arrow_forward_rounded),
-            label: const Text(
-              'เริ่มใช้งาน MASAPP',
-              style: TextStyle(fontSize: 18),
-            ),
+          _SummaryRow(
+            label: 'Admin คนแรก',
+            value: _adminUsernameCtrl.text.trim().isEmpty
+                ? 'ยังไม่ได้ระบุ'
+                : _adminUsernameCtrl.text.trim(),
           ),
+          _SummaryRow(
+            label: 'โลโก้บริษัท',
+            value: _logoBase64 == null ? 'ไม่ได้แนบ' : 'แนบแล้ว',
+          ),
+        ],
+        const SizedBox(height: 10),
+        _SetupHintBox(
+          icon: Icons.verified_user_outlined,
+          title: _isCreatingNew ? 'พร้อมสร้างระบบ' : 'พร้อมเชื่อมต่อ',
+          message: _isCreatingNew
+              ? 'เมื่อกดเริ่มใช้งาน ระบบจะสร้าง schema, seed ข้อมูลพื้นฐาน และตั้ง Admin คนแรกตามข้อมูลที่กรอกไว้'
+              : 'เมื่อกดเชื่อมต่อ ระบบจะบันทึก config ของเครื่องนี้โดยไม่แก้ไขข้อมูลในฐานเดิม',
         ),
       ],
     );
   }
+
+  // ─── Completion view ─────────────────────────────────────────────────────
+
+  Widget _buildCompletionView() {
+    return Center(
+      key: const ValueKey('completion'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.success.withValues(alpha: 0.3),
+                  width: 2,
+                ),
+              ),
+              child: const Icon(
+                Icons.check_rounded,
+                color: AppColors.success,
+                size: 50,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              _completionTitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF1A1A2E),
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _completionMessage,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Color(0xFF64748B),
+                height: 1.6,
+              ),
+            ),
+            const SizedBox(height: 28),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'สิ่งที่พร้อมใช้งานแล้ว',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _CompletionBullet(
+                    text: _isCreatingNew
+                        ? 'ฐานข้อมูลเริ่มต้นถูกสร้างเรียบร้อย'
+                        : 'เครื่องนี้จดจำฐานข้อมูลที่เชื่อมต่อไว้แล้ว',
+                  ),
+                  _CompletionBullet(
+                    text: _isCreatingNew
+                        ? 'บัญชี Admin คนแรกพร้อมเข้าสู่ระบบ'
+                        : 'พร้อมเข้าสู่ระบบด้วยบัญชีที่มีอยู่ในฐานข้อมูล',
+                  ),
+                  _CompletionBullet(
+                    text: 'สามารถกลับมาแก้ไขการตั้งค่าฐานข้อมูลได้ในภายหลัง',
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton(
+                onPressed: widget.onConnected,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: const Text(
+                  'เริ่มใช้งาน MASAPP  →',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Preparing view ──────────────────────────────────────────────────────
 
   Widget _buildPreparingView() {
     final stageTexts = _isCreatingNew
@@ -1068,255 +1187,148 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
             'กำลังทดสอบการเชื่อมต่อกับฐานข้อมูล',
             'กำลังเตรียมหน้าจอสำหรับเริ่มใช้งาน MASAPP',
           ];
-    return Column(
-      key: const ValueKey('setup-preparing-view'),
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        const SizedBox(height: 24),
-        TweenAnimationBuilder<double>(
-          tween: Tween(begin: 0.92, end: 1),
-          duration: const Duration(milliseconds: 900),
-          curve: Curves.easeOutCubic,
-          builder: (context, scale, child) {
-            return Transform.scale(scale: scale, child: child);
-          },
-          child: Container(
-            width: 92,
-            height: 92,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.primary.withValues(alpha: 0.24),
-                  const Color(0xFF27D2BF).withValues(alpha: 0.14),
-                ],
-              ),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
-              ),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.all(22),
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: Colors.white,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 28),
-        Text(
-          _isCreatingNew ? 'กำลังเตรียมระบบ...' : 'กำลังเตรียมการเชื่อมต่อ...',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          _isCreatingNew
-              ? 'ระบบกำลังบันทึกการตั้งค่า สร้างสภาพแวดล้อมเริ่มต้น และตรวจสอบความพร้อมก่อนเริ่มใช้งาน'
-              : 'ระบบกำลังบันทึกการตั้งค่าของเครื่องนี้และตรวจสอบการเชื่อมต่อฐานข้อมูลให้พร้อมใช้งาน',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 14,
-            color: AppColors.textSecondary,
-            height: 1.65,
-          ),
-        ),
-        const SizedBox(height: 28),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'ความคืบหน้า',
-                    style: AppTextStyles.labelLarge.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${(_preparingProgress * 100).round()}%',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  minHeight: 10,
-                  value: _preparingProgress,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  valueColor: const AlwaysStoppedAnimation(AppColors.primary),
-                ),
-              ),
-              const SizedBox(height: 12),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: Align(
-                  key: ValueKey('preparing-stage-$_preparingStage'),
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    stageTexts[_preparingStage],
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < stageTexts.length; i++)
-                _PreparingStepBullet(
-                  text: stageTexts[i],
-                  active: i == _preparingStage,
-                  done: i < _preparingStage ||
-                      (_preparingProgress >= 1.0 && i == _preparingStage),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
 
-class _BottomStepDots extends StatelessWidget {
-  final int currentStep;
-  final int totalSteps;
-
-  const _BottomStepDots({
-    required this.currentStep,
-    required this.totalSteps,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(totalSteps, (index) {
-        final isActive = index == currentStep;
-        final isDone = index < currentStep;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          width: isActive ? 28 : 10,
-          height: 10,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
-          decoration: BoxDecoration(
-            color: isActive || isDone
-                ? AppColors.primary
-                : Colors.white.withValues(alpha: 0.18),
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: isActive
-                ? [
-                    BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                      spreadRadius: 1,
-                    ),
-                  ]
-                : null,
-          ),
-        );
-      }),
-    );
-  }
-}
-
-class _AnimatedGlowOrb extends StatelessWidget {
-  final double size;
-  final List<Color> colors;
-
-  const _AnimatedGlowOrb({
-    required this.size,
-    required this.colors,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Transform.rotate(
-        angle: math.pi / 8,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(colors: colors),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryRow extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _SummaryRow({
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white12),
-        ),
+    return Center(
+      key: const ValueKey('preparing'),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              label,
-              style: const TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.85, end: 1),
+              duration: const Duration(milliseconds: 900),
+              curve: Curves.easeOutCubic,
+              builder: (context, scale, child) =>
+                  Transform.scale(scale: scale, child: child),
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.all(20),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: AppColors.primary,
+                  ),
+                ),
               ),
             ),
-            const SizedBox(height: 4),
-            SelectableText(
-              value,
+            const SizedBox(height: 20),
+            Text(
+              _isCreatingNew
+                  ? 'กำลังเตรียมระบบ...'
+                  : 'กำลังเตรียมการเชื่อมต่อ...',
+              textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 22,
                 fontWeight: FontWeight.w600,
+                color: Color(0xFF1A1A2E),
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _isCreatingNew
+                  ? 'ระบบกำลังบันทึกการตั้งค่า สร้างสภาพแวดล้อมเริ่มต้น และตรวจสอบความพร้อม'
+                  : 'ระบบกำลังบันทึกการตั้งค่าและตรวจสอบการเชื่อมต่อฐานข้อมูล',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF64748B),
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'ความคืบหน้า',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${(_preparingProgress * 100).round()}%',
+                        style: const TextStyle(
+                          color: Color(0xFF1A1A2E),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      minHeight: 6,
+                      value: _preparingProgress,
+                      backgroundColor: const Color(0xFFE2E8F0),
+                      valueColor: const AlwaysStoppedAnimation(
+                        AppColors.primary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    child: Align(
+                      key: ValueKey('stage-$_preparingStage'),
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        stageTexts[_preparingStage],
+                        style: const TextStyle(
+                          color: Color(0xFF334155),
+                          fontWeight: FontWeight.w500,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var i = 0; i < stageTexts.length; i++)
+                    _PreparingStepBullet(
+                      text: stageTexts[i],
+                      active: i == _preparingStage,
+                      done:
+                          i < _preparingStage ||
+                          (_preparingProgress >= 1.0 && i == _preparingStage),
+                    ),
+                ],
               ),
             ),
           ],
@@ -1326,58 +1338,79 @@ class _SummaryRow extends StatelessWidget {
   }
 }
 
-class _SectionCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final Widget child;
+// ─────────────────────────────────────────────────────────────────────────────
+// Widget components
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const _SectionCard({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
+/// Concentric-circle illustration used in the left panel.
+class _StepIllustration extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+
+  const _StepIllustration({super.key, required this.icon, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return SizedBox(
+      width: 240,
+      height: 240,
+      child: Stack(
+        alignment: Alignment.center,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              height: 1.45,
+          // Outer soft ring
+          Container(
+            width: 220,
+            height: 220,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.06),
             ),
           ),
-          const SizedBox(height: 18),
-          child,
+          // Mid ring
+          Container(
+            width: 165,
+            height: 165,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.10),
+            ),
+          ),
+          // Core circle with gradient
+          Container(
+            width: 112,
+            height: 112,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [color.withValues(alpha: 0.82), color],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.28),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 52),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ModeOptionCard extends StatelessWidget {
+/// OOBE-style selectable list item.
+class _OobeListItem extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
   final bool selected;
   final VoidCallback onTap;
 
-  const _ModeOptionCard({
+  const _OobeListItem({
     required this.icon,
     required this.title,
     required this.subtitle,
@@ -1390,38 +1423,140 @@ class _ModeOptionCard extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 14),
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primary : Colors.white10,
-          borderRadius: BorderRadius.circular(14),
+          color: selected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected ? AppColors.primary : Colors.white24,
+            color: selected ? AppColors.primary : const Color(0xFFDDE1ED),
+            width: selected ? 1.5 : 1,
           ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        child: Column(
+        child: Row(
           children: [
             Icon(
               icon,
-              color: selected ? Colors.white : Colors.white54,
-              size: 30,
+              color: selected ? Colors.white : const Color(0xFF64748B),
+              size: 20,
             ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: selected ? Colors.white : Colors.white70,
-                fontWeight: FontWeight.bold,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : const Color(0xFF1A1A2E),
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: selected
+                          ? Colors.white.withValues(alpha: 0.78)
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
+            if (selected)
+              const Icon(
+                Icons.check_circle_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomStepDots extends StatelessWidget {
+  final int currentStep;
+  final int totalSteps;
+
+  const _BottomStepDots({required this.currentStep, required this.totalSteps});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(totalSteps, (index) {
+        final isActive = index == currentStep;
+        final isDone = index < currentStep;
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          width: isActive ? 22 : 7,
+          height: 7,
+          margin: const EdgeInsets.symmetric(horizontal: 3),
+          decoration: BoxDecoration(
+            color: isActive
+                ? AppColors.primary
+                : isDone
+                ? AppColors.primary.withValues(alpha: 0.35)
+                : const Color(0xFFCBD5E1),
+            borderRadius: BorderRadius.circular(999),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SummaryRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              subtitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: selected ? Colors.white70 : Colors.white38,
-                fontSize: 12,
+              label,
+              style: const TextStyle(
+                color: Color(0xFF94A3B8),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 2),
+            SelectableText(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1A1A2E),
               ),
             ),
           ],
@@ -1446,17 +1581,17 @@ class _SetupHintBox extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+        color: const Color(0xFFEEF2FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFC7D2FE)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: AppColors.primary),
-          const SizedBox(width: 12),
+          Icon(icon, color: AppColors.primary, size: 16),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1464,14 +1599,19 @@ class _SetupHintBox extends StatelessWidget {
                 Text(
                   title,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w600,
                     color: AppColors.primary,
+                    fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   message,
-                  style: const TextStyle(height: 1.5),
+                  style: const TextStyle(
+                    height: 1.4,
+                    fontSize: 12,
+                    color: Color(0xFF4338CA),
+                  ),
                 ),
               ],
             ),
@@ -1492,12 +1632,16 @@ class _StatusBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: ok ? AppColors.successContainer : AppColors.errorContainer,
-        borderRadius: BorderRadius.circular(12),
+        color: ok
+            ? AppColors.success.withValues(alpha: 0.08)
+            : AppColors.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: ok ? AppColors.success : AppColors.error,
+          color: ok
+              ? AppColors.success.withValues(alpha: 0.4)
+              : AppColors.error.withValues(alpha: 0.4),
         ),
       ),
       child: Row(
@@ -1505,14 +1649,16 @@ class _StatusBanner extends StatelessWidget {
           Icon(
             ok ? Icons.check_circle : Icons.error,
             color: ok ? AppColors.success : AppColors.error,
-            size: 20,
+            size: 16,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               message,
-              style: AppTextStyles.bodyMedium.copyWith(
+              style: TextStyle(
                 color: ok ? AppColors.success : AppColors.error,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
@@ -1530,28 +1676,24 @@ class _CompletionBullet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 22,
-            height: 22,
+            width: 18,
+            height: 18,
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.14),
+              color: AppColors.success.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.check,
-              size: 14,
-              color: AppColors.success,
-            ),
+            child: const Icon(Icons.check, size: 11, color: AppColors.success),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: AppTextStyles.bodyMedium,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF334155)),
             ),
           ),
         ],
@@ -1575,33 +1717,36 @@ class _PreparingStepBullet extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color accent = done
         ? AppColors.success
-        : (active ? AppColors.primary : Colors.white30);
+        : (active ? AppColors.primary : const Color(0xFFCBD5E1));
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 220),
-            width: 22,
-            height: 22,
+            width: 18,
+            height: 18,
             decoration: BoxDecoration(
-              color: accent.withValues(alpha: active || done ? 0.16 : 0.08),
+              color: accent.withValues(alpha: active || done ? 0.14 : 0.06),
               shape: BoxShape.circle,
             ),
             child: Icon(
               done ? Icons.check : (active ? Icons.sync_rounded : Icons.circle),
-              size: done || active ? 14 : 8,
+              size: done || active ? 11 : 6,
               color: accent,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: active || done ? Colors.white : Colors.white70,
-                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+              style: TextStyle(
+                fontSize: 12,
+                color: active || done
+                    ? const Color(0xFF1A1A2E)
+                    : const Color(0xFF94A3B8),
+                fontWeight: active ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
           ),

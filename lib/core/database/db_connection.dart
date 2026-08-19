@@ -32,7 +32,10 @@ class DbConnection {
   /// 2. Busy timeout: Clients wait up to 5000ms instead of immediate "database locked" error
   /// 3. Foreign key constraints
   /// 4. Synchronous mode optimized for network shares
-  Future<void> connect(AppConfig config, {bool skipInitialization = false}) async {
+  Future<void> connect(
+    AppConfig config, {
+    bool skipInitialization = false,
+  }) async {
     await _db?.close();
 
     // Initialize FFI for Desktop only once
@@ -63,10 +66,9 @@ class DbConnection {
           // However, WAL requires OS-level shared memory and does NOT work
           // on network file shares (UNC paths like \\server\share or mapped
           // network drives). We detect this and fall back to DELETE mode.
-          final isNetworkPath = _isNetworkPath(resolvedDbPath);
-          if (isNetworkPath) {
-            // DELETE mode: safe for network shares (no shared memory needed)
-            await db.execute('PRAGMA journal_mode = DELETE');
+          final networkPath = isNetworkPath(resolvedDbPath);
+          if (networkPath) {
+            // Do not alter persistent SQLite settings on a shared database.
             _log.w(
               'Network path detected — WAL disabled, using DELETE journal mode',
             );
@@ -83,25 +85,24 @@ class DbConnection {
             }
           }
 
-          // Optimize sync strategy
-          // NORMAL on network, FULL on local (safer for WAL)
-          await db.execute(
-            isNetworkPath
-                ? 'PRAGMA synchronous = FULL' // safer for network
-                : 'PRAGMA synchronous = NORMAL', // faster for local+WAL
-          );
+          // Keep persistent SQLite settings local-only.
+          if (!networkPath) {
+            await db.execute('PRAGMA synchronous = NORMAL');
+          }
 
           // Cache size for better performance
           await db.execute('PRAGMA cache_size = -64000'); // 64MB
 
-          _log.i('Database PRAGMAs configured (network=$isNetworkPath)');
+          _log.i('Database PRAGMAs configured (network=$networkPath)');
         },
         onOpen: (db) async {
           _log.i('Database connection opened successfully');
           // [TEMPORARY WIPE] Remove after one run
           // await DbInitializer.wipeMachineData(db);
 
-          if (!skipInitialization) {
+          // A shared network database must not be initialized or migrated by
+          // a client merely connecting to it. It is managed at its source.
+          if (!skipInitialization && !isNetworkPath(resolvedDbPath)) {
             await DbInitializer.initializeDatabase(db);
           }
         },
@@ -168,7 +169,7 @@ class DbConnection {
   /// - UNC paths: `\\server\share\...`
   /// - Forward-slash UNC: `//server/share/...`
   /// - Windows mapped network drives: detected via GetDriveTypeW (type = 4)
-  static bool _isNetworkPath(String path) {
+  static bool isNetworkPath(String path) {
     // UNC paths always start with \\ or //
     if (path.startsWith(r'\\') || path.startsWith('//')) return true;
 

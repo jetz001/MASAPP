@@ -22,8 +22,6 @@ class MasApp extends ConsumerStatefulWidget {
 
 class _MasAppState extends ConsumerState<MasApp> {
   bool _initialized = false;
-  String? _startupError;
-  bool _startupErrorShown = false;
 
   @override
   void initState() {
@@ -35,11 +33,12 @@ class _MasAppState extends ConsumerState<MasApp> {
     final config = await AppConfigService.load();
     if (config != null) {
       try {
-        await DbConnection.instance.connect(config);
+        await DbConnection.instance.connect(
+          config,
+          skipInitialization: DbConnection.isNetworkPath(config.dbPath),
+        );
       } catch (e) {
         AppConfigService.clearCache();
-        _startupError =
-            'เชื่อมต่อฐานข้อมูลเดิมไม่สำเร็จ กรุณาตรวจสอบ path หรือสิทธิ์การเข้าถึง';
         debugPrint('Startup DB connect failed for ${config.dbPath}: $e');
       }
     }
@@ -89,60 +88,42 @@ class _MasAppState extends ConsumerState<MasApp> {
 
         return ScaffoldMessenger(
           child: Builder(
-            builder: (context) {
-              if (_startupError != null && !_startupErrorShown) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!mounted || _startupErrorShown) return;
-                  final messenger = ScaffoldMessenger.maybeOf(context);
-                  if (messenger == null) return;
+            builder: (context) => CircularThemeRevealOverlay(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  // Determine logical size to fill the window at the given scale
+                  final logicalWidth = constraints.maxWidth / scale;
+                  final logicalHeight = constraints.maxHeight / scale;
 
-                  setState(() => _startupErrorShown = true);
-                  messenger.showSnackBar(
-                    SnackBar(
-                      content: Text(_startupError!),
-                      backgroundColor: Colors.orange.shade700,
+                  return MediaQuery(
+                    data: MediaQuery.of(context).copyWith(
+                      size: Size(
+                        logicalWidth,
+                        logicalHeight - 38 / scale,
+                      ), // Adjust for title bar
+                      textScaler: TextScaler.linear(scale),
                     ),
-                  );
-                });
-              }
-
-              return CircularThemeRevealOverlay(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Determine logical size to fill the window at the given scale
-                    final logicalWidth = constraints.maxWidth / scale;
-                    final logicalHeight = constraints.maxHeight / scale;
-
-                    return MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        size: Size(
-                          logicalWidth,
-                          logicalHeight - 38 / scale,
-                        ), // Adjust for title bar
-                        textScaler: TextScaler.linear(scale),
-                      ),
-                      child: Column(
-                        children: [
-                          const WindowTitleBar(),
-                          Expanded(
-                            child: OverflowBox(
+                    child: Column(
+                      children: [
+                        const WindowTitleBar(),
+                        Expanded(
+                          child: OverflowBox(
+                            alignment: Alignment.topLeft,
+                            maxWidth: logicalWidth,
+                            maxHeight: logicalHeight - 38 / scale,
+                            child: Transform.scale(
+                              scale: scale,
                               alignment: Alignment.topLeft,
-                              maxWidth: logicalWidth,
-                              maxHeight: logicalHeight - 38 / scale,
-                              child: Transform.scale(
-                                scale: scale,
-                                alignment: Alignment.topLeft,
-                                child: child,
-                              ),
+                              child: child,
                             ),
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              );
-            },
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
         );
       },
