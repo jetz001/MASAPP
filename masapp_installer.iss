@@ -52,9 +52,54 @@ Type: filesandordirs; Name: "{app}\*"
 Type: dirifempty; Name: "{app}"
 
 [UninstallRun]
-Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden skipifdoesntexist
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM {#MyAppExeName}"; Flags: runhidden skipifdoesntexist; RunOnceId: "Kill{#MyAppName}Process"
 
 [Code]
+var
+  RemoveAppDataOnUninstall: Boolean;
+
+procedure DeleteFileIfExists(const FilePath: string);
+begin
+  if FileExists(FilePath) then
+  begin
+    DeleteFile(FilePath);
+  end;
+end;
+
+procedure RemoveDirIfEmptySafe(const DirPath: string);
+begin
+  if DirExists(DirPath) then
+  begin
+    RemoveDir(DirPath);
+  end;
+end;
+
+procedure DeleteAppDataFiles();
+var
+  UserDataRoot: string;
+  LegacyNestedRoot: string;
+  DocumentsRoot: string;
+  InstallLocalConfigRoot: string;
+begin
+  UserDataRoot := ExpandConstant('{userappdata}\com.masapp\masapp');
+  LegacyNestedRoot := UserDataRoot + '\masapp';
+  DocumentsRoot := ExpandConstant('{userdocs}\MASAPP');
+  InstallLocalConfigRoot := ExpandConstant('{app}\.masapp');
+
+  { Remove only client-side app state. Do not touch any configured database path. }
+  DeleteFileIfExists(UserDataRoot + '\config.json');
+  DeleteFileIfExists(UserDataRoot + '\shared_preferences.json');
+  DeleteFileIfExists(LegacyNestedRoot + '\config.json');
+  DeleteFileIfExists(DocumentsRoot + '\config.json');
+  DeleteFileIfExists(InstallLocalConfigRoot + '\config.json');
+
+  RemoveDirIfEmptySafe(LegacyNestedRoot);
+  RemoveDirIfEmptySafe(DocumentsRoot);
+  RemoveDirIfEmptySafe(InstallLocalConfigRoot);
+  RemoveDirIfEmptySafe(UserDataRoot);
+  RemoveDirIfEmptySafe(ExpandConstant('{userappdata}\com.masapp'));
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;
@@ -66,6 +111,26 @@ begin
     if MsgBox('ตรวจพบว่ามีโปรแกรม {#MyAppName} ติดตั้งอยู่ในเครื่องนี้แล้ว' + #13#10 + 'คุณต้องการติดตั้งทับเพื่อ อัปเดต หรือ ซ่อมแซม (Repair) ใช่หรือไม่?', mbConfirmation, MB_YESNO) = IDNO then
     begin
       Result := False;
+    end;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    RemoveAppDataOnUninstall :=
+      MsgBox(
+        'ต้องการลบข้อมูลแอปบนเครื่องนี้ด้วยหรือไม่?' + #13#10#13#10 +
+        'ระบบจะลบเฉพาะ config และข้อมูลจำการเข้าสู่ระบบของแอปบนเครื่องนี้เท่านั้น' + #13#10 +
+        'ระบบจะไม่ลบฐานข้อมูลที่ตั้งค่าไว้ และจะไม่แตะฐานข้อมูลบน network',
+        mbConfirmation,
+        MB_YESNO
+      ) = IDYES;
+
+    if RemoveAppDataOnUninstall then
+    begin
+      DeleteAppDataFiles();
     end;
   end;
 end;
