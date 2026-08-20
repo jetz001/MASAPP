@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 // lib/core/ai/ai_tool_handler.dart
 // Executes SQL queries on behalf of the AI — database-first with optional external search.
 
@@ -55,12 +56,373 @@ class AiToolHandler {
           return await _searchExternalWeb(args);
         case 'search_external_images':
           return await _searchExternalImages(args);
+                case 'register_machines':
+          return await _registerMachines(args);
+        case 'create_pm_plans':
+          return await _createPmPlans(args);
+        case 'register_spare_parts':
+          return await _registerSpareParts(args);
+        case 'create_work_order':
+          return await _createWorkOrder(args);
         default:
           return '{"error": "Unknown tool: $toolName"}';
       }
     } catch (e) {
       return '{"error": "${_esc(e.toString())}"}';
     }
+  }
+
+
+  static Future<String> _registerMachines(Map<String, dynamic> args) async {
+    final rawList = args['machines'];
+    if (rawList is! List || rawList.isEmpty) {
+      return jsonEncode({'error': 'Parameter "machines" must be a non-empty array.'});
+    }
+
+    int inserted = 0;
+    int updated = 0;
+    final details = <String>[];
+
+    for (final item in rawList) {
+      if (item is! Map) continue;
+      final map = item.cast<String, dynamic>();
+
+      final machineNo = map['machine_no']?.toString().trim() ?? '';
+      if (machineNo.isEmpty) continue;
+
+      final machineName = map['machine_name']?.toString().trim();
+      final assetNo = map['asset_no']?.toString().trim();
+      final brand = map['brand']?.toString().trim();
+      final model = map['model']?.toString().trim();
+      final serialNo = map['serial_no']?.toString().trim();
+      final location = map['location']?.toString().trim();
+      final status = map['status']?.toString().trim().toLowerCase() ?? 'normal';
+      final notes = map['notes']?.toString().trim();
+
+      // Check if machine already exists
+      final existing = await DbHelper.queryOne(
+        'SELECT machine_id FROM machines WHERE machine_no = @no OR (asset_no IS NOT NULL AND asset_no = @no)',
+        params: {'no': machineNo},
+      );
+
+      String machineId;
+      if (existing != null) {
+        machineId = existing['machine_id'].toString();
+        await DbHelper.execute('''
+          UPDATE machines
+          SET machine_name = COALESCE(@name, machine_name),
+              asset_no = COALESCE(@asset, asset_no),
+              brand = COALESCE(@brand, brand),
+              model = COALESCE(@model, model),
+              serial_no = COALESCE(@serial, serial_no),
+              location = COALESCE(@loc, location),
+              status = COALESCE(@status, status),
+              notes = COALESCE(@notes, notes),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE machine_id = @id
+        ''', params: {
+          'id': machineId,
+          'name': machineName,
+          'asset': assetNo,
+          'brand': brand,
+          'model': model,
+          'serial': serialNo,
+          'loc': location,
+          'status': status,
+          'notes': notes,
+        });
+        updated++;
+      } else {
+        machineId = const Uuid().v4();
+        await DbHelper.execute('''
+          INSERT INTO machines (
+            machine_id, machine_no, machine_name, asset_no, brand, model,
+            serial_no, location, status, is_active, notes, created_at, updated_at
+          ) VALUES (
+            @id, @no, @name, @asset, @brand, @model,
+            @serial, @loc, @status, 1, @notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': machineId,
+          'no': machineNo,
+          'name': machineName,
+          'asset': assetNo,
+          'brand': brand,
+          'model': model,
+          'serial': serialNo,
+          'loc': location,
+          'status': status,
+          'notes': notes,
+        });
+        inserted++;
+      }
+
+      // Specs
+      if (map['specs'] is Map) {
+        final specs = (map['specs'] as Map).cast<String, dynamic>();
+        final specId = const Uuid().v4();
+        await DbHelper.execute('''
+          INSERT OR REPLACE INTO machine_specs (
+            spec_id, machine_id, power_kw, voltage_v, current_a, capacity, updated_at
+          ) VALUES (
+            @sid, @mid, @power, @volt, @curr, @cap, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'sid': specId,
+          'mid': machineId,
+          'power': (specs['power_kw'] as num?)?.toDouble(),
+          'volt': (specs['voltage_v'] as num?)?.toDouble(),
+          'curr': (specs['current_a'] as num?)?.toDouble(),
+          'cap': (specs['capacity'] as num?)?.toDouble(),
+        });
+      }
+
+      details.add('$machineNo: ${machineName ?? brand ?? "เครื่องจักร"}');
+    }
+
+    return jsonEncode({
+      'status': 'success',
+      'inserted_count': inserted,
+      'updated_count': updated,
+      'total_processed': inserted + updated,
+      'machines': details,
+      'message': 'บันทึกข้อมูลเครื่องจักรลงฐานข้อมูลสำเร็จ (เพิ่มใหม่ $inserted, อัปเดต $updated เครื่อง)',
+    });
+  }
+
+
+  static Future<String> _createPmPlans(Map<String, dynamic> args) async {
+    final machineIdentifier = args['machine_identifier']?.toString().trim() ?? '';
+    final planType = (args['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
+    final planName = args['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษาประจำเครื่อง';
+    final frequencyDays = (args['frequency_days'] as num?)?.toInt() ?? 30;
+    final tasks = args['tasks'];
+
+    // Find machine
+    final machine = await DbHelper.queryOne(
+      'SELECT machine_id, machine_no, machine_name FROM machines WHERE machine_no = @id OR machine_id = @id LIMIT 1',
+      params: {'id': machineIdentifier},
+    );
+
+    if (machine == null) {
+      return jsonEncode({'error': 'ไม่พบเครื่องจักรที่มีรหัส/ชื่อ "$machineIdentifier"'});
+    }
+
+    final machineId = machine['machine_id'].toString();
+    final machineNo = machine['machine_no'].toString();
+    final planId = const Uuid().v4();
+    final planCode = '$planType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
+
+    await DbHelper.execute('''
+      INSERT INTO pm_am_plans (
+        plan_id, machine_id, plan_type, plan_code, plan_name,
+        frequency_days, status, created_at, updated_at
+      ) VALUES (
+        @id, @mid, @type, @code, @name,
+        @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    ''', params: {
+      'id': planId,
+      'mid': machineId,
+      'type': planType,
+      'code': planCode,
+      'name': planName,
+      'freq': frequencyDays,
+    });
+
+    int taskCount = 0;
+    if (tasks is List && tasks.isNotEmpty) {
+      for (int i = 0; i < tasks.length; i++) {
+        final t = tasks[i];
+        final taskName = (t is Map ? t['task_name'] : t)?.toString().trim() ?? '';
+        if (taskName.isEmpty) continue;
+        final taskType = (t is Map ? t['task_type']?.toString() : null) ?? 'inspect';
+        final isCritical = (t is Map && t['is_critical'] == true) ? 1 : 0;
+
+        await DbHelper.execute('''
+          INSERT INTO pm_am_tasks (
+            task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+          ) VALUES (
+            @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'tid': const Uuid().v4(),
+          'pid': planId,
+          'order': i + 1,
+          'name': taskName,
+          'type': taskType,
+          'crit': isCritical,
+        });
+        taskCount++;
+      }
+    }
+
+    return jsonEncode({
+      'status': 'success',
+      'plan_id': planId,
+      'plan_code': planCode,
+      'plan_name': planName,
+      'machine_no': machineNo,
+      'tasks_created': taskCount,
+      'message': 'สร้างแผนแม่บท $planType ($planCode) สำหรับเครื่อง $machineNo สำเร็จ พร้อมรายการตรวจเช็ค $taskCount รายการ',
+    });
+  }
+
+  static Future<String> _registerSpareParts(Map<String, dynamic> args) async {
+    final rawParts = args['parts'];
+    if (rawParts is! List || rawParts.isEmpty) {
+      return jsonEncode({'error': 'Parameter "parts" must be a non-empty array.'});
+    }
+
+    final machineIdentifier = args['machine_identifier']?.toString().trim();
+    String? linkedMachineId;
+    if (machineIdentifier != null && machineIdentifier.isNotEmpty) {
+      final machine = await DbHelper.queryOne(
+        'SELECT machine_id FROM machines WHERE machine_no = @id OR machine_id = @id LIMIT 1',
+        params: {'id': machineIdentifier},
+      );
+      linkedMachineId = machine?['machine_id']?.toString();
+    }
+
+    int inserted = 0;
+    final partNames = <String>[];
+
+    for (final item in rawParts) {
+      if (item is! Map) continue;
+      final map = item.cast<String, dynamic>();
+
+      final partCode = map['part_code']?.toString().trim() ?? 'PART-${DateTime.now().millisecondsSinceEpoch % 100000}';
+      final partName = map['part_name']?.toString().trim() ?? '';
+      if (partName.isEmpty) continue;
+
+      final category = map['category']?.toString().trim();
+      final unitCost = (map['unit_cost'] as num?)?.toDouble() ?? 0.0;
+      final reorderLevel = (map['reorder_level'] as num?)?.toInt() ?? 5;
+      final initialQty = (map['initial_quantity'] as num?)?.toInt() ?? 0;
+
+      final existing = await DbHelper.queryOne(
+        'SELECT part_id FROM spare_parts WHERE part_code = @code LIMIT 1',
+        params: {'code': partCode},
+      );
+
+      String partId;
+      if (existing != null) {
+        partId = existing['part_id'].toString();
+      } else {
+        partId = const Uuid().v4();
+        await DbHelper.execute('''
+          INSERT INTO spare_parts (
+            part_id, part_code, part_name, category, unit_cost, reorder_level, is_active, created_at
+          ) VALUES (
+            @id, @code, @name, @cat, @cost, @reorder, 1, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': partId,
+          'code': partCode,
+          'name': partName,
+          'cat': category,
+          'cost': unitCost,
+          'reorder': reorderLevel,
+        });
+
+        // Create inventory record
+        await DbHelper.execute('''
+          INSERT OR IGNORE INTO spare_parts_inventory (
+            inventory_id, part_id, quantity_on_hand, quantity_reserved, updated_at
+          ) VALUES (
+            @invid, @pid, @qty, 0, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'invid': const Uuid().v4(),
+          'pid': partId,
+          'qty': initialQty,
+        });
+        inserted++;
+      }
+
+      // Link to machine if requested
+      if (linkedMachineId != null) {
+        await DbHelper.execute('''
+          INSERT OR IGNORE INTO part_machine_map (map_id, part_id, machine_id, quantity)
+          VALUES (@mid, @pid, @machid, 1)
+        ''', params: {
+          'mid': const Uuid().v4(),
+          'pid': partId,
+          'machid': linkedMachineId,
+        });
+      }
+
+      partNames.add('$partCode: $partName');
+    }
+
+    return jsonEncode({
+      'status': 'success',
+      'inserted_count': inserted,
+      'parts': partNames,
+      'message': 'บันทึกรายการอะไหล่สำเร็จ $inserted รายการ',
+    });
+  }
+
+  static Future<String> _createWorkOrder(Map<String, dynamic> args) async {
+    final title = args['title']?.toString().trim() ?? 'แจ้งซ่อมเครื่องจักร';
+    final machineIdentifier = args['machine_identifier']?.toString().trim() ?? '';
+    final symptom = args['symptom']?.toString().trim() ?? '';
+    final priority = args['priority']?.toString().trim().toLowerCase() ?? 'normal';
+    final description = args['description']?.toString().trim() ?? symptom;
+
+    // Find machine
+    final machine = await DbHelper.queryOne(
+      'SELECT machine_id, machine_no, machine_name FROM machines WHERE machine_no = @id OR machine_id = @id LIMIT 1',
+      params: {'id': machineIdentifier},
+    );
+
+    final machineId = machine?['machine_id']?.toString() ?? 'GENERAL';
+    final machineNo = machine?['machine_no']?.toString() ?? 'ทั่วไป';
+
+    // Auto-generate WO No
+    final year = DateTime.now().year;
+    final countRow = await DbHelper.queryOne(
+      "SELECT COUNT(*) as c FROM work_orders WHERE wo_no LIKE 'WO-$year-%'",
+    );
+    final nextNum = ((countRow?['c'] as num?)?.toInt() ?? 0) + 1;
+    final woNo = 'WO-$year-${nextNum.toString().padLeft(5, '0')}';
+    final woId = const Uuid().v4();
+
+    // Default admin user id for system creation
+    final adminUser = await DbHelper.queryOne("SELECT user_id FROM users LIMIT 1");
+    final createdBy = adminUser?['user_id']?.toString() ?? 'U-ADMIN';
+
+    await DbHelper.execute('''
+      INSERT INTO work_orders (
+        wo_id, wo_no, machine_id, status, priority, title,
+        description, failure_symptom, created_by, created_at, updated_at
+      ) VALUES (
+        @id, @no, @mid, 'pending', @pri, @title,
+        @desc, @sym, @by, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    ''', params: {
+      'id': woId,
+      'no': woNo,
+      'mid': machineId,
+      'pri': priority,
+      'title': title,
+      'desc': description,
+      'sym': symptom,
+      'by': createdBy,
+    });
+
+    // Auto-sync to Vector DB
+    VectorDbService.syncWorkOrder(woId);
+
+    return jsonEncode({
+      'status': 'success',
+      'wo_id': woId,
+      'wo_no': woNo,
+      'title': title,
+      'machine_no': machineNo,
+      'priority': priority,
+      'message': 'เปิดใบแจ้งซ่อมเลขที่ $woNo ($title) สำหรับเครื่อง $machineNo เรียบร้อยแล้ว',
+    });
   }
 
   static Future<String> _searchVectorKnowledge(Map<String, dynamic> args) async {

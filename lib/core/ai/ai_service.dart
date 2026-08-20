@@ -56,10 +56,118 @@ Available data in this system:
 - Tools (เครื่องมือช่าง): checkout status, location
 - Work Permits (ใบอนุญาตทำงาน): status, safety checks
 - File Assets (ไฟล์แนบ/รูป/PDF): normalized file paths, previews, thumbnails, page counts
+- Database Actions / Import Tools:
+  * Machine Registration: When asked to register/import machines from documents or text, extract machine fields and call `register_machines`.
+  * PM / AM Master Plans: When asked to create PM plans or maintenance schedules from manuals, call `create_pm_plans`.
+  * Spare Parts / BOM: When asked to import spare parts or part catalogs from documents, call `register_spare_parts`.
+  * Work Orders: When user reports a breakdown or asks to create a work order, call `create_work_order`.
 - OEE Logs, Factory Layout, Technician skills, notifications, handover/checklist data
 
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
+
+  static final _registerMachinesTool = FunctionDeclaration(
+    'register_machines',
+    'Register or import new machine records and specs into the MASAPP database machines table from document text or user input.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'machines': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'machine_no': Schema(SchemaType.string, description: 'Unique machine code/ID, e.g. "MC-01" or "CNC-001". Required.'),
+              'machine_name': Schema(SchemaType.string, description: 'Name of machine, e.g. "CNC Milling Center"'),
+              'asset_no': Schema(SchemaType.string, description: 'Asset/Property tag number if available'),
+              'brand': Schema(SchemaType.string, description: 'Brand/Manufacturer, e.g. "FANUC", "MITSUBISHI"'),
+              'model': Schema(SchemaType.string, description: 'Model name or number'),
+              'serial_no': Schema(SchemaType.string, description: 'Serial number'),
+              'location': Schema(SchemaType.string, description: 'Installation area/room/line'),
+              'status': Schema(SchemaType.string, description: 'Status: normal, breakdown, pm, offline'),
+              'notes': Schema(SchemaType.string, description: 'Additional remarks or specs summary'),
+            },
+            requiredProperties: ['machine_no'],
+          ),
+          description: 'Array of machine objects to register/import.',
+        ),
+      },
+      requiredProperties: ['machines'],
+    ),
+  );
+
+
+  static final _createPmPlansTool = FunctionDeclaration(
+    'create_pm_plans',
+    'Create or import a Preventive Maintenance (PM) or Autonomous Maintenance (AM) master plan and task checklist for a machine.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "AP-01") or ID to attach the PM plan to. Required.'),
+        'plan_name': Schema(SchemaType.string, description: 'Title of the PM plan (e.g. "PM ประจำเดือนเครื่องตัดเลเซอร์")'),
+        'plan_type': Schema(SchemaType.string, description: 'PM (Preventive) or AM (Autonomous). Default PM.'),
+        'frequency_days': Schema(SchemaType.integer, description: 'Frequency in days (e.g. 7 for weekly, 30 for monthly, 90 for quarterly, 365 for yearly)'),
+        'tasks': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'task_name': Schema(SchemaType.string, description: 'Description of the checklist task, e.g. "ตรวจเช็กระดับน้ำมันไฮดรอลิก"'),
+              'task_type': Schema(SchemaType.string, description: 'inspect, clean, lubricate, tighten, replace, calibrate'),
+              'is_critical': Schema(SchemaType.boolean, description: 'Whether this task is a critical safety/quality point'),
+            },
+            requiredProperties: ['task_name'],
+          ),
+          description: 'List of inspection and maintenance tasks.',
+        ),
+      },
+      requiredProperties: ['machine_identifier', 'tasks'],
+    ),
+  );
+
+  static final _registerSparePartsTool = FunctionDeclaration(
+    'register_spare_parts',
+    'Register or import spare parts, consumable items, and BOM catalog into the MASAPP spare_parts table.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'machine_identifier': Schema(SchemaType.string, description: 'Optional Machine code/No (e.g. "AP-01") to link these spare parts to.'),
+        'parts': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'part_code': Schema(SchemaType.string, description: 'Part number/SKU/Code (e.g. "FLT-0045")'),
+              'part_name': Schema(SchemaType.string, description: 'Name of spare part (e.g. "ไส้กรองอากาศ Air Filter")'),
+              'category': Schema(SchemaType.string, description: 'mechanical, electrical, pneumatic, hydraulic, consumable'),
+              'unit_cost': Schema(SchemaType.number, description: 'Estimated unit cost in Baht'),
+              'reorder_level': Schema(SchemaType.integer, description: 'Minimum stock reorder point (default 5)'),
+              'initial_quantity': Schema(SchemaType.integer, description: 'Initial stock on hand quantity (default 0)'),
+            },
+            requiredProperties: ['part_name'],
+          ),
+          description: 'List of spare parts to register.',
+        ),
+      },
+      requiredProperties: ['parts'],
+    ),
+  );
+
+  static final _createWorkOrderTool = FunctionDeclaration(
+    'create_work_order',
+    'Create and dispatch a new maintenance work order (ใบแจ้งซ่อม) into MASAPP work_orders table from reported machine breakdown or user request.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'title': Schema(SchemaType.string, description: 'Brief title of the repair job (e.g. "ปั๊มน้ำมันไฮดรอลิกรั่วซึม")'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "AP-01") or ID'),
+        'symptom': Schema(SchemaType.string, description: 'Observed breakdown symptom or error code'),
+        'priority': Schema(SchemaType.string, description: 'urgent (หยุดสายการผลิต), high, normal, low'),
+        'description': Schema(SchemaType.string, description: 'Full detailed description of the problem'),
+      },
+      requiredProperties: ['title', 'symptom'],
+    ),
+  );
 
   static final _searchVectorKnowledgeTool = FunctionDeclaration(
     'search_vector_knowledge',
@@ -204,6 +312,119 @@ Start by greeting the user and asking how you can help with maintenance operatio
   );
 
   static final _openAiTools = [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'create_pm_plans',
+        'description':
+            'Create or import a Preventive Maintenance (PM) or Autonomous Maintenance (AM) master plan and task checklist for a machine.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'machine_identifier': {'type': 'string', 'description': 'Machine code/No'},
+            'plan_name': {'type': 'string', 'description': 'Title of PM plan'},
+            'plan_type': {'type': 'string', 'description': 'PM or AM'},
+            'frequency_days': {'type': 'integer', 'description': 'Frequency in days'},
+            'tasks': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'task_name': {'type': 'string'},
+                  'task_type': {'type': 'string'},
+                  'is_critical': {'type': 'boolean'},
+                },
+                'required': ['task_name'],
+              },
+            },
+          },
+          'required': ['machine_identifier', 'tasks'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'register_spare_parts',
+        'description':
+            'Register or import spare parts, consumable items, and BOM catalog into the MASAPP spare_parts table.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'machine_identifier': {'type': 'string', 'description': 'Optional Machine code to link to'},
+            'parts': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'part_code': {'type': 'string'},
+                  'part_name': {'type': 'string'},
+                  'category': {'type': 'string'},
+                  'unit_cost': {'type': 'number'},
+                  'reorder_level': {'type': 'integer'},
+                  'initial_quantity': {'type': 'integer'},
+                },
+                'required': ['part_name'],
+              },
+            },
+          },
+          'required': ['parts'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'create_work_order',
+        'description':
+            'Create and dispatch a new maintenance work order (ใบแจ้งซ่อม) into MASAPP work_orders table from reported machine breakdown or user request.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'Title of repair job'},
+            'machine_identifier': {'type': 'string', 'description': 'Machine code/No'},
+            'symptom': {'type': 'string', 'description': 'Breakdown symptom'},
+            'priority': {'type': 'string', 'description': 'urgent, high, normal, low'},
+            'description': {'type': 'string'},
+          },
+          'required': ['title', 'symptom'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'register_machines',
+
+        'description':
+            'Register or import new machine records and specs into the MASAPP database machines table from document text or user input.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'machines': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'machine_no': {'type': 'string', 'description': 'Unique machine code/ID. Required.'},
+                  'machine_name': {'type': 'string', 'description': 'Name of machine'},
+                  'asset_no': {'type': 'string', 'description': 'Asset tag number'},
+                  'brand': {'type': 'string', 'description': 'Brand/Manufacturer'},
+                  'model': {'type': 'string', 'description': 'Model'},
+                  'serial_no': {'type': 'string', 'description': 'Serial number'},
+                  'location': {'type': 'string', 'description': 'Location/Line'},
+                  'status': {'type': 'string', 'description': 'normal, breakdown, pm, offline'},
+                  'notes': {'type': 'string', 'description': 'Notes or specs summary'},
+                },
+                'required': ['machine_no'],
+              },
+              'description': 'Array of machine objects to register',
+            },
+          },
+          'required': ['machines'],
+        },
+      },
+    },
     {
       'type': 'function',
       'function': {
@@ -620,6 +841,10 @@ Start by greeting the user and asking how you can help with maintenance operatio
       tools: [
         Tool(
           functionDeclarations: [
+            _registerMachinesTool,
+            _createPmPlansTool,
+            _registerSparePartsTool,
+            _createWorkOrderTool,
             _searchVectorKnowledgeTool,
             _queryDbTool,
             _getTablesTool,
