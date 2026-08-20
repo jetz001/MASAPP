@@ -731,6 +731,7 @@ class DbInitializer {
       }
 
       await _ensureFileAssetsSchema(db);
+      await _ensureKnowledgeVectorsSchema(db);
       await _backfillLegacyFileAssets(db);
       await _migrateLegacyFileAssetsToManagedStorage(db);
 
@@ -916,6 +917,39 @@ class DbInitializer {
     );
     await db.execute(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_file_assets_unique_path ON file_assets(module_type, entity_id, storage_path)',
+    );
+  }
+
+  static Future<void> _ensureKnowledgeVectorsSchema(Database db) async {
+    final table = await db.query(
+      'sqlite_master',
+      where: 'type = ? AND name = ?',
+      whereArgs: ['table', 'knowledge_vectors'],
+    );
+
+    if (table.isEmpty) {
+      _log.i('Migration: Creating knowledge_vectors table...');
+      await db.execute('''
+        CREATE TABLE knowledge_vectors (
+          vector_id      TEXT PRIMARY KEY,
+          source_type    TEXT NOT NULL,
+          source_id      TEXT,
+          title          TEXT NOT NULL,
+          category       TEXT,
+          content_chunk  TEXT NOT NULL,
+          embedding_json TEXT NOT NULL,
+          metadata_json  TEXT,
+          created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_source ON knowledge_vectors(source_type, source_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_category ON knowledge_vectors(category)',
     );
   }
 

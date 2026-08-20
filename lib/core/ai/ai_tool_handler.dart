@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../database/db_helper.dart';
+import 'vector_db_service.dart';
 
 class AiToolHandler {
   // Tables the AI cannot query (sensitive)
@@ -46,6 +47,8 @@ class AiToolHandler {
           return await _getAvailableTables();
         case 'get_table_schema':
           return await _getTableSchema(args);
+        case 'search_vector_knowledge':
+          return await _searchVectorKnowledge(args);
         case 'find_machine_assets':
           return await _findMachineAssets(args);
         case 'search_external_web':
@@ -58,6 +61,28 @@ class AiToolHandler {
     } catch (e) {
       return '{"error": "${_esc(e.toString())}"}';
     }
+  }
+
+  static Future<String> _searchVectorKnowledge(Map<String, dynamic> args) async {
+    final query = (args['query'] as String? ?? '').trim();
+    final category = args['category'] as String?;
+    final topK = (args['top_k'] as num?)?.toInt() ?? 5;
+    if (query.isEmpty) return '{"error": "Query cannot be empty"}';
+
+    final results = await VectorDbService.searchSimilar(
+      query,
+      topK: topK,
+      category: category,
+    );
+
+    if (results.isEmpty) {
+      return '{"results": [], "count": 0, "message": "No matching knowledge vectors found"}';
+    }
+
+    return jsonEncode({
+      'results': results.map((r) => r.toMap()).toList(),
+      'count': results.length,
+    });
   }
 
   static Future<String> _queryDatabase(Map<String, dynamic> args) async {

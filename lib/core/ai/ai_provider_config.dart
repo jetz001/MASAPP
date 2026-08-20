@@ -166,3 +166,156 @@ class AiProviderConfig {
     );
   }
 }
+
+enum EmbeddingProviderKind { local, mistral, ollama, gemini, openai }
+
+class EmbeddingProviderDefinition {
+  final EmbeddingProviderKind kind;
+  final String id;
+  final String displayName;
+  final String keyLabel;
+  final String keyHint;
+  final String helpText;
+  final String defaultModel;
+  final List<String> recommendedModels;
+  final String? defaultBaseUrl;
+  final bool requiresApiKey;
+  final bool supportsCustomBaseUrl;
+
+  const EmbeddingProviderDefinition({
+    required this.kind,
+    required this.id,
+    required this.displayName,
+    required this.keyLabel,
+    required this.keyHint,
+    required this.helpText,
+    required this.defaultModel,
+    required this.recommendedModels,
+    this.defaultBaseUrl,
+    this.requiresApiKey = true,
+    this.supportsCustomBaseUrl = false,
+  });
+}
+
+class EmbeddingProviderCatalog {
+  static const providers = <EmbeddingProviderDefinition>[
+    EmbeddingProviderDefinition(
+      kind: EmbeddingProviderKind.local,
+      id: 'local',
+      displayName: 'Local Embedded (ฟรี 100% / ไม่กินแรม)',
+      keyLabel: 'ไม่ต้องใช้ API Key',
+      keyHint: 'ไม่ต้องระบุ',
+      helpText: 'ทำงานแบบ Local ภายในเครื่องทันที ไม่ต้องต่ออินเทอร์เน็ต',
+      defaultModel: 'local-tfidf-ngram',
+      recommendedModels: ['local-tfidf-ngram'],
+      requiresApiKey: false,
+      supportsCustomBaseUrl: false,
+    ),
+    EmbeddingProviderDefinition(
+      kind: EmbeddingProviderKind.mistral,
+      id: 'mistral',
+      displayName: 'Mistral AI',
+      keyLabel: 'Mistral API Key',
+      keyHint: 'mst-... หรือ Bearer Token',
+      helpText: 'ใช้โมเดล mistral-embed ผ่าน Mistral AI API',
+      defaultModel: 'mistral-embed',
+      recommendedModels: ['mistral-embed'],
+      defaultBaseUrl: 'https://api.mistral.ai/v1',
+      requiresApiKey: true,
+      supportsCustomBaseUrl: false,
+    ),
+    EmbeddingProviderDefinition(
+      kind: EmbeddingProviderKind.ollama,
+      id: 'ollama',
+      displayName: 'Ollama (Local Port / Cloud API)',
+      keyLabel: 'Ollama API Key (สำหรับ Cloud หรือปล่อยว่างถ้า Local)',
+      keyHint: 'ปล่อยว่างถ้าเป็น Local http://127.0.0.1:11434',
+      helpText: 'เชื่อมต่อ Ollama Local ผ่าน Host:Port หรือ Ollama Cloud',
+      defaultModel: 'nomic-embed-text',
+      recommendedModels: ['nomic-embed-text', 'bge-m3', 'all-minilm'],
+      defaultBaseUrl: 'http://127.0.0.1:11434',
+      requiresApiKey: false,
+      supportsCustomBaseUrl: true,
+    ),
+    EmbeddingProviderDefinition(
+      kind: EmbeddingProviderKind.gemini,
+      id: 'gemini',
+      displayName: 'Google Gemini',
+      keyLabel: 'Gemini API Key',
+      keyHint: 'AIzaSy...',
+      helpText: 'ใช้ Google AI Studio API Key (text-embedding-004)',
+      defaultModel: 'text-embedding-004',
+      recommendedModels: ['text-embedding-004'],
+      requiresApiKey: true,
+      supportsCustomBaseUrl: false,
+    ),
+    EmbeddingProviderDefinition(
+      kind: EmbeddingProviderKind.openai,
+      id: 'openai',
+      displayName: 'OpenAI',
+      keyLabel: 'OpenAI API Key',
+      keyHint: 'sk-...',
+      helpText: 'ใช้ OpenAI Platform API Key',
+      defaultModel: 'text-embedding-3-small',
+      recommendedModels: ['text-embedding-3-small', 'text-embedding-3-large'],
+      defaultBaseUrl: 'https://api.openai.com/v1',
+      requiresApiKey: true,
+      supportsCustomBaseUrl: false,
+    ),
+  ];
+
+  static EmbeddingProviderDefinition of(EmbeddingProviderKind kind) {
+    return providers.firstWhere((provider) => provider.kind == kind);
+  }
+
+  static EmbeddingProviderKind fromId(String? id) {
+    final normalized = id?.trim().toLowerCase();
+    for (final provider in providers) {
+      if (provider.id == normalized) return provider.kind;
+    }
+    return EmbeddingProviderKind.local;
+  }
+}
+
+class EmbeddingProviderConfig {
+  final EmbeddingProviderKind provider;
+  final String apiKey;
+  final String model;
+  final String? baseUrl;
+
+  const EmbeddingProviderConfig({
+    required this.provider,
+    required this.apiKey,
+    required this.model,
+    this.baseUrl,
+  });
+
+  EmbeddingProviderDefinition get definition =>
+      EmbeddingProviderCatalog.of(provider);
+
+  bool get isComplete {
+    final hasBaseUrl =
+        !definition.supportsCustomBaseUrl ||
+        ((baseUrl ?? '').trim().isNotEmpty);
+    final hasApiKey = !definition.requiresApiKey || apiKey.trim().isNotEmpty;
+    return hasBaseUrl && hasApiKey && model.trim().isNotEmpty;
+  }
+
+  String get resolvedBaseUrl =>
+      (baseUrl ?? definition.defaultBaseUrl ?? '').trim();
+
+  EmbeddingProviderConfig copyWith({
+    EmbeddingProviderKind? provider,
+    String? apiKey,
+    String? model,
+    String? baseUrl,
+  }) {
+    return EmbeddingProviderConfig(
+      provider: provider ?? this.provider,
+      apiKey: apiKey ?? this.apiKey,
+      model: model ?? this.model,
+      baseUrl: baseUrl ?? this.baseUrl,
+    );
+  }
+}
+

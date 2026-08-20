@@ -648,3 +648,23 @@ CREATE TABLE ai_chat_history (
 
 CREATE INDEX IF NOT EXISTS idx_ai_chat_session ON ai_chat_history(session_id, created_at);
 
+-- =============================================================================
+-- MODULE AI: Knowledge Vectors (Parallel Vector Store / RAG)
+-- =============================================================================
+DROP TABLE IF EXISTS knowledge_vectors;
+
+CREATE TABLE knowledge_vectors (
+  vector_id      TEXT PRIMARY KEY,
+  source_type    TEXT NOT NULL, -- 'work_order', 'machine_spec', 'pm_standard', 'manual'
+  source_id      TEXT,          -- wo_id, machine_id, plan_id, etc.
+  title          TEXT NOT NULL,
+  category       TEXT,          -- 'repair_history', 'machine_specs', 'pm_standard', etc.
+  content_chunk  TEXT NOT NULL,
+  embedding_json TEXT NOT NULL,
+  metadata_json  TEXT,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_source ON knowledge_vectors(source_type, source_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_category ON knowledge_vectors(category);

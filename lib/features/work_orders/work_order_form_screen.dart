@@ -1,3 +1,4 @@
+import '../../core/ai/vector_db_service.dart';
 import 'dart:convert';
 import 'package:path/path.dart' as p;
 import 'package:flutter/material.dart';
@@ -138,6 +139,7 @@ class _WorkOrderFormScreenState extends ConsumerState<WorkOrderFormScreen> {
             _selectedMachineId!,
           );
         }
+        VectorDbService.syncWorkOrder(createdId);
         await DbHelper.execute(
           '''
           UPDATE work_orders SET 

@@ -1049,6 +1049,10 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
             label: 'โลโก้บริษัท',
             value: _logoBase64 == null ? 'ไม่ได้แนบ' : 'แนบแล้ว',
           ),
+          const _SummaryRow(
+            label: 'AI & Knowledge Store',
+            value: 'Parallel Vector DB & Local Embedding พร้อมใช้งาน',
+          ),
         ],
         const SizedBox(height: 10),
         _SetupHintBox(

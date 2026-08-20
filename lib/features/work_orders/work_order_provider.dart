@@ -10,6 +10,7 @@ import '../../core/audit/audit_service.dart';
 import 'work_order_models.dart';
 import '../machine_intake/machine_provider.dart';
 import 'package:intl/intl.dart';
+import '../../core/ai/vector_db_service.dart';
 
 /// Repository for work order operations
 class WorkOrderRepository {
@@ -108,6 +109,9 @@ class WorkOrderRepository {
       'status': 'pending',
       'priority': priority.label,
     });
+
+    // Auto sync to Vector DB in background
+    VectorDbService.syncWorkOrder(woId);
 
     return woId;
   }
@@ -425,6 +429,9 @@ class WorkOrderRepository {
              WHERE machine_id = (SELECT machine_id FROM work_orders WHERE wo_id = @wo_id)''',
           params: {'wo_id': woId, 'updated_at': now},
         );
+
+        // Auto sync completed repair to Vector DB in background
+        VectorDbService.syncWorkOrder(woId);
 
         return true;
       } catch (e) {
@@ -795,6 +802,10 @@ class WorkOrderRepository {
           params: {'cn': closureNotes, 'now': now, 'id': woId},
         );
       });
+
+      // Auto sync updated repair notes to Vector DB in background
+      VectorDbService.syncWorkOrder(woId);
+
       return true;
     } catch (e) {
       print('Error updating repair log: $e');

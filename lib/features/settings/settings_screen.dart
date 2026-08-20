@@ -12,6 +12,8 @@ import '../admin/admin_screen.dart';
 import '../../../core/theme/ui_scale_provider.dart';
 import '../../../core/ai/ai_provider_config.dart';
 import '../../../core/ai/ai_service.dart';
+import '../../../core/ai/embedding_service.dart';
+import '../../../core/ai/vector_db_service.dart';
 import '../ai_chat/ai_chat_provider.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:window_manager/window_manager.dart';
@@ -1096,6 +1098,7 @@ class _AiSettingsTab extends ConsumerStatefulWidget {
 }
 
 class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
+  // LLM Chat State
   final _apiKeyController = TextEditingController();
   final _modelController = TextEditingController();
   final _baseUrlController = TextEditingController();
@@ -1106,10 +1109,24 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
   bool _statusSuccess = false;
   AiProviderKind _selectedProvider = AiProviderKind.gemini;
 
+  // Embedding & Vector Knowledge State
+  final _embApiKeyController = TextEditingController();
+  final _embModelController = TextEditingController();
+  final _embBaseUrlController = TextEditingController();
+  bool _embObscureKey = true;
+  bool _embTesting = false;
+  bool _embConfigured = false;
+  String? _embStatusMsg;
+  bool _embStatusSuccess = false;
+  EmbeddingProviderKind _selectedEmbeddingProvider = EmbeddingProviderKind.local;
+  bool _indexingKnowledge = false;
+  String? _indexResultMsg;
+
   @override
   void initState() {
     super.initState();
     _loadConfig();
+    _loadEmbeddingConfig();
   }
 
   @override
@@ -1117,6 +1134,9 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
     _apiKeyController.dispose();
     _modelController.dispose();
     _baseUrlController.dispose();
+    _embApiKeyController.dispose();
+    _embModelController.dispose();
+    _embBaseUrlController.dispose();
     super.dispose();
   }
 
@@ -1133,6 +1153,19 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
     });
   }
 
+  Future<void> _loadEmbeddingConfig() async {
+    final embConfig = await EmbeddingService.loadConfig();
+    if (!mounted) return;
+    setState(() {
+      _selectedEmbeddingProvider = embConfig.provider;
+      _embApiKeyController.text = embConfig.apiKey;
+      _embModelController.text = embConfig.model;
+      _embBaseUrlController.text =
+          embConfig.baseUrl ?? embConfig.definition.defaultBaseUrl ?? '';
+      _embConfigured = embConfig.isComplete;
+    });
+  }
+
   Future<void> _switchProvider(AiProviderKind provider) async {
     final config = await AiService.loadConfigForProvider(provider);
     if (!mounted) return;
@@ -1143,6 +1176,17 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
       _baseUrlController.text =
           config.baseUrl ?? config.definition.defaultBaseUrl ?? '';
       _statusMsg = null;
+    });
+  }
+
+  Future<void> _switchEmbeddingProvider(EmbeddingProviderKind provider) async {
+    final def = EmbeddingProviderCatalog.of(provider);
+    if (!mounted) return;
+    setState(() {
+      _selectedEmbeddingProvider = provider;
+      _embModelController.text = def.defaultModel;
+      _embBaseUrlController.text = def.defaultBaseUrl ?? '';
+      _embStatusMsg = null;
     });
   }
 
@@ -1204,9 +1248,106 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
     }
   }
 
+  Future<void> _testAndSaveEmbedding() async {
+    final def = EmbeddingProviderCatalog.of(_selectedEmbeddingProvider);
+    final config = EmbeddingProviderConfig(
+      provider: _selectedEmbeddingProvider,
+      apiKey: _embApiKeyController.text.trim(),
+      model: _embModelController.text.trim().isEmpty
+          ? def.defaultModel
+          : _embModelController.text.trim(),
+      baseUrl: def.supportsCustomBaseUrl
+          ? _embBaseUrlController.text.trim()
+          : def.defaultBaseUrl,
+    );
+
+    if (!config.isComplete) {
+      setState(() {
+        _embStatusMsg = def.requiresApiKey
+            ? 'กรุณาใส่ API Key สำหรับ Embedding ให้ครบ'
+            : 'กรุณากรอก Base URL / Port ให้ถูกต้อง';
+        _embStatusSuccess = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _embTesting = true;
+      _embStatusMsg = null;
+    });
+
+    try {
+      final emb = await EmbeddingService.getEmbedding(
+        'ทดสอบข้อความสำหรับสร้างเวกเตอร์ความรู้ระบบซ่อมบำรุง MASAPP',
+        overrideConfig: config,
+      );
+
+      if (emb.isNotEmpty) {
+        await EmbeddingService.saveConfig(config);
+        if (mounted) {
+          setState(() {
+            _embTesting = false;
+            _embConfigured = true;
+            _embStatusMsg =
+                'เชื่อมต่อสำเร็จ! เวกเตอร์ ${emb.length} มิติ บันทึก ${def.displayName} แล้ว';
+            _embStatusSuccess = true;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ตั้งค่า Embedding (${def.displayName}) สำเร็จ!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        throw Exception('ได้รับเวกเตอร์ขนาด 0');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _embTesting = false;
+          _embStatusMsg = 'เชื่อมต่อ Embedding ไม่สำเร็จ: $e';
+          _embStatusSuccess = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _reindexKnowledge() async {
+    setState(() {
+      _indexingKnowledge = true;
+      _indexResultMsg = null;
+    });
+
+    try {
+      final count = await VectorDbService.indexHistoricalKnowledge();
+      if (mounted) {
+        setState(() {
+          _indexingKnowledge = false;
+          _indexResultMsg = 'สร้างดัชนีเวกเตอร์สำเร็จทั้งหมด $count รายการ';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('สร้างดัชนีเวกเตอร์ความรู้สำเร็จ ($count รายการ)'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _indexingKnowledge = false;
+          _indexResultMsg = 'เกิดข้อผิดพลาดในการสร้างดัชนี: $e';
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final definition = AiProviderCatalog.of(_selectedProvider);
+    final embDefinition =
+        EmbeddingProviderCatalog.of(_selectedEmbeddingProvider);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.xxl),
@@ -1214,18 +1355,21 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'AI Assistant Configuration',
+            'AI Assistant & Vector Knowledge Hub',
             style: AppTextStyles.headlineSmall,
           ),
           const SizedBox(height: 4),
           Text(
-            'ตั้งค่า API สำหรับ AI Chat เพื่อให้ AI ช่วยค้นหาและวิเคราะห์ข้อมูลในระบบ',
+            'ตั้งค่าโมเดล AI Chat และระบบเวกเตอร์ความรู้คู่ขนาน (Parallel Vector RAG)',
             style: AppTextStyles.bodySmall.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
           const SizedBox(height: 32),
 
+          // -------------------------------------------------------------
+          // CARD 1: Generative Chat LLM
+          // -------------------------------------------------------------
           Card(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.xl),
@@ -1258,12 +1402,12 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              definition.displayName,
+                              '1. AI Chat LLM (${definition.displayName})',
                               style: AppTextStyles.titleLarge,
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${definition.helpText}\nAI จะอ่านและวิเคราะห์ได้เฉพาะข้อมูลในฐานข้อมูล MASAPP เท่านั้น${definition.kind == AiProviderKind.ollama ? '' : '\nถ้าไม่มีอินเทอร์เน็ต ระบบจะแจ้งก่อนส่งคำขอขึ้น cloud'}',
+                              '${definition.helpText}\nใช้สำหรับการตอบสนองและประมวลผลคำถามในระบบแชท',
                               style: AppTextStyles.bodySmall.copyWith(
                                 color: Theme.of(
                                   context,
@@ -1296,7 +1440,7 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              _configured ? 'Connected' : 'Not Configured',
+                              _configured ? 'Chat Connected' : 'Not Configured',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
@@ -1318,7 +1462,7 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                   DropdownButtonFormField<AiProviderKind>(
                     initialValue: _selectedProvider,
                     decoration: const InputDecoration(
-                      labelText: 'AI Provider',
+                      labelText: 'AI Chat Provider',
                       prefixIcon: Icon(Icons.hub_outlined),
                       border: OutlineInputBorder(),
                     ),
@@ -1341,7 +1485,7 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                     controller: _modelController,
                     maxLines: 1,
                     decoration: InputDecoration(
-                      labelText: 'Model',
+                      labelText: 'Chat Model',
                       hintText: definition.defaultModel,
                       prefixIcon: const Icon(Icons.memory_outlined),
                       border: const OutlineInputBorder(),
@@ -1354,7 +1498,7 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                       controller: _baseUrlController,
                       maxLines: 1,
                       decoration: const InputDecoration(
-                        labelText: 'Base URL',
+                        labelText: 'Base URL (Host:Port)',
                         hintText: 'http://127.0.0.1:11434',
                         prefixIcon: Icon(Icons.link_outlined),
                         border: OutlineInputBorder(),
@@ -1433,12 +1577,265 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                         : FilledButton.icon(
                             onPressed: _testAndSave,
                             icon: const Icon(Icons.rocket_launch_rounded),
-                            label: const Text('ทดสอบการเชื่อมต่อและบันทึก'),
+                            label: const Text('บันทึกและทดสอบ AI Chat'),
                             style: FilledButton.styleFrom(
                               backgroundColor: AppColors.primary,
                             ),
                           ),
                   ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // -------------------------------------------------------------
+          // CARD 2: Embedding & Parallel Vector Knowledge Engine
+          // -------------------------------------------------------------
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.teal,
+                              Colors.indigo,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.travel_explore_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '2. Embedding & Vector Knowledge Engine',
+                              style: AppTextStyles.titleLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'แปลงประวัติการซ่อม (RCA) และคู่มือเครื่องจักรเป็น Vector เพื่อค้นหาแบบ Semantic',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _embConfigured
+                              ? Colors.teal.withValues(alpha: 0.15)
+                              : Colors.grey.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _embConfigured
+                                  ? Icons.check_circle
+                                  : Icons.info_outline,
+                              size: 14,
+                              color: _embConfigured ? Colors.teal : Colors.grey,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _embConfigured ? 'Vector Active' : 'Default Ready',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _embConfigured ? Colors.teal : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: AppSpacing.xl),
+                  const Divider(height: 1),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  DropdownButtonFormField<EmbeddingProviderKind>(
+                    initialValue: _selectedEmbeddingProvider,
+                    decoration: const InputDecoration(
+                      labelText: 'Embedding Provider',
+                      prefixIcon: Icon(Icons.scatter_plot_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: EmbeddingProviderCatalog.providers.map((provider) {
+                      return DropdownMenuItem(
+                        value: provider.kind,
+                        child: Text(provider.displayName),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        _switchEmbeddingProvider(value);
+                      }
+                    },
+                  ),
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  TextField(
+                    controller: _embModelController,
+                    maxLines: 1,
+                    decoration: InputDecoration(
+                      labelText: 'Embedding Model',
+                      hintText: embDefinition.defaultModel,
+                      prefixIcon: const Icon(Icons.data_array_outlined),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+
+                  if (embDefinition.supportsCustomBaseUrl) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    TextField(
+                      controller: _embBaseUrlController,
+                      maxLines: 1,
+                      decoration: const InputDecoration(
+                        labelText: 'Embedding Host:Port / Endpoint URL',
+                        hintText: 'http://127.0.0.1:11434 หรือ https://ollama.com/api',
+                        prefixIcon: Icon(Icons.lan_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+
+                  if (embDefinition.requiresApiKey ||
+                      _selectedEmbeddingProvider == EmbeddingProviderKind.ollama) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    TextField(
+                      controller: _embApiKeyController,
+                      obscureText: _embObscureKey,
+                      maxLines: 1,
+                      decoration: InputDecoration(
+                        labelText: embDefinition.keyLabel,
+                        hintText: embDefinition.keyHint,
+                        prefixIcon: const Icon(Icons.vpn_key_outlined),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _embObscureKey ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () =>
+                              setState(() => _embObscureKey = !_embObscureKey),
+                        ),
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+
+                  if (_embStatusMsg != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: _embStatusSuccess
+                            ? Colors.teal.withValues(alpha: 0.1)
+                            : Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: _embStatusSuccess ? Colors.teal : Colors.red,
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _embStatusSuccess
+                                ? Icons.check_circle
+                                : Icons.error_outline,
+                            size: 18,
+                            color: _embStatusSuccess ? Colors.teal : Colors.red,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              _embStatusMsg!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: _embStatusSuccess
+                                    ? Colors.teal
+                                    : Colors.red,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: AppSpacing.xl),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: _embTesting
+                              ? const Center(child: CircularProgressIndicator())
+                              : FilledButton.icon(
+                                  onPressed: _testAndSaveEmbedding,
+                                  icon: const Icon(Icons.check_circle_outline),
+                                  label: const Text('บันทึกและทดสอบ Embedding'),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.teal.shade700,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: _indexingKnowledge
+                              ? const Center(child: CircularProgressIndicator())
+                              : OutlinedButton.icon(
+                                  onPressed: _reindexKnowledge,
+                                  icon: const Icon(Icons.sync_rounded),
+                                  label: const Text('สร้างดัชนีเวกเตอร์ทั้งหมด'),
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (_indexResultMsg != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      _indexResultMsg!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1464,18 +1861,17 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                       ),
                       const SizedBox(width: AppSpacing.sm),
                       Text(
-                        'ขอบเขตการเข้าถึงข้อมูล',
+                        'ขอบเขตการเข้าถึงข้อมูลและความปลอดภัย',
                         style: AppTextStyles.titleMedium,
                       ),
                     ],
                   ),
                   const SizedBox(height: AppSpacing.md),
                   Text(
-                    '• AI สามารถอ่านข้อมูลได้เฉพาะตารางที่อนุญาตเท่านั้น\n'
+                    '• AI อ่านข้อมูลผ่านคำสั่ง SELECT เท่านั้น (Read-Only 100%)\n'
+                    '• ฐานข้อมูลเวกเตอร์ (knowledge_vectors) ทำงานคู่ขนาน ไม่กระทบต่อตารางหลักของโรงงาน\n'
                     '• ไม่สามารถเข้าถึงตาราง users, user_sessions, audit_log, app_settings, ai_chat_history\n'
-                    '• อนุญาตเฉพาะคำสั่ง SELECT เท่านั้น (Read-only)\n'
-                    '• ป้องกัน DROP, DELETE, UPDATE, INSERT, CREATE, ALTER และคำสั่งอื่นๆ ที่รุนแรง\n'
-                    '• จำกัดผลลัพธ์ไม่เกิน 100 แถวต่อ Query',
+                    '• ป้องกันคำสั่ง DROP, DELETE, UPDATE, INSERT, ALTER ทุกกรณี',
                     style: AppTextStyles.bodySmall.copyWith(height: 1.8),
                   ),
                 ],

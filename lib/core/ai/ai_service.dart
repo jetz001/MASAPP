@@ -45,8 +45,10 @@ IMPORTANT CONSTRAINTS:
 19. Sort timeline items from oldest to newest unless the user asks otherwise.
 20. When you want to show a PDF/file card, use a fenced block with language pdfcard and a JSON object with keys: title, path, pages, thumbnail. Set thumbnail only when it is an actual image URL/path, not a PDF URL.
 21. File metadata is available in file_assets, including storage_path, thumbnail_path, preview_path, mime_type, page_count, module_type, entity_id, and display_name.
+22. When the user asks about symptoms, how to fix an issue, troubleshooting, root cause analysis (RCA), machine manual instructions, or maintenance standards, ALWAYS use search_vector_knowledge to find relevant semantic vector knowledge chunks from historical repairs and manuals before answering.
 
 Available data in this system:
+- Knowledge Vectors (เวกเตอร์ความรู้): semantic search for repair history, failure symptoms, root causes (RCA), machine manuals, and PM standards
 - Machines (เครื่องจักร): status, specs, location, running hours
 - Work Orders (ใบแจ้งซ่อม): status, priority, assigned technician, RCA
 - PM/AM Plans (แผนการบำรุงรักษา): schedules, tasks, executions
@@ -58,6 +60,31 @@ Available data in this system:
 
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
+
+  static final _searchVectorKnowledgeTool = FunctionDeclaration(
+    'search_vector_knowledge',
+    'Search semantic knowledge vectors for historical troubleshooting, failure symptoms, repair solutions, RCA, and machine manuals.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'query': Schema(
+          SchemaType.string,
+          description:
+              'Search query describing symptoms, breakdown details, error code, machine issue, or maintenance procedure.',
+        ),
+        'category': Schema(
+          SchemaType.string,
+          description:
+              'Optional category filter: repair_history, machine_specs, pm_standard, or manual.',
+        ),
+        'top_k': Schema(
+          SchemaType.integer,
+          description: 'Maximum number of top relevant vector matches to return (default 5).',
+        ),
+      },
+      requiredProperties: ['query'],
+    ),
+  );
 
   static final _queryDbTool = FunctionDeclaration(
     'query_database',
@@ -177,6 +204,35 @@ Start by greeting the user and asking how you can help with maintenance operatio
   );
 
   static final _openAiTools = [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'search_vector_knowledge',
+        'description':
+            'Search semantic knowledge vectors for historical troubleshooting, failure symptoms, repair solutions, RCA, and machine manuals.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'query': {
+              'type': 'string',
+              'description':
+                  'Search query describing symptoms, breakdown details, error code, machine issue, or maintenance procedure.',
+            },
+            'category': {
+              'type': 'string',
+              'description':
+                  'Optional category filter: repair_history, machine_specs, pm_standard, or manual.',
+            },
+            'top_k': {
+              'type': 'integer',
+              'description':
+                  'Maximum number of top relevant vector matches to return (default 5).',
+            },
+          },
+          'required': ['query'],
+        },
+      },
+    },
     {
       'type': 'function',
       'function': {
@@ -564,6 +620,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       tools: [
         Tool(
           functionDeclarations: [
+            _searchVectorKnowledgeTool,
             _queryDbTool,
             _getTablesTool,
             _getSchemaTool,
