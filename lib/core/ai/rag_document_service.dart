@@ -64,6 +64,7 @@ class RagDocumentService {
 
     // 2. Extract text chunks from file
     final extractedChunks = <Map<String, dynamic>>[];
+    final fullTextBuffer = StringBuffer();
 
     if (ext == '.pdf') {
       final bytes = await file.readAsBytes();
@@ -73,6 +74,8 @@ class RagDocumentService {
       for (int i = 0; i < document.pages.count; i++) {
         final pageText = extractor.extractText(startPageIndex: i, endPageIndex: i).trim();
         if (pageText.isEmpty) continue;
+
+        fullTextBuffer.writeln('[หน้า ${i + 1}] $pageText\n');
 
         final pageChunks = _splitIntoChunks(pageText, maxChars: 800, overlap: 100);
         for (int c = 0; c < pageChunks.length; c++) {
@@ -87,6 +90,7 @@ class RagDocumentService {
     } else {
       // Plain text, markdown, CSV, JSON
       final rawText = await file.readAsString();
+      fullTextBuffer.write(rawText);
       final textChunks = _splitIntoChunks(rawText, maxChars: 800, overlap: 100);
       for (int c = 0; c < textChunks.length; c++) {
         extractedChunks.add({
@@ -151,6 +155,7 @@ class RagDocumentService {
       'file_name': fileName,
       'total_chunks': extractedChunks.length,
       'storage_path': savedStoragePath,
+      'extracted_text': fullTextBuffer.toString().trim(),
       'message': 'นำเข้าเอกสาร $fileName เข้าสู่ระบบ RAG สำเร็จ ($extractedChunks.length เวกเตอร์)',
     };
   }

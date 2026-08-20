@@ -133,11 +133,20 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
           // Ingest document into RAG
           final res = await RagDocumentService.ingestDocument(file: attachedFile);
           final docName = res['file_name'] ?? attachedName ?? 'เอกสาร';
-          if (text.isEmpty) {
-            finalPrompt = '📄 [แนบเอกสาร: $docName]\nช่วยสรุปและวิเคราะห์เนื้อหาสำคัญในเอกสารนี้ให้หน่อยครับ';
-          } else {
-            finalPrompt = '📄 [แนบเอกสาร: $docName]\n$text';
-          }
+          final extractedText = res['extracted_text']?.toString() ?? '';
+
+          final userPrompt = text.isNotEmpty
+              ? text
+              : 'ช่วยสรุปและวิเคราะห์ข้อมูลสำคัญจากเอกสารนี้ให้หน่อยครับ';
+
+          final truncatedText = extractedText.length > 15000
+              ? '${extractedText.substring(0, 15000)}\n...(ตัดทอนบางส่วน)...'
+              : extractedText;
+
+          finalPrompt = '📄 [แนบเอกสาร: $docName]\n$userPrompt\n\n'
+              '--- เนื้อหาที่อ่านได้จากเอกสาร ($docName) ---\n'
+              '$truncatedText\n'
+              '--- สิ้นสุดเนื้อหาเอกสาร ---';
         } else {
           // Image
           if (text.isEmpty) {
