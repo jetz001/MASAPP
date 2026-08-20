@@ -40,74 +40,102 @@ class DashboardStats {
   });
 
   static Future<DashboardStats> load() async {
-    final machines = await DbHelper.queryOne(
-        'SELECT COUNT(*) as c FROM machines WHERE is_active=1');
-    final pendingReview = await DbHelper.queryOne(
-        "SELECT COUNT(*) as c FROM work_orders WHERE status = 'pending_review'");
-    final inProgress = await DbHelper.queryOne(
-        "SELECT COUNT(*) as c FROM work_orders WHERE status = 'in_progress'");
-    final pendingPermit = await DbHelper.queryOne(
-        "SELECT COUNT(*) as c FROM work_permits WHERE status='pending'");
-    final lowStock = await DbHelper.queryOne(
+    try {
+      final machines = await DbHelper.queryOne(
+        "SELECT COUNT(*) as c FROM machines WHERE is_active = 1 OR is_active IS NULL OR is_active = '1' OR is_active = 'true'",
+      );
+      final pendingReview = await DbHelper.queryOne(
+        "SELECT COUNT(*) as c FROM work_orders WHERE status IN ('pending', 'pending_review')",
+      );
+      final inProgress = await DbHelper.queryOne(
+        "SELECT COUNT(*) as c FROM work_orders WHERE status IN ('in_progress', 'approved')",
+      );
+      final pendingPermit = await DbHelper.queryOne(
+        "SELECT COUNT(*) as c FROM work_permits WHERE status IN ('pending', 'draft', 'submitted')",
+      );
+      final lowStock = await DbHelper.queryOne(
         '''SELECT COUNT(*) as c FROM spare_parts_inventory i
            JOIN spare_parts p ON p.part_id = i.part_id
-           WHERE i.quantity_on_hand <= p.reorder_level''');
+           WHERE CAST(i.quantity_on_hand AS REAL) <= CAST(COALESCE(p.reorder_level, 0) AS REAL)''',
+      );
 
-    final recentWo = await DbHelper.query(
-      '''SELECT w.wo_no, w.title, w.status, w.priority, w.created_at,
-                m.machine_no, u.full_name as technician
-         FROM work_orders w
-         JOIN machines m ON m.machine_id = w.machine_id
-         LEFT JOIN users u ON u.user_id = w.assigned_to
-         ORDER BY w.created_at DESC LIMIT 6''',
-    );
+      final recentWo = await DbHelper.query(
+        '''SELECT w.wo_no, w.title, w.status, w.priority, w.created_at,
+                  COALESCE(m.machine_no, '-') as machine_no,
+                  COALESCE(u.full_name, 'ยังไม่ระบุ') as technician
+           FROM work_orders w
+           LEFT JOIN machines m ON m.machine_id = w.machine_id
+           LEFT JOIN users u ON u.user_id = w.assigned_to
+           ORDER BY w.created_at DESC LIMIT 6''',
+      );
 
-    // Load real machine statuses
-    final statusRows = await DbHelper.query(
-      'SELECT status, COUNT(*) as c FROM machines WHERE is_active=1 GROUP BY status'
-    );
-    final statusMap = <String, int>{
-      'normal': 0,
-      'breakdown': 0,
-      'pm': 0,
-      'offline': 0,
-    };
-    for (final row in statusRows) {
-      statusMap[row['status'] as String? ?? 'normal'] = row['c'] as int? ?? 0;
-    }
-
-    // Simulated WO trend (last 7 days values)
-    // Real WO trend (last 7 days values)
-    final now = DateTime.now();
-    final List<double> trendValues = List.filled(7, 0.0);
-    
-    final trendRows = await DbHelper.query(
-      '''SELECT date(created_at) as d, COUNT(*) as c 
-         FROM work_orders 
-         WHERE created_at >= date('now', 'localtime', '-6 days')
-         GROUP BY date(created_at)'''
-    );
-
-    for (int i = 0; i < 7; i++) {
-      final date = now.subtract(Duration(days: 6 - i));
-      final dateStr = DateFormat('yyyy-MM-dd').format(date);
-      
-      final match = trendRows.firstWhere((r) => r['d'] == dateStr, orElse: () => <String, dynamic>{});
-      if (match.isNotEmpty) {
-        trendValues[i] = (match['c'] as int? ?? 0).toDouble();
+      // Load real machine statuses
+      final statusRows = await DbHelper.query(
+        "SELECT COALESCE(status, 'normal') as status, COUNT(*) as c "
+        "FROM machines "
+        "WHERE is_active = 1 OR is_active IS NULL OR is_active = '1' OR is_active = 'true' "
+        "GROUP BY status",
+      );
+      final statusMap = <String, int>{
+        'normal': 0,
+        'breakdown': 0,
+        'pm': 0,
+        'offline': 0,
+      };
+      for (final row in statusRows) {
+        final st = row['status']?.toString().toLowerCase() ?? 'normal';
+        final count = (row['c'] as num?)?.toInt() ?? 0;
+        statusMap[st] = count;
       }
-    }
 
-    return DashboardStats(
-      totalMachines: machines?['c'] as int? ?? 0,
-      pendingReview: pendingReview?['c'] as int? ?? 0,
-      inProgress: inProgress?['c'] as int? ?? 0,
-      pendingPermits: pendingPermit?['c'] as int? ?? 0,
-      lowStockParts: lowStock?['c'] as int? ?? 0,
-      recentWorkOrders: recentWo,
-      woTrendValues: trendValues,
-      machineStatuses: statusMap,
-    );
+      // Real WO trend (last 7 days values)
+      final now = DateTime.now();
+      final List<double> trendValues = List.filled(7, 0.0);
+
+      try {
+        final trendRows = await DbHelper.query(
+          '''SELECT substr(created_at, 1, 10) as d, COUNT(*) as c 
+             FROM work_orders 
+             GROUP BY substr(created_at, 1, 10)''',
+        );
+
+        for (int i = 0; i < 7; i++) {
+          final date = now.subtract(Duration(days: 6 - i));
+          final dateStr = DateFormat('yyyy-MM-dd').format(date);
+
+          final match = trendRows.firstWhere(
+            (r) => r['d']?.toString() == dateStr,
+            orElse: () => <String, dynamic>{},
+          );
+          if (match.isNotEmpty) {
+            trendValues[i] = ((match['c'] as num?)?.toDouble()) ?? 0.0;
+          }
+        }
+      } catch (_) {}
+
+      return DashboardStats(
+        totalMachines: (machines?['c'] as num?)?.toInt() ?? 0,
+        pendingReview: (pendingReview?['c'] as num?)?.toInt() ?? 0,
+        inProgress: (inProgress?['c'] as num?)?.toInt() ?? 0,
+        pendingPermits: (pendingPermit?['c'] as num?)?.toInt() ?? 0,
+        lowStockParts: (lowStock?['c'] as num?)?.toInt() ?? 0,
+        recentWorkOrders: recentWo,
+        woTrendValues: trendValues,
+        machineStatuses: statusMap,
+      );
+    } catch (e) {
+      debugPrint('[Dashboard] Error loading stats: $e');
+      return const DashboardStats(
+        totalMachines: 0,
+        pendingReview: 0,
+        inProgress: 0,
+        pendingPermits: 0,
+        lowStockParts: 0,
+        recentWorkOrders: [],
+        woTrendValues: [0, 0, 0, 0, 0, 0, 0],
+        machineStatuses: {'normal': 0, 'breakdown': 0, 'pm': 0, 'offline': 0},
+      );
+    }
   }
 }
 
