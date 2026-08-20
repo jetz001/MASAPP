@@ -11,10 +11,10 @@
   #define MyAppExeName "masapp.exe"
 #endif
 #ifndef MyBuildDir
-  #define MyBuildDir "D:\DEV\MASAPP\build\windows\x64\runner\Release"
+  #define MyBuildDir "build\windows\x64\runner\Release"
 #endif
 #ifndef MyOutputDir
-  #define MyOutputDir "D:\DEV\MASAPP\Output"
+  #define MyOutputDir "Output"
 #endif
 
 [Setup]
