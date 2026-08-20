@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:excel/excel.dart' as xls;
 import '../database/db_helper.dart';
 import '../storage/attachment_storage_service.dart';
 import 'embedding_service.dart';
@@ -87,6 +88,36 @@ class RagDocumentService {
         }
       }
       document.dispose();
+    } else if (ext == '.xlsx' || ext == '.xls') {
+      final bytes = await file.readAsBytes();
+      final excel = xls.Excel.decodeBytes(bytes);
+      for (final tableName in excel.tables.keys) {
+        final sheet = excel.tables[tableName];
+        if (sheet == null || sheet.maxRows == 0) continue;
+
+        fullTextBuffer.writeln('=== แผ่นงาน (Sheet): $tableName ===');
+        for (int r = 0; r < sheet.maxRows; r++) {
+          final row = sheet.rows[r];
+          if (row.isEmpty) continue;
+          final rowValues = row
+              .map((cell) => cell?.value?.toString().trim() ?? '')
+              .where((v) => v.isNotEmpty)
+              .toList();
+          if (rowValues.isEmpty) continue;
+          fullTextBuffer.writeln('แถวที่ ${r + 1}: ${rowValues.join(" | ")}');
+        }
+        fullTextBuffer.writeln('');
+      }
+
+      final rawExcelText = fullTextBuffer.toString().trim();
+      final textChunks = _splitIntoChunks(rawExcelText, maxChars: 800, overlap: 100);
+      for (int c = 0; c < textChunks.length; c++) {
+        extractedChunks.add({
+          'page': c + 1,
+          'chunk_index': c,
+          'text': textChunks[c],
+        });
+      }
     } else {
       // Plain text, markdown, CSV, JSON
       final rawText = await file.readAsString();

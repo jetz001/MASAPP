@@ -1341,8 +1341,8 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'md', 'csv'],
-        dialogTitle: 'เลือกไฟล์คู่มือ หรือเอกสารสำหรับระบบ AI RAG',
+        allowedExtensions: ['pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'],
+        dialogTitle: 'เลือกไฟล์คู่มือ หรือไฟล์ตาราง Excel สำหรับระบบ AI RAG',
       );
 
       if (result == null || result.files.single.path == null) return;

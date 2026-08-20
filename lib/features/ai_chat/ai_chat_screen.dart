@@ -59,8 +59,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'md', 'csv', 'png', 'jpg', 'jpeg'],
-        dialogTitle: 'เลือกคู่มือเครื่องจักร หรือรูปถ่ายอาการเสีย',
+        allowedExtensions: ['pdf', 'xlsx', 'xls', 'csv', 'txt', 'md', 'png', 'jpg', 'jpeg'],
+        dialogTitle: 'เลือกไฟล์เอกสาร Excel, PDF คู่มือ หรือรูปภาพ',
       );
 
       if (result == null || result.files.single.path == null) return;
@@ -129,7 +129,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
       String finalPrompt = text;
 
       if (attachedFile != null) {
-        if (['pdf', 'txt', 'md', 'csv'].contains(attachedExt)) {
+        if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv'].contains(attachedExt)) {
           // Ingest document into RAG
           final res = await RagDocumentService.ingestDocument(file: attachedFile);
           final docName = res['file_name'] ?? attachedName ?? 'เอกสาร';
@@ -427,11 +427,15 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                   Icon(
                     _pendingAttachmentExt == 'pdf'
                         ? Icons.picture_as_pdf_rounded
-                        : ['png', 'jpg', 'jpeg'].contains(_pendingAttachmentExt)
-                            ? Icons.image_rounded
-                            : Icons.description_rounded,
+                        : ['xlsx', 'xls', 'csv'].contains(_pendingAttachmentExt)
+                            ? Icons.table_chart_rounded
+                            : ['png', 'jpg', 'jpeg'].contains(_pendingAttachmentExt)
+                                ? Icons.image_rounded
+                                : Icons.description_rounded,
                     size: 20,
-                    color: theme.colorScheme.primary,
+                    color: ['xlsx', 'xls', 'csv'].contains(_pendingAttachmentExt)
+                        ? Colors.green.shade700
+                        : theme.colorScheme.primary,
                   ),
                   const SizedBox(width: 8),
                   ConstrainedBox(
@@ -2008,8 +2012,8 @@ class _RagDocumentsSheetState extends State<_RagDocumentsSheet> {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'txt', 'md', 'csv'],
-        dialogTitle: 'เลือกคู่มือเครื่องจักร หรือเอกสารซ่อมบำรุง',
+        allowedExtensions: ['pdf', 'xlsx', 'xls', 'csv', 'txt', 'md'],
+        dialogTitle: 'เลือกไฟล์คู่มือเครื่องจักร หรือไฟล์ตาราง Excel',
       );
 
       if (result == null || result.files.single.path == null) return;
