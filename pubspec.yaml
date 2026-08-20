@@ -70,6 +70,7 @@ dependencies:
   # AI Chat Module
   google_generative_ai: ^0.4.6
   http: ^1.2.2
+  syncfusion_flutter_pdf: ^29.2.11
 
 dev_dependencies:
   flutter_test:

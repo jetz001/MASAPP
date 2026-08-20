@@ -14,6 +14,8 @@ import '../../../core/ai/ai_provider_config.dart';
 import '../../../core/ai/ai_service.dart';
 import '../../../core/ai/embedding_service.dart';
 import '../../../core/ai/vector_db_service.dart';
+import '../../../core/ai/rag_document_service.dart';
+import 'dart:io';
 import '../ai_chat/ai_chat_provider.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:window_manager/window_manager.dart';
@@ -1121,12 +1123,18 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
   EmbeddingProviderKind _selectedEmbeddingProvider = EmbeddingProviderKind.local;
   bool _indexingKnowledge = false;
   String? _indexResultMsg;
+  // RAG Documents State
+  List<RagDocumentItem> _ragDocuments = [];
+  bool _loadingDocs = false;
+  bool _uploadingDoc = false;
+
 
   @override
   void initState() {
     super.initState();
     _loadConfig();
     _loadEmbeddingConfig();
+    _loadRagDocuments();
   }
 
   @override
@@ -1309,6 +1317,101 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
           _embStatusMsg = 'เชื่อมต่อ Embedding ไม่สำเร็จ: $e';
           _embStatusSuccess = false;
         });
+      }
+    }
+  }
+
+
+  Future<void> _loadRagDocuments() async {
+    setState(() => _loadingDocs = true);
+    try {
+      final docs = await RagDocumentService.listIngestedDocuments();
+      if (mounted) {
+        setState(() {
+          _ragDocuments = docs;
+          _loadingDocs = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingDocs = false);
+    }
+  }
+
+  Future<void> _uploadAndIngestDocument() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'txt', 'md', 'csv'],
+        dialogTitle: 'เลือกไฟล์คู่มือ หรือเอกสารสำหรับระบบ AI RAG',
+      );
+
+      if (result == null || result.files.single.path == null) return;
+      final file = File(result.files.single.path!);
+
+      setState(() => _uploadingDoc = true);
+
+      final res = await RagDocumentService.ingestDocument(file: file);
+      if (!mounted) return;
+      setState(() => _uploadingDoc = false);
+      await _loadRagDocuments();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res['message']?.toString() ?? 'นำเข้าเอกสารสำเร็จ'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _uploadingDoc = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการนำเข้าเอกสาร: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteRagDocument(String docId, String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ยืนยันการลบเอกสาร'),
+        content: Text('คุณต้องการลบข้อมูลเวกเตอร์ของเอกสาร "$name" ออกจากระบบ AI หรือไม่?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('ลบข้อมูล'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      await RagDocumentService.deleteDocumentVectors(docId);
+      await _loadRagDocuments();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ลบข้อมูลเอกสาร $name ออกจาก RAG แล้ว'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ลบไม่สำเร็จ: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -1836,6 +1939,133 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                       ),
                     ),
                   ],
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // -------------------------------------------------------------
+          // CARD 3: Document Knowledge Base (RAG Ingestion)
+          // -------------------------------------------------------------
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.purple,
+                              Colors.deepPurpleAccent,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.menu_book_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '3. คลังเอกสารคู่มือเครื่องจักร (Document RAG)',
+                              style: AppTextStyles.titleLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'อัปโหลด PDF คู่มือ หรือเอกสารสเปก เพื่อให้ AI ศึกษาและนำไปใช้อ้างอิงตอบคำถามช่าง',
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _uploadingDoc ? null : _uploadAndIngestDocument,
+                        icon: _uploadingDoc
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.upload_file_rounded),
+                        label: Text(_uploadingDoc ? 'กำลังแปลงเวกเตอร์...' : 'อัปโหลดคู่มือ PDF'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.purple.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: AppSpacing.xl),
+                  const Divider(height: 1),
+                  const SizedBox(height: AppSpacing.md),
+
+                  if (_loadingDocs)
+                    const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator()))
+                  else if (_ragDocuments.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.lg),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: Colors.grey.shade300),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'ยังไม่มีเอกสารคู่มือในระบบ RAG — กดปุ่ม "อัปโหลดคู่มือ PDF" เพื่อเพิ่มเอกสารแรก',
+                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                        ),
+                      ),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _ragDocuments.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, idx) {
+                        final doc = _ragDocuments[idx];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.purple.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.picture_as_pdf_rounded, color: Colors.purple, size: 22),
+                          ),
+                          title: Text(
+                            doc.fileName,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                          ),
+                          subtitle: Text(
+                            'จำนวน ${doc.chunkCount} ท่อนเวกเตอร์ · หมวดหมู่: ${doc.category} · ${doc.createdAt.toString().split(".").first}',
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                            tooltip: 'ลบเอกสารนี้ออกจาก RAG',
+                            onPressed: () => _deleteRagDocument(doc.documentId, doc.fileName),
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
             ),
