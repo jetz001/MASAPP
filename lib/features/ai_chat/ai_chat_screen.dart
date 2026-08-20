@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 // lib/features/ai_chat/ai_chat_screen.dart
 
 import 'dart:convert';
@@ -49,9 +50,12 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
 
 
-  bool _uploadingRagDoc = false;
+  File? _pendingAttachment;
+  String? _pendingAttachmentName;
+  int? _pendingAttachmentSize;
+  String? _pendingAttachmentExt;
 
-  Future<void> _uploadAndAskRag() async {
+  Future<void> _pickAttachment() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -61,46 +65,35 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
       if (result == null || result.files.single.path == null) return;
       final file = File(result.files.single.path!);
-      final ext = file.path.split('.').last.toLowerCase();
+      final name = p.basename(file.path);
+      final size = await file.length();
+      final ext = p.extension(file.path).toLowerCase().replaceAll('.', '');
 
-      setState(() => _uploadingRagDoc = true);
-
-      if (['png', 'jpg', 'jpeg'].contains(ext)) {
-        // Image attachment
-        final user = ref.read(authProvider);
-        setState(() => _uploadingRagDoc = false);
-        await ref.read(aiChatProvider.notifier).addAssistantMessage(
-          '📸 **ได้รับรูปภาพแนบแล้ว (${file.path.split(Platform.pathSeparator).last})**\nคุณสามารถพิมพ์คำถามเกี่ยวกับภาพนี้ หรือให้อธิบายอาการเสียที่เห็นได้เลยครับ!',
-          userId: user?.userId,
-        );
-        return;
-      }
-
-      // Document / PDF ingestion
-      final res = await RagDocumentService.ingestDocument(file: file);
-      final user = ref.read(authProvider);
-
-      if (mounted) {
-        setState(() => _uploadingRagDoc = false);
-        await ref.read(aiChatProvider.notifier).addAssistantMessage(
-          '📄 **นำเข้าคู่มือสำเร็จ!**\n'
-          'ระบบได้แปลงไฟล์ **${res['file_name']}** เข้าสู่คลังความรู้ RAG เรียบร้อยแล้ว (จำนวน ${res['total_chunks']} ท่อนเวกเตอร์)\n\n'
-          'คุณสามารถพิมพ์ถามคำถามเกี่ยวกับคู่มือนี้ เช่น *"สรุปขั้นตอนการซ่อมบำรุงตามคู่มือนี้ให้หน่อย"* หรือ *"มี Error Code อะไรบ้าง"* ได้ทันทีครับ!',
-          userId: user?.userId,
-        );
-        _scrollToBottom();
-      }
+      setState(() {
+        _pendingAttachment = file;
+        _pendingAttachmentName = name;
+        _pendingAttachmentSize = size;
+        _pendingAttachmentExt = ext;
+      });
     } catch (e) {
       if (mounted) {
-        setState(() => _uploadingRagDoc = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาด: $e'),
+            content: Text('ไม่สามารถเลือกไฟล์ได้: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
+  }
+
+  void _clearAttachment() {
+    setState(() {
+      _pendingAttachment = null;
+      _pendingAttachmentName = null;
+      _pendingAttachmentSize = null;
+      _pendingAttachmentExt = null;
+    });
   }
 
   Future<void> _showRagDocumentsDialog() async {
@@ -116,18 +109,62 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
+    final attachedFile = _pendingAttachment;
+    final attachedName = _pendingAttachmentName;
+    final attachedExt = _pendingAttachmentExt;
+
+    if ((text.isEmpty && attachedFile == null) || _sending) return;
 
     final user = ref.read(authProvider);
-    setState(() => _sending = true);
+    setState(() {
+      _sending = true;
+      _pendingAttachment = null;
+      _pendingAttachmentName = null;
+      _pendingAttachmentSize = null;
+      _pendingAttachmentExt = null;
+    });
     _controller.clear();
 
-    await ref
-        .read(aiChatProvider.notifier)
-        .sendMessage(text, userId: user?.userId);
+    try {
+      String finalPrompt = text;
 
-    _scrollToBottom();
-    if (mounted) setState(() => _sending = false);
+      if (attachedFile != null) {
+        if (['pdf', 'txt', 'md', 'csv'].contains(attachedExt)) {
+          // Ingest document into RAG
+          final res = await RagDocumentService.ingestDocument(file: attachedFile);
+          final docName = res['file_name'] ?? attachedName ?? 'เอกสาร';
+          if (text.isEmpty) {
+            finalPrompt = '📄 [แนบเอกสาร: $docName]\nช่วยสรุปและวิเคราะห์เนื้อหาสำคัญในเอกสารนี้ให้หน่อยครับ';
+          } else {
+            finalPrompt = '📄 [แนบเอกสาร: $docName]\n$text';
+          }
+        } else {
+          // Image
+          if (text.isEmpty) {
+            finalPrompt = '📸 [แนบรูปภาพ: $attachedName]\nช่วยวิเคราะห์อาการเสียหรือข้อมูลในภาพนี้ให้หน่อยครับ';
+          } else {
+            finalPrompt = '📸 [แนบรูปภาพ: $attachedName]\n$text';
+          }
+        }
+      }
+
+      await ref
+          .read(aiChatProvider.notifier)
+          .sendMessage(finalPrompt, userId: user?.userId);
+
+      _scrollToBottom();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -360,59 +397,120 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
           top: BorderSide(color: theme.colorScheme.outlineVariant, width: 0.5),
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            icon: _uploadingRagDoc
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.attach_file_rounded),
-            tooltip: 'แนบคู่มือ PDF / เอกสารสำหรับ RAG',
-            onPressed: _uploadingRagDoc ? null : _uploadAndAskRag,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              enabled: !_sending,
-              maxLines: null,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _send(),
-              decoration: InputDecoration(
-                hintText: 'ถามเกี่ยวกับข้อมูลในระบบ...',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
+          if (_pendingAttachment != null) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          FilledButton(
-            onPressed: _sending ? null : _send,
-            style: FilledButton.styleFrom(
-              shape: const CircleBorder(),
-              padding: const EdgeInsets.all(14),
-            ),
-            child: _sending
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _pendingAttachmentExt == 'pdf'
+                        ? Icons.picture_as_pdf_rounded
+                        : ['png', 'jpg', 'jpeg'].contains(_pendingAttachmentExt)
+                            ? Icons.image_rounded
+                            : Icons.description_rounded,
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 320),
+                    child: Text(
+                      _pendingAttachmentName ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
                     ),
-                  )
-                : const Icon(Icons.send_rounded),
+                  ),
+                  if (_pendingAttachmentSize != null) ...[
+                    const SizedBox(width: 6),
+                    Text(
+                      '(${(_pendingAttachmentSize! / 1024).toStringAsFixed(1)} KB)',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: _sending ? null : _clearAttachment,
+                    borderRadius: BorderRadius.circular(10),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2),
+                      child: Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.attach_file_rounded),
+                tooltip: 'แนบไฟล์คู่มือ PDF / รูปภาพ',
+                onPressed: _sending ? null : _pickAttachment,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  enabled: !_sending,
+                  maxLines: null,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _send(),
+                  decoration: InputDecoration(
+                    hintText: _pendingAttachment != null
+                        ? 'พิมพ์คำถามเกี่ยวกับไฟล์ที่แนบไว้ แล้วกดส่ง...'
+                        : 'ถามเกี่ยวกับข้อมูลในระบบ...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    fillColor: theme.colorScheme.surfaceContainerHighest,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton(
+                onPressed: _sending ? null : _send,
+                style: FilledButton.styleFrom(
+                  shape: const CircleBorder(),
+                  padding: const EdgeInsets.all(14),
+                ),
+                child: _sending
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send_rounded),
+              ),
+            ],
           ),
         ],
       ),
