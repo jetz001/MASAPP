@@ -156,6 +156,19 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
     }
   }
 
+  /// Add assistant message directly (e.g. after RAG upload notification)
+  Future<void> addAssistantMessage(String text, {String? userId}) async {
+    final msg = ChatMessage(
+      id: const Uuid().v4(),
+      role: ChatRole.assistant,
+      content: text,
+      createdAt: DateTime.now(),
+    );
+    state = state.copyWith(messages: [...state.messages, msg]);
+    _history.add(AiConversationMessage(role: 'assistant', content: text));
+    await _saveToDb(state.sessionId, 'assistant', text, userId: userId);
+  }
+
   /// Clear chat history
   void clearChat() {
     _history.clear();

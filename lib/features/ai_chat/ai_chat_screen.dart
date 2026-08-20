@@ -48,6 +48,61 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   }
 
 
+
+  bool _uploadingRagDoc = false;
+
+  Future<void> _uploadAndAskRag() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'txt', 'md', 'csv', 'png', 'jpg', 'jpeg'],
+        dialogTitle: 'เลือกคู่มือเครื่องจักร หรือรูปถ่ายอาการเสีย',
+      );
+
+      if (result == null || result.files.single.path == null) return;
+      final file = File(result.files.single.path!);
+      final ext = file.path.split('.').last.toLowerCase();
+
+      setState(() => _uploadingRagDoc = true);
+
+      if (['png', 'jpg', 'jpeg'].contains(ext)) {
+        // Image attachment
+        final user = ref.read(authProvider);
+        setState(() => _uploadingRagDoc = false);
+        await ref.read(aiChatProvider.notifier).addAssistantMessage(
+          '📸 **ได้รับรูปภาพแนบแล้ว (${file.path.split(Platform.pathSeparator).last})**\nคุณสามารถพิมพ์คำถามเกี่ยวกับภาพนี้ หรือให้อธิบายอาการเสียที่เห็นได้เลยครับ!',
+          userId: user?.userId,
+        );
+        return;
+      }
+
+      // Document / PDF ingestion
+      final res = await RagDocumentService.ingestDocument(file: file);
+      final user = ref.read(authProvider);
+
+      if (mounted) {
+        setState(() => _uploadingRagDoc = false);
+        await ref.read(aiChatProvider.notifier).addAssistantMessage(
+          '📄 **นำเข้าคู่มือสำเร็จ!**\n'
+          'ระบบได้แปลงไฟล์ **${res['file_name']}** เข้าสู่คลังความรู้ RAG เรียบร้อยแล้ว (จำนวน ${res['total_chunks']} ท่อนเวกเตอร์)\n\n'
+          'คุณสามารถพิมพ์ถามคำถามเกี่ยวกับคู่มือนี้ เช่น *"สรุปขั้นตอนการซ่อมบำรุงตามคู่มือนี้ให้หน่อย"* หรือ *"มี Error Code อะไรบ้าง"* ได้ทันทีครับ!',
+          userId: user?.userId,
+        );
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _uploadingRagDoc = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาด: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showRagDocumentsDialog() async {
     showModalBottomSheet(
       context: context,
@@ -256,6 +311,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   Widget _buildQuickActions(ThemeData theme) {
     final chips = [
+      ('📚 คลังคู่มือ RAG', Icons.menu_book_rounded),
       ('เครื่องที่ Breakdown', Icons.warning_amber_rounded),
       ('อะไหล่ใกล้หมด', Icons.inventory_2_outlined),
       ('งานที่ค้างอยู่', Icons.assignment_late_outlined),
@@ -276,8 +332,12 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               onPressed: _sending
                   ? null
                   : () {
-                      _controller.text = c.$1;
-                      _send();
+                      if (c.$1 == '📚 คลังคู่มือ RAG') {
+                        _showRagDocumentsDialog();
+                      } else {
+                        _controller.text = c.$1;
+                        _send();
+                      }
                     },
             ),
           );
@@ -302,6 +362,18 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
       ),
       child: Row(
         children: [
+          IconButton(
+            icon: _uploadingRagDoc
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.attach_file_rounded),
+            tooltip: 'แนบคู่มือ PDF / เอกสารสำหรับ RAG',
+            onPressed: _uploadingRagDoc ? null : _uploadAndAskRag,
+          ),
+          const SizedBox(width: 4),
           Expanded(
             child: TextField(
               controller: _controller,
