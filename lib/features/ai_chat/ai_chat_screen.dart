@@ -127,6 +127,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
     try {
       String finalPrompt = text;
+      String? displayText;
 
       if (attachedFile != null) {
         if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv'].contains(attachedExt)) {
@@ -143,6 +144,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               ? '${extractedText.substring(0, 15000)}\n...(ตัดทอนบางส่วน)...'
               : extractedText;
 
+          displayText = '📄 [แนบเอกสาร: $docName]\n$userPrompt';
+
           finalPrompt = '📄 [แนบเอกสาร: $docName]\n$userPrompt\n\n'
               '--- เนื้อหาที่อ่านได้จากเอกสาร ($docName) ---\n'
               '$truncatedText\n'
@@ -150,16 +153,18 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
         } else {
           // Image
           if (text.isEmpty) {
-            finalPrompt = '📸 [แนบรูปภาพ: $attachedName]\nช่วยวิเคราะห์อาการเสียหรือข้อมูลในภาพนี้ให้หน่อยครับ';
+            displayText = '📸 [แนบรูปภาพ: $attachedName]\nช่วยวิเคราะห์อาการเสียหรือข้อมูลในภาพนี้ให้หน่อยครับ';
+            finalPrompt = displayText;
           } else {
-            finalPrompt = '📸 [แนบรูปภาพ: $attachedName]\n$text';
+            displayText = '📸 [แนบรูปภาพ: $attachedName]\n$text';
+            finalPrompt = displayText;
           }
         }
       }
 
       await ref
           .read(aiChatProvider.notifier)
-          .sendMessage(finalPrompt, userId: user?.userId);
+          .sendMessage(finalPrompt, displayText: displayText, userId: user?.userId);
 
       _scrollToBottom();
     } catch (e) {

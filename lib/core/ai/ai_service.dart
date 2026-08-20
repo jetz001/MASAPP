@@ -47,24 +47,284 @@ IMPORTANT CONSTRAINTS:
 21. File metadata is available in file_assets, including storage_path, thumbnail_path, preview_path, mime_type, page_count, module_type, entity_id, and display_name.
 22. When the user asks about symptoms, how to fix an issue, troubleshooting, root cause analysis (RCA), machine manual instructions, or maintenance standards, ALWAYS use search_vector_knowledge to find relevant semantic vector knowledge chunks from historical repairs and manuals before answering.
 
-Available data in this system:
-- Knowledge Vectors (เวกเตอร์ความรู้): semantic search for repair history, failure symptoms, root causes (RCA), machine manuals, and PM standards
-- Machines (เครื่องจักร): status, specs, location, running hours
-- Work Orders (ใบแจ้งซ่อม): status, priority, assigned technician, RCA
-- PM/AM Plans (แผนการบำรุงรักษา): schedules, tasks, executions
-- Spare Parts (อะไหล่): inventory, transactions, reorder levels
-- Tools (เครื่องมือช่าง): checkout status, location
-- Work Permits (ใบอนุญาตทำงาน): status, safety checks
-- File Assets (ไฟล์แนบ/รูป/PDF): normalized file paths, previews, thumbnails, page counts
-- Database Actions / Import Tools:
-  * Machine Registration: When asked to register/import machines from documents or text, extract machine fields and call `register_machines`.
-  * PM / AM Master Plans: When asked to create PM plans or maintenance schedules from manuals, call `create_pm_plans`.
-  * Spare Parts / BOM: When asked to import spare parts or part catalogs from documents, call `register_spare_parts`.
-  * Work Orders: When user reports a breakdown or asks to create a work order, call `create_work_order`.
-- OEE Logs, Factory Layout, Technician skills, notifications, handover/checklist data
+DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete across all modules):
+- Machines: Call `manage_machines` (action: insert / update / delete). Also supports bulk `machines` list for importing documents.
+- Locations & Layout: Call `manage_locations` (action: create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).
+- PM/AM Master Plans: Call `manage_pm_plans` (action: create_plan, update_plan, delete_plan, add_task, delete_task).
+- PM/AM Schedules: Call `manage_pm_schedules` (action: create_schedule, update_status, record_execution, delete_schedule).
+- Work Orders & RCA: Call `manage_work_orders` (action: create_order, update_order, record_labor, record_rca, delete_order).
+- Outsource Vendors / Contractors: Call `manage_contractors` (action: create_contractor, update_contractor, delete_contractor).
+- Work Permits: Call `manage_work_permits` (action: create_permit, update_status, update_safety_check, delete_permit).
+- Spare Parts & Inventory: Call `manage_spare_parts` (action: create_part, update_part, delete_part, record_transaction, link_machine).
+- Tools & Equipment: Call `manage_tools` (action: create_tool, update_tool, delete_tool, record_transaction).
+- OEE Logs: Call `manage_oee_logs` (action: record_log, update_log, delete_log).
+- Technicians & Skills: Call `manage_technicians` (action: add_skill, update_skill, delete_skill, set_availability).
 
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
+
+  static final _manageMachinesTool = FunctionDeclaration(
+    'manage_machines',
+    'Manage machine records (Insert, Update, Delete/Deactivate, and Specs) in MASAPP database. Supports bulk import array.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'insert, update, delete'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "MC-01") or ID'),
+        'machine_no': Schema(SchemaType.string, description: 'Unique machine code/ID'),
+        'machine_name': Schema(SchemaType.string, description: 'Name of machine'),
+        'asset_no': Schema(SchemaType.string, description: 'Asset tag number'),
+        'brand': Schema(SchemaType.string, description: 'Brand/Manufacturer'),
+        'model': Schema(SchemaType.string, description: 'Model'),
+        'serial_no': Schema(SchemaType.string, description: 'Serial number'),
+        'location': Schema(SchemaType.string, description: 'Installation area/room/line'),
+        'status': Schema(SchemaType.string, description: 'normal, breakdown, pm, offline'),
+        'notes': Schema(SchemaType.string, description: 'Additional remarks or specs summary'),
+        'machines': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'machine_no': Schema(SchemaType.string, description: 'Unique machine code/ID'),
+              'machine_name': Schema(SchemaType.string, description: 'Machine name'),
+              'brand': Schema(SchemaType.string),
+              'model': Schema(SchemaType.string),
+              'location': Schema(SchemaType.string),
+              'status': Schema(SchemaType.string),
+              'notes': Schema(SchemaType.string),
+            },
+            requiredProperties: ['machine_no'],
+          ),
+          description: 'Optional array of machine objects for bulk import',
+        ),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageLocationsTool = FunctionDeclaration(
+    'manage_locations',
+    'Manage factory layouts, zones, and machine positions (create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position'),
+        'layout_name': Schema(SchemaType.string, description: 'Name of the factory layout'),
+        'zone_name': Schema(SchemaType.string, description: 'Name of the zone/area'),
+        'zone_type': Schema(SchemaType.string, description: 'production, storage, maintenance, safety'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No or ID'),
+        'x_position': Schema(SchemaType.number, description: 'X coordinate on layout'),
+        'y_position': Schema(SchemaType.number, description: 'Y coordinate on layout'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _managePmPlansTool = FunctionDeclaration(
+    'manage_pm_plans',
+    'Manage PM/AM master plans and checklist tasks (create_plan, update_plan, delete_plan, add_task, delete_task).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_plan, update_plan, delete_plan, add_task, delete_task'),
+        'plan_identifier': Schema(SchemaType.string, description: 'Plan code (e.g. "PM-MC01-1234") or Plan ID'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "MC-01")'),
+        'plan_name': Schema(SchemaType.string, description: 'Title of the PM/AM plan'),
+        'plan_type': Schema(SchemaType.string, description: 'PM or AM'),
+        'frequency_days': Schema(SchemaType.integer, description: 'Frequency in days (e.g. 7, 30, 90, 365)'),
+        'task_name': Schema(SchemaType.string, description: 'Checklist task description'),
+        'task_type': Schema(SchemaType.string, description: 'clean, lubricate, tighten, inspect, replace, calibrate'),
+        'is_critical': Schema(SchemaType.boolean, description: 'Whether task is critical'),
+        'tasks': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'task_name': Schema(SchemaType.string),
+              'task_type': Schema(SchemaType.string),
+              'is_critical': Schema(SchemaType.boolean),
+            },
+            requiredProperties: ['task_name'],
+          ),
+          description: 'List of checklist tasks when creating plan',
+        ),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _managePmSchedulesTool = FunctionDeclaration(
+    'manage_pm_schedules',
+    'Manage PM/AM schedules and task execution logs (create_schedule, update_status, record_execution, delete_schedule).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_schedule, update_status, record_execution, delete_schedule'),
+        'schedule_id': Schema(SchemaType.string, description: 'Schedule ID'),
+        'plan_identifier': Schema(SchemaType.string, description: 'Plan code or ID'),
+        'scheduled_date': Schema(SchemaType.string, description: 'Scheduled date (YYYY-MM-DD)'),
+        'assigned_to': Schema(SchemaType.string, description: 'Technician username/name'),
+        'status': Schema(SchemaType.string, description: 'pending, in_progress, completed, cancelled'),
+        'task_name': Schema(SchemaType.string, description: 'Task name inspected'),
+        'result': Schema(SchemaType.string, description: 'pass, fail, na'),
+        'remarks': Schema(SchemaType.string, description: 'Execution remarks/notes'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageWorkOrdersTool = FunctionDeclaration(
+    'manage_work_orders',
+    'Manage maintenance work orders (create_order, update_order, record_labor, record_rca, delete_order).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_order, update_order, record_labor, record_rca, delete_order'),
+        'wo_identifier': Schema(SchemaType.string, description: 'WO No (e.g. "WO-2026-00001") or WO ID'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "MC-01")'),
+        'title': Schema(SchemaType.string, description: 'Repair job title'),
+        'symptom': Schema(SchemaType.string, description: 'Observed breakdown symptom or error'),
+        'priority': Schema(SchemaType.string, description: 'urgent, high, normal, low'),
+        'status': Schema(SchemaType.string, description: 'pending, approved, inProgress, completed, cancelled, rejected'),
+        'assigned_to': Schema(SchemaType.string, description: 'Assigned technician name/username'),
+        'failure_cause': Schema(SchemaType.string, description: 'Identified cause of breakdown'),
+        'technician_identifier': Schema(SchemaType.string, description: 'Technician name who worked on repair'),
+        'labor_hours': Schema(SchemaType.number, description: 'Hours spent on repair'),
+        'task_description': Schema(SchemaType.string, description: 'Details of repair actions performed'),
+        'root_cause': Schema(SchemaType.string, description: 'Root cause for RCA 5-Why analysis'),
+        'why_1': Schema(SchemaType.string, description: 'Why #1'),
+        'why_2': Schema(SchemaType.string, description: 'Why #2'),
+        'why_3': Schema(SchemaType.string, description: 'Why #3'),
+        'why_4': Schema(SchemaType.string, description: 'Why #4'),
+        'why_5': Schema(SchemaType.string, description: 'Why #5'),
+        'correction_action': Schema(SchemaType.string, description: 'Immediate corrective action'),
+        'preventive_action': Schema(SchemaType.string, description: 'Long-term preventive action'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageContractorsTool = FunctionDeclaration(
+    'manage_contractors',
+    'Manage outsource vendors and contractors (create_contractor, update_contractor, delete_contractor).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_contractor, update_contractor, delete_contractor'),
+        'contractor_identifier': Schema(SchemaType.string, description: 'Supplier code or Contractor name'),
+        'name': Schema(SchemaType.string, description: 'Company/Vendor name'),
+        'contact_name': Schema(SchemaType.string, description: 'Contact person'),
+        'phone': Schema(SchemaType.string, description: 'Phone number'),
+        'email': Schema(SchemaType.string, description: 'Email address'),
+        'service_scope': Schema(SchemaType.string, description: 'Services provided (e.g. ซ่อมมอเตอร์, ติดตั้งระบบไฟฟ้า)'),
+        'is_approved': Schema(SchemaType.boolean, description: 'Whether vendor is approved'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageWorkPermitsTool = FunctionDeclaration(
+    'manage_work_permits',
+    'Manage electronic work permits and safety checks (create_permit, update_status, update_safety_check, delete_permit).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_permit, update_status, update_safety_check, delete_permit'),
+        'permit_identifier': Schema(SchemaType.string, description: 'Permit No (e.g. "WP-2026-00001") or Permit ID'),
+        'permit_type': Schema(SchemaType.string, description: 'hot_work, confined_space, electrical, heights, energy_isolation'),
+        'description': Schema(SchemaType.string, description: 'Work permit description/scope'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No'),
+        'duration_hours': Schema(SchemaType.integer, description: 'Work permit duration in hours'),
+        'status': Schema(SchemaType.string, description: 'pending, approved, in_progress, completed, cancelled, rejected'),
+        'check_item': Schema(SchemaType.string, description: 'Safety check item description'),
+        'is_passed': Schema(SchemaType.boolean, description: 'Whether safety check item passed'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageSparePartsTool = FunctionDeclaration(
+    'manage_spare_parts',
+    'Manage spare parts catalog, stock movement transactions, and BOM mapping (create_part, update_part, delete_part, record_transaction, link_machine).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_part, update_part, delete_part, record_transaction, link_machine'),
+        'part_identifier': Schema(SchemaType.string, description: 'Part code or part name'),
+        'part_code': Schema(SchemaType.string, description: 'Part code/SKU'),
+        'part_name': Schema(SchemaType.string, description: 'Spare part name'),
+        'category': Schema(SchemaType.string, description: 'mechanical, electrical, pneumatic, hydraulic, consumable'),
+        'unit_cost': Schema(SchemaType.number, description: 'Unit cost in THB'),
+        'reorder_level': Schema(SchemaType.integer, description: 'Minimum stock reorder point'),
+        'initial_quantity': Schema(SchemaType.integer, description: 'Initial stock on hand'),
+        'location': Schema(SchemaType.string, description: 'Warehouse bin/rack location'),
+        'trans_type': Schema(SchemaType.string, description: 'in (รับเข้า), out (เบิกจ่าย), adjustment (ปรับยอด), return (ส่งคืน)'),
+        'quantity': Schema(SchemaType.integer, description: 'Quantity for transaction or BOM mapping'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code to link part to (BOM)'),
+        'remarks': Schema(SchemaType.string, description: 'Transaction notes/reason'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageToolsTool = FunctionDeclaration(
+    'manage_tools',
+    'Manage tools, equipment, check-out/check-in, and repair transactions (create_tool, update_tool, delete_tool, record_transaction).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_tool, update_tool, delete_tool, record_transaction'),
+        'tool_identifier': Schema(SchemaType.string, description: 'Tool code or name'),
+        'tool_code': Schema(SchemaType.string, description: 'Tool code'),
+        'tool_name': Schema(SchemaType.string, description: 'Tool name'),
+        'category': Schema(SchemaType.string, description: 'hand_tools, power_tools, measuring, safety'),
+        'status': Schema(SchemaType.string, description: 'available, in_use, repair, lost'),
+        'price': Schema(SchemaType.number, description: 'Tool price'),
+        'action_type': Schema(SchemaType.string, description: 'check_out, check_in, send_repair, receive_repair'),
+        'notes': Schema(SchemaType.string, description: 'Notes or remarks'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageOeeLogsTool = FunctionDeclaration(
+    'manage_oee_logs',
+    'Manage OEE production and machine running hour logs (record_log, update_log, delete_log).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'record_log, update_log, delete_log'),
+        'hours_id': Schema(SchemaType.string, description: 'Log entry ID'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No'),
+        'recorded_date': Schema(SchemaType.string, description: 'Date (YYYY-MM-DD)'),
+        'cumulative_hours': Schema(SchemaType.number, description: 'Cumulative running hours'),
+        'daily_hours': Schema(SchemaType.number, description: 'Daily operating hours'),
+        'target_production': Schema(SchemaType.number, description: 'Target production quantity'),
+        'actual_production': Schema(SchemaType.number, description: 'Actual produced quantity'),
+        'good_production': Schema(SchemaType.number, description: 'Good quality output quantity'),
+      },
+      requiredProperties: ['action'],
+    ),
+  );
+
+  static final _manageTechniciansTool = FunctionDeclaration(
+    'manage_technicians',
+    'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'add_skill, update_skill, delete_skill, set_availability'),
+        'technician_identifier': Schema(SchemaType.string, description: 'Technician username, name, or ID'),
+        'skill_name': Schema(SchemaType.string, description: 'Skill/Competency name'),
+        'proficiency_level': Schema(SchemaType.string, description: 'basic, intermediate, expert'),
+        'certified': Schema(SchemaType.boolean, description: 'Whether certified'),
+        'available_date': Schema(SchemaType.string, description: 'Availability date (YYYY-MM-DD)'),
+        'available_hours': Schema(SchemaType.number, description: 'Available work hours (default 8)'),
+        'reserved_hours': Schema(SchemaType.number, description: 'Reserved/Booked hours'),
+      },
+      requiredProperties: ['action', 'technician_identifier'],
+    ),
+  );
 
   static final _registerMachinesTool = FunctionDeclaration(
     'register_machines',
@@ -95,7 +355,6 @@ Start by greeting the user and asking how you can help with maintenance operatio
       requiredProperties: ['machines'],
     ),
   );
-
 
   static final _createPmPlansTool = FunctionDeclaration(
     'create_pm_plans',
@@ -315,16 +574,80 @@ Start by greeting the user and asking how you can help with maintenance operatio
     {
       'type': 'function',
       'function': {
-        'name': 'create_pm_plans',
-        'description':
-            'Create or import a Preventive Maintenance (PM) or Autonomous Maintenance (AM) master plan and task checklist for a machine.',
+        'name': 'manage_machines',
+        'description': 'Manage machine records (Insert, Update, Delete/Deactivate, and Specs) in MASAPP database. Supports bulk import array.',
         'parameters': {
           'type': 'object',
           'properties': {
-            'machine_identifier': {'type': 'string', 'description': 'Machine code/No'},
-            'plan_name': {'type': 'string', 'description': 'Title of PM plan'},
-            'plan_type': {'type': 'string', 'description': 'PM or AM'},
-            'frequency_days': {'type': 'integer', 'description': 'Frequency in days'},
+            'action': {'type': 'string', 'description': 'insert, update, delete'},
+            'machine_identifier': {'type': 'string', 'description': 'Machine code/No (e.g. "MC-01") or ID'},
+            'machine_no': {'type': 'string', 'description': 'Unique machine code/ID'},
+            'machine_name': {'type': 'string', 'description': 'Name of machine'},
+            'asset_no': {'type': 'string', 'description': 'Asset tag number'},
+            'brand': {'type': 'string', 'description': 'Brand/Manufacturer'},
+            'model': {'type': 'string', 'description': 'Model'},
+            'serial_no': {'type': 'string', 'description': 'Serial number'},
+            'location': {'type': 'string', 'description': 'Installation area/room/line'},
+            'status': {'type': 'string', 'description': 'normal, breakdown, pm, offline'},
+            'notes': {'type': 'string', 'description': 'Additional remarks or specs summary'},
+            'machines': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'machine_no': {'type': 'string'},
+                  'machine_name': {'type': 'string'},
+                  'brand': {'type': 'string'},
+                  'model': {'type': 'string'},
+                  'location': {'type': 'string'},
+                  'status': {'type': 'string'},
+                  'notes': {'type': 'string'},
+                },
+                'required': ['machine_no'],
+              },
+            },
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_locations',
+        'description': 'Manage factory layouts, zones, and machine positions (create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position'},
+            'layout_name': {'type': 'string'},
+            'zone_name': {'type': 'string'},
+            'zone_type': {'type': 'string'},
+            'machine_identifier': {'type': 'string'},
+            'x_position': {'type': 'number'},
+            'y_position': {'type': 'number'},
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_pm_plans',
+        'description': 'Manage PM/AM master plans and checklist tasks (create_plan, update_plan, delete_plan, add_task, delete_task).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'create_plan, update_plan, delete_plan, add_task, delete_task'},
+            'plan_identifier': {'type': 'string'},
+            'machine_identifier': {'type': 'string'},
+            'plan_name': {'type': 'string'},
+            'plan_type': {'type': 'string'},
+            'frequency_days': {'type': 'integer'},
+            'task_name': {'type': 'string'},
+            'task_type': {'type': 'string'},
+            'is_critical': {'type': 'boolean'},
             'tasks': {
               'type': 'array',
               'items': {
@@ -338,119 +661,196 @@ Start by greeting the user and asking how you can help with maintenance operatio
               },
             },
           },
-          'required': ['machine_identifier', 'tasks'],
+          'required': ['action'],
         },
       },
     },
     {
       'type': 'function',
       'function': {
-        'name': 'register_spare_parts',
-        'description':
-            'Register or import spare parts, consumable items, and BOM catalog into the MASAPP spare_parts table.',
+        'name': 'manage_pm_schedules',
+        'description': 'Manage PM/AM schedules and task execution logs (create_schedule, update_status, record_execution, delete_schedule).',
         'parameters': {
           'type': 'object',
           'properties': {
-            'machine_identifier': {'type': 'string', 'description': 'Optional Machine code to link to'},
-            'parts': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'part_code': {'type': 'string'},
-                  'part_name': {'type': 'string'},
-                  'category': {'type': 'string'},
-                  'unit_cost': {'type': 'number'},
-                  'reorder_level': {'type': 'integer'},
-                  'initial_quantity': {'type': 'integer'},
-                },
-                'required': ['part_name'],
-              },
-            },
+            'action': {'type': 'string', 'description': 'create_schedule, update_status, record_execution, delete_schedule'},
+            'schedule_id': {'type': 'string'},
+            'plan_identifier': {'type': 'string'},
+            'scheduled_date': {'type': 'string'},
+            'assigned_to': {'type': 'string'},
+            'status': {'type': 'string'},
+            'task_name': {'type': 'string'},
+            'result': {'type': 'string'},
+            'remarks': {'type': 'string'},
           },
-          'required': ['parts'],
+          'required': ['action'],
         },
       },
     },
     {
       'type': 'function',
       'function': {
-        'name': 'create_work_order',
-        'description':
-            'Create and dispatch a new maintenance work order (ใบแจ้งซ่อม) into MASAPP work_orders table from reported machine breakdown or user request.',
+        'name': 'manage_work_orders',
+        'description': 'Manage maintenance work orders (create_order, update_order, record_labor, record_rca, delete_order).',
         'parameters': {
           'type': 'object',
           'properties': {
-            'title': {'type': 'string', 'description': 'Title of repair job'},
-            'machine_identifier': {'type': 'string', 'description': 'Machine code/No'},
-            'symptom': {'type': 'string', 'description': 'Breakdown symptom'},
-            'priority': {'type': 'string', 'description': 'urgent, high, normal, low'},
+            'action': {'type': 'string', 'description': 'create_order, update_order, record_labor, record_rca, delete_order'},
+            'wo_identifier': {'type': 'string'},
+            'machine_identifier': {'type': 'string'},
+            'title': {'type': 'string'},
+            'symptom': {'type': 'string'},
+            'priority': {'type': 'string'},
+            'status': {'type': 'string'},
+            'assigned_to': {'type': 'string'},
+            'failure_cause': {'type': 'string'},
+            'technician_identifier': {'type': 'string'},
+            'labor_hours': {'type': 'number'},
+            'task_description': {'type': 'string'},
+            'root_cause': {'type': 'string'},
+            'why_1': {'type': 'string'},
+            'why_2': {'type': 'string'},
+            'why_3': {'type': 'string'},
+            'why_4': {'type': 'string'},
+            'why_5': {'type': 'string'},
+            'correction_action': {'type': 'string'},
+            'preventive_action': {'type': 'string'},
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_contractors',
+        'description': 'Manage outsource vendors and contractors (create_contractor, update_contractor, delete_contractor).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'create_contractor, update_contractor, delete_contractor'},
+            'contractor_identifier': {'type': 'string'},
+            'name': {'type': 'string'},
+            'contact_name': {'type': 'string'},
+            'phone': {'type': 'string'},
+            'email': {'type': 'string'},
+            'service_scope': {'type': 'string'},
+            'is_approved': {'type': 'boolean'},
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_work_permits',
+        'description': 'Manage electronic work permits and safety checks (create_permit, update_status, update_safety_check, delete_permit).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'create_permit, update_status, update_safety_check, delete_permit'},
+            'permit_identifier': {'type': 'string'},
+            'permit_type': {'type': 'string'},
             'description': {'type': 'string'},
+            'machine_identifier': {'type': 'string'},
+            'duration_hours': {'type': 'integer'},
+            'status': {'type': 'string'},
+            'check_item': {'type': 'string'},
+            'is_passed': {'type': 'boolean'},
           },
-          'required': ['title', 'symptom'],
+          'required': ['action'],
         },
       },
     },
     {
       'type': 'function',
       'function': {
-        'name': 'register_machines',
-
-        'description':
-            'Register or import new machine records and specs into the MASAPP database machines table from document text or user input.',
+        'name': 'manage_spare_parts',
+        'description': 'Manage spare parts catalog, stock movement transactions, and BOM mapping (create_part, update_part, delete_part, record_transaction, link_machine).',
         'parameters': {
           'type': 'object',
           'properties': {
-            'machines': {
-              'type': 'array',
-              'items': {
-                'type': 'object',
-                'properties': {
-                  'machine_no': {'type': 'string', 'description': 'Unique machine code/ID. Required.'},
-                  'machine_name': {'type': 'string', 'description': 'Name of machine'},
-                  'asset_no': {'type': 'string', 'description': 'Asset tag number'},
-                  'brand': {'type': 'string', 'description': 'Brand/Manufacturer'},
-                  'model': {'type': 'string', 'description': 'Model'},
-                  'serial_no': {'type': 'string', 'description': 'Serial number'},
-                  'location': {'type': 'string', 'description': 'Location/Line'},
-                  'status': {'type': 'string', 'description': 'normal, breakdown, pm, offline'},
-                  'notes': {'type': 'string', 'description': 'Notes or specs summary'},
-                },
-                'required': ['machine_no'],
-              },
-              'description': 'Array of machine objects to register',
-            },
+            'action': {'type': 'string', 'description': 'create_part, update_part, delete_part, record_transaction, link_machine'},
+            'part_identifier': {'type': 'string'},
+            'part_code': {'type': 'string'},
+            'part_name': {'type': 'string'},
+            'category': {'type': 'string'},
+            'unit_cost': {'type': 'number'},
+            'reorder_level': {'type': 'integer'},
+            'initial_quantity': {'type': 'integer'},
+            'location': {'type': 'string'},
+            'trans_type': {'type': 'string'},
+            'quantity': {'type': 'integer'},
+            'machine_identifier': {'type': 'string'},
+            'remarks': {'type': 'string'},
           },
-          'required': ['machines'],
+          'required': ['action'],
         },
       },
     },
     {
       'type': 'function',
       'function': {
-        'name': 'search_vector_knowledge',
-        'description':
-            'Search semantic knowledge vectors for historical troubleshooting, failure symptoms, repair solutions, RCA, and machine manuals.',
+        'name': 'manage_tools',
+        'description': 'Manage tools, equipment, check-out/check-in, and repair transactions (create_tool, update_tool, delete_tool, record_transaction).',
         'parameters': {
           'type': 'object',
           'properties': {
-            'query': {
-              'type': 'string',
-              'description':
-                  'Search query describing symptoms, breakdown details, error code, machine issue, or maintenance procedure.',
-            },
-            'category': {
-              'type': 'string',
-              'description':
-                  'Optional category filter: repair_history, machine_specs, pm_standard, or manual.',
-            },
-            'top_k': {
-              'type': 'integer',
-              'description':
-                  'Maximum number of top relevant vector matches to return (default 5).',
-            },
+            'action': {'type': 'string', 'description': 'create_tool, update_tool, delete_tool, record_transaction'},
+            'tool_identifier': {'type': 'string'},
+            'tool_code': {'type': 'string'},
+            'tool_name': {'type': 'string'},
+            'category': {'type': 'string'},
+            'status': {'type': 'string'},
+            'price': {'type': 'number'},
+            'action_type': {'type': 'string'},
+            'notes': {'type': 'string'},
           },
-          'required': ['query'],
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_oee_logs',
+        'description': 'Manage OEE production and machine running hour logs (record_log, update_log, delete_log).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'record_log, update_log, delete_log'},
+            'hours_id': {'type': 'string'},
+            'machine_identifier': {'type': 'string'},
+            'recorded_date': {'type': 'string'},
+            'cumulative_hours': {'type': 'number'},
+            'daily_hours': {'type': 'number'},
+            'target_production': {'type': 'number'},
+            'actual_production': {'type': 'number'},
+            'good_production': {'type': 'number'},
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_technicians',
+        'description': 'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'add_skill, update_skill, delete_skill, set_availability'},
+            'technician_identifier': {'type': 'string'},
+            'skill_name': {'type': 'string'},
+            'proficiency_level': {'type': 'string'},
+            'certified': {'type': 'boolean'},
+            'available_date': {'type': 'string'},
+            'available_hours': {'type': 'number'},
+            'reserved_hours': {'type': 'number'},
+          },
+          'required': ['action', 'technician_identifier'],
         },
       },
     },
@@ -458,20 +858,12 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'query_database',
-        'description':
-            'Execute a SQLite SELECT query on the MASAPP database to retrieve operational data. Only SELECT statements allowed. Results capped at 200 rows.',
+        'description': 'Execute a SQLite SELECT query on the MASAPP database to retrieve operational data. Only SELECT statements allowed. Results capped at 200 rows.',
         'parameters': {
           'type': 'object',
           'properties': {
-            'sql': {
-              'type': 'string',
-              'description':
-                  'A valid SQLite SELECT statement. Must start with SELECT.',
-            },
-            'description': {
-              'type': 'string',
-              'description': 'Brief description of what this query is for.',
-            },
+            'sql': {'type': 'string', 'description': 'A valid SQLite SELECT statement.'},
+            'description': {'type': 'string'},
           },
           'required': ['sql'],
         },
@@ -481,8 +873,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'get_available_tables',
-        'description':
-            'Get a list of all database tables the AI can query, with their column names.',
+        'description': 'Get a list of all database tables the AI can query, with their column names.',
         'parameters': {'type': 'object', 'properties': {}},
       },
     },
@@ -494,10 +885,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         'parameters': {
           'type': 'object',
           'properties': {
-            'table_name': {
-              'type': 'string',
-              'description': 'The table name to inspect.',
-            },
+            'table_name': {'type': 'string', 'description': 'The table name to inspect.'},
           },
           'required': ['table_name'],
         },
@@ -506,21 +894,29 @@ Start by greeting the user and asking how you can help with maintenance operatio
     {
       'type': 'function',
       'function': {
-        'name': 'find_machine_assets',
-        'description':
-            'Find manuals, PDFs, attachments, and images related to a machine by machine number, name, asset number, brand, model, or serial number.',
+        'name': 'search_vector_knowledge',
+        'description': 'Search semantic knowledge vectors for historical troubleshooting, failure symptoms, repair solutions, RCA, and machine manuals.',
         'parameters': {
           'type': 'object',
           'properties': {
-            'query': {
-              'type': 'string',
-              'description':
-                  'Machine identifier or search text, such as machine number, name, brand, model, or serial number.',
-            },
-            'asset_type': {
-              'type': 'string',
-              'description': 'Optional filter: all, document, pdf, or image.',
-            },
+            'query': {'type': 'string', 'description': 'Search query describing symptoms, breakdown details, error code, machine issue, or maintenance procedure.'},
+            'category': {'type': 'string'},
+            'top_k': {'type': 'integer'},
+          },
+          'required': ['query'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'find_machine_assets',
+        'description': 'Find manuals, PDFs, attachments, and images related to a machine by machine number, name, asset number, brand, model, or serial number.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'query': {'type': 'string'},
+            'asset_type': {'type': 'string'},
           },
           'required': ['query'],
         },
@@ -530,29 +926,14 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'search_external_web',
-        'description':
-            'Search external sources only after checking the MASAPP database first or when the user explicitly asks for external information. Returns clearly labeled external data.',
+        'description': 'Search external sources only after checking the MASAPP database first or when the user explicitly asks for external information.',
         'parameters': {
           'type': 'object',
           'properties': {
-            'query': {
-              'type': 'string',
-              'description': 'Search query for external web lookup.',
-            },
-            'db_context': {
-              'type': 'string',
-              'description':
-                  'Short summary of what was checked in the MASAPP database first.',
-            },
-            'why_external_needed': {
-              'type': 'string',
-              'description':
-                  'Why external search is necessary after checking the database.',
-            },
-            'max_results': {
-              'type': 'integer',
-              'description': 'Maximum number of results to return.',
-            },
+            'query': {'type': 'string'},
+            'db_context': {'type': 'string'},
+            'why_external_needed': {'type': 'string'},
+            'max_results': {'type': 'integer'},
           },
           'required': ['query', 'db_context', 'why_external_needed'],
         },
@@ -562,26 +943,14 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'search_external_images',
-        'description':
-            'Search external image sources only after checking the MASAPP database first or when the user explicitly asks for outside images. Returns clearly labeled external image data.',
+        'description': 'Search external image sources only after checking the MASAPP database first or when the user explicitly asks for outside images.',
         'parameters': {
           'type': 'object',
           'properties': {
-            'query': {'type': 'string', 'description': 'Image search query.'},
-            'db_context': {
-              'type': 'string',
-              'description':
-                  'Short summary of what was checked in the MASAPP database first.',
-            },
-            'why_external_needed': {
-              'type': 'string',
-              'description':
-                  'Why external image search is necessary after checking the database.',
-            },
-            'max_results': {
-              'type': 'integer',
-              'description': 'Maximum number of images to return.',
-            },
+            'query': {'type': 'string'},
+            'db_context': {'type': 'string'},
+            'why_external_needed': {'type': 'string'},
+            'max_results': {'type': 'integer'},
           },
           'required': ['query', 'db_context', 'why_external_needed'],
         },
@@ -590,6 +959,228 @@ Start by greeting the user and asking how you can help with maintenance operatio
   ];
 
   static final _anthropicTools = [
+    {
+      'name': 'manage_machines',
+      'description': 'Manage machine records (Insert, Update, Delete/Deactivate, and Specs) in MASAPP database. Supports bulk import array.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'insert, update, delete'},
+          'machine_identifier': {'type': 'string'},
+          'machine_no': {'type': 'string'},
+          'machine_name': {'type': 'string'},
+          'asset_no': {'type': 'string'},
+          'brand': {'type': 'string'},
+          'model': {'type': 'string'},
+          'serial_no': {'type': 'string'},
+          'location': {'type': 'string'},
+          'status': {'type': 'string'},
+          'notes': {'type': 'string'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_locations',
+      'description': 'Manage factory layouts, zones, and machine positions (create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position'},
+          'layout_name': {'type': 'string'},
+          'zone_name': {'type': 'string'},
+          'zone_type': {'type': 'string'},
+          'machine_identifier': {'type': 'string'},
+          'x_position': {'type': 'number'},
+          'y_position': {'type': 'number'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_pm_plans',
+      'description': 'Manage PM/AM master plans and checklist tasks (create_plan, update_plan, delete_plan, add_task, delete_task).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_plan, update_plan, delete_plan, add_task, delete_task'},
+          'plan_identifier': {'type': 'string'},
+          'machine_identifier': {'type': 'string'},
+          'plan_name': {'type': 'string'},
+          'plan_type': {'type': 'string'},
+          'frequency_days': {'type': 'integer'},
+          'task_name': {'type': 'string'},
+          'task_type': {'type': 'string'},
+          'is_critical': {'type': 'boolean'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_pm_schedules',
+      'description': 'Manage PM/AM schedules and task execution logs (create_schedule, update_status, record_execution, delete_schedule).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_schedule, update_status, record_execution, delete_schedule'},
+          'schedule_id': {'type': 'string'},
+          'plan_identifier': {'type': 'string'},
+          'scheduled_date': {'type': 'string'},
+          'assigned_to': {'type': 'string'},
+          'status': {'type': 'string'},
+          'task_name': {'type': 'string'},
+          'result': {'type': 'string'},
+          'remarks': {'type': 'string'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_work_orders',
+      'description': 'Manage maintenance work orders (create_order, update_order, record_labor, record_rca, delete_order).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_order, update_order, record_labor, record_rca, delete_order'},
+          'wo_identifier': {'type': 'string'},
+          'machine_identifier': {'type': 'string'},
+          'title': {'type': 'string'},
+          'symptom': {'type': 'string'},
+          'priority': {'type': 'string'},
+          'status': {'type': 'string'},
+          'assigned_to': {'type': 'string'},
+          'failure_cause': {'type': 'string'},
+          'technician_identifier': {'type': 'string'},
+          'labor_hours': {'type': 'number'},
+          'task_description': {'type': 'string'},
+          'root_cause': {'type': 'string'},
+          'why_1': {'type': 'string'},
+          'why_2': {'type': 'string'},
+          'why_3': {'type': 'string'},
+          'why_4': {'type': 'string'},
+          'why_5': {'type': 'string'},
+          'correction_action': {'type': 'string'},
+          'preventive_action': {'type': 'string'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_contractors',
+      'description': 'Manage outsource vendors and contractors (create_contractor, update_contractor, delete_contractor).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_contractor, update_contractor, delete_contractor'},
+          'contractor_identifier': {'type': 'string'},
+          'name': {'type': 'string'},
+          'contact_name': {'type': 'string'},
+          'phone': {'type': 'string'},
+          'email': {'type': 'string'},
+          'service_scope': {'type': 'string'},
+          'is_approved': {'type': 'boolean'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_work_permits',
+      'description': 'Manage electronic work permits and safety checks (create_permit, update_status, update_safety_check, delete_permit).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_permit, update_status, update_safety_check, delete_permit'},
+          'permit_identifier': {'type': 'string'},
+          'permit_type': {'type': 'string'},
+          'description': {'type': 'string'},
+          'machine_identifier': {'type': 'string'},
+          'duration_hours': {'type': 'integer'},
+          'status': {'type': 'string'},
+          'check_item': {'type': 'string'},
+          'is_passed': {'type': 'boolean'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_spare_parts',
+      'description': 'Manage spare parts catalog, stock movement transactions, and BOM mapping (create_part, update_part, delete_part, record_transaction, link_machine).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_part, update_part, delete_part, record_transaction, link_machine'},
+          'part_identifier': {'type': 'string'},
+          'part_code': {'type': 'string'},
+          'part_name': {'type': 'string'},
+          'category': {'type': 'string'},
+          'unit_cost': {'type': 'number'},
+          'reorder_level': {'type': 'integer'},
+          'initial_quantity': {'type': 'integer'},
+          'location': {'type': 'string'},
+          'trans_type': {'type': 'string'},
+          'quantity': {'type': 'integer'},
+          'machine_identifier': {'type': 'string'},
+          'remarks': {'type': 'string'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_tools',
+      'description': 'Manage tools, equipment, check-out/check-in, and repair transactions (create_tool, update_tool, delete_tool, record_transaction).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_tool, update_tool, delete_tool, record_transaction'},
+          'tool_identifier': {'type': 'string'},
+          'tool_code': {'type': 'string'},
+          'tool_name': {'type': 'string'},
+          'category': {'type': 'string'},
+          'status': {'type': 'string'},
+          'price': {'type': 'number'},
+          'action_type': {'type': 'string'},
+          'notes': {'type': 'string'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_oee_logs',
+      'description': 'Manage OEE production and machine running hour logs (record_log, update_log, delete_log).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'record_log, update_log, delete_log'},
+          'hours_id': {'type': 'string'},
+          'machine_identifier': {'type': 'string'},
+          'recorded_date': {'type': 'string'},
+          'cumulative_hours': {'type': 'number'},
+          'daily_hours': {'type': 'number'},
+          'target_production': {'type': 'number'},
+          'actual_production': {'type': 'number'},
+          'good_production': {'type': 'number'},
+        },
+        'required': ['action'],
+      },
+    },
+    {
+      'name': 'manage_technicians',
+      'description': 'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'add_skill, update_skill, delete_skill, set_availability'},
+          'technician_identifier': {'type': 'string'},
+          'skill_name': {'type': 'string'},
+          'proficiency_level': {'type': 'string'},
+          'certified': {'type': 'boolean'},
+          'available_date': {'type': 'string'},
+          'available_hours': {'type': 'number'},
+          'reserved_hours': {'type': 'number'},
+        },
+        'required': ['action', 'technician_identifier'],
+      },
+    },
     {
       'name': 'query_database',
       'description':
@@ -628,6 +1219,24 @@ Start by greeting the user and asking how you can help with maintenance operatio
           },
         },
         'required': ['table_name'],
+      },
+    },
+    {
+      'name': 'search_vector_knowledge',
+      'description':
+          'Search semantic knowledge vectors for historical troubleshooting, failure symptoms, repair solutions, RCA, and machine manuals.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'query': {
+            'type': 'string',
+            'description':
+                'Search query describing symptoms, breakdown details, error code, machine issue, or maintenance procedure.',
+          },
+          'category': {'type': 'string'},
+          'top_k': {'type': 'integer'},
+        },
+        'required': ['query'],
       },
     },
     {
@@ -841,6 +1450,17 @@ Start by greeting the user and asking how you can help with maintenance operatio
       tools: [
         Tool(
           functionDeclarations: [
+            _manageMachinesTool,
+            _manageLocationsTool,
+            _managePmPlansTool,
+            _managePmSchedulesTool,
+            _manageWorkOrdersTool,
+            _manageContractorsTool,
+            _manageWorkPermitsTool,
+            _manageSparePartsTool,
+            _manageToolsTool,
+            _manageOeeLogsTool,
+            _manageTechniciansTool,
             _registerMachinesTool,
             _createPmPlansTool,
             _registerSparePartsTool,
@@ -857,7 +1477,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       ],
       generationConfig: GenerationConfig(
         temperature: 0.3,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 8192,
       ),
     );
 
@@ -916,7 +1536,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           'tools': _openAiTools,
           'tool_choice': 'auto',
           'temperature': 0.3,
-          'max_tokens': 2048,
+          'max_tokens': 8192,
         },
       );
 
@@ -988,7 +1608,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           'messages': messages,
           'tools': _anthropicTools,
           'temperature': 0.3,
-          'max_tokens': 2048,
+          'max_tokens': 8192,
         },
       );
 
@@ -1199,11 +1819,82 @@ Start by greeting the user and asking how you can help with maintenance operatio
     if (rawArguments is Map<String, dynamic>) return rawArguments;
     if (rawArguments is Map) return rawArguments.cast<String, dynamic>();
     if (rawArguments is String && rawArguments.trim().isNotEmpty) {
-      final decoded = jsonDecode(rawArguments);
-      if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return decoded.cast<String, dynamic>();
+      try {
+        final decoded = jsonDecode(rawArguments);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {
+        final repaired = _tryRepairJson(rawArguments);
+        if (repaired != null) return repaired;
+      }
     }
     return <String, dynamic>{};
+  }
+
+  static Map<String, dynamic>? _tryRepairJson(String raw) {
+    var trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    for (var attempt = 0; attempt < 50; attempt++) {
+      try {
+        final candidate = _closeJsonBrackets(trimmed);
+        final decoded = jsonDecode(candidate);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return decoded.cast<String, dynamic>();
+      } catch (_) {
+        final lastComma = trimmed.lastIndexOf(',');
+        if (lastComma > 0) {
+          trimmed = trimmed.substring(0, lastComma).trim();
+        } else {
+          break;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String _closeJsonBrackets(String input) {
+    var str = input.trim();
+    final stack = <String>[];
+    var inString = false;
+    var isEscaped = false;
+
+    for (var i = 0; i < str.length; i++) {
+      final char = str[i];
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
+      }
+      if (char == '\\') {
+        isEscaped = true;
+        continue;
+      }
+      if (char == '"') {
+        inString = !inString;
+        continue;
+      }
+      if (!inString) {
+        if (char == '{') {
+          stack.add('}');
+        } else if (char == '[') {
+          stack.add(']');
+        } else if (char == '}' || char == ']') {
+          if (stack.isNotEmpty) stack.removeLast();
+        }
+      }
+    }
+
+    if (inString) {
+      str += '"';
+    }
+
+    str = str.replaceAll(RegExp(r',\s*$'), '');
+
+    while (stack.isNotEmpty) {
+      str += stack.removeLast();
+    }
+
+    return str;
   }
 
   static String _extractError(String body, int statusCode) {

@@ -85,13 +85,21 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
   }
 
   /// Send a user message and get AI response
-  Future<void> sendMessage(String userText, {String? userId}) async {
+  Future<void> sendMessage(
+    String userText, {
+    String? displayText,
+    String? userId,
+  }) async {
     if (userText.trim().isEmpty) return;
+
+    final displayed = (displayText != null && displayText.trim().isNotEmpty)
+        ? displayText.trim()
+        : userText.trim();
 
     final userMsg = ChatMessage(
       id: const Uuid().v4(),
       role: ChatRole.user,
-      content: userText.trim(),
+      content: displayed,
       createdAt: DateTime.now(),
     );
 
@@ -106,7 +114,7 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
     state = state.copyWith(messages: [...state.messages, userMsg, loadingMsg]);
 
     // Save user message to DB
-    await _saveToDb(state.sessionId, 'user', userText.trim(), userId: userId);
+    await _saveToDb(state.sessionId, 'user', displayed, userId: userId);
 
     try {
       final config = await AiService.loadConfig();
