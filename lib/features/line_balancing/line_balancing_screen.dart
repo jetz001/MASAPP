@@ -146,8 +146,9 @@ class LineBalancingScreen extends ConsumerWidget {
                                   keyboardType: TextInputType.number,
                                   onChanged: (v) {
                                     final val = double.tryParse(v);
-                                    if (val != null)
+                                    if (val != null) {
                                       notifier.updateAvailableTime(val);
+                                    }
                                   },
                                 ),
                                 const SizedBox(height: 16),
@@ -160,7 +161,9 @@ class LineBalancingScreen extends ConsumerWidget {
                                   keyboardType: TextInputType.number,
                                   onChanged: (v) {
                                     final val = double.tryParse(v);
-                                    if (val != null) notifier.updateDemand(val);
+                                    if (val != null) {
+                                      notifier.updateDemand(val);
+                                    }
                                   },
                                 ),
                                 const SizedBox(height: 16),
@@ -174,8 +177,9 @@ class LineBalancingScreen extends ConsumerWidget {
                                   keyboardType: TextInputType.number,
                                   onChanged: (v) {
                                     final val = double.tryParse(v);
-                                    if (val != null)
+                                    if (val != null) {
                                       notifier.updateRates(val, state.fuelRate);
+                                    }
                                   },
                                 ),
                                 const SizedBox(height: 16),

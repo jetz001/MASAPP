@@ -45,13 +45,6 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
     super.dispose();
   }
 
-  void _updateLaborCost() {
-    setState(() {
-      laborCost = workers * 300.0; // base rate per worker
-      _laborCostController.text = laborCost.toStringAsFixed(2);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final machinesAsync = ref.watch(machineListProvider(const MachineListFilter()));
@@ -67,7 +60,7 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
               data: (machines) {
                 return DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'เลือกเครื่องจักร'),
-                  value: selectedMachineId,
+                  initialValue: selectedMachineId,
                   items: machines.map((m) => DropdownMenuItem(
                     value: m.machineId,
                     child: Text(m.machineName ?? 'Unknown Machine'),

@@ -17,6 +17,7 @@ final _log = Logger();
 class DbConnection {
   static DbConnection? _instance;
   static Database? _db;
+  static AppConfig? _currentConfig;
 
   static bool _ffiInitialized = false;
   DbConnection._();
@@ -24,6 +25,15 @@ class DbConnection {
   static DbConnection get instance => _instance ??= DbConnection._();
 
   bool get isConnected => _db != null;
+
+  /// Reconnect to the database using the last stored configuration
+  Future<void> reconnect() async {
+    final cfg = _currentConfig;
+    if (cfg != null) {
+      _log.i('Reconnecting to database: ${cfg.dbPath}');
+      await connect(cfg, skipInitialization: true);
+    }
+  }
 
   /// Initialize the SQLite database connection with LAN optimization.
   ///
@@ -36,6 +46,7 @@ class DbConnection {
     AppConfig config, {
     bool skipInitialization = false,
   }) async {
+    _currentConfig = config;
     await _db?.close();
 
     // Initialize FFI for Desktop only once
@@ -55,54 +66,65 @@ class DbConnection {
       options: OpenDatabaseOptions(
         version: 1,
         onConfigure: (db) async {
-          // Enable foreign keys
-          await db.execute('PRAGMA foreign_keys = ON');
-
-          // **CRITICAL: Set busy timeout FIRST**
-          // Must be set before any potentially-blocking operations
-          await db.execute('PRAGMA busy_timeout = 5000');
-
-          // WAL mode: allows multiple readers while a writer is active.
-          // However, WAL requires OS-level shared memory and does NOT work
-          // on network file shares (UNC paths like \\server\share or mapped
-          // network drives). We detect this and fall back to DELETE mode.
           final networkPath = isNetworkPath(resolvedDbPath);
+
+          // 1. Set busy timeout FIRST so SQLite waits for other network clients
+          try {
+            final timeoutMs = networkPath ? 30000 : 5000;
+            await db.execute('PRAGMA busy_timeout = $timeoutMs');
+          } catch (e) {
+            _log.w('Setting busy_timeout failed: $e');
+          }
+
+          // 2. Enable foreign keys
+          try {
+            await db.execute('PRAGMA foreign_keys = ON');
+          } catch (e) {
+            _log.w('Setting foreign_keys failed: $e');
+          }
+
+          // 3. Journal & Locking mode
           if (networkPath) {
-            // Do not alter persistent SQLite settings on a shared database.
-            _log.w(
-              'Network path detected — WAL disabled, using DELETE journal mode',
-            );
+            _log.w('Network path detected — WAL disabled, forcing DELETE journal mode');
+            try {
+              await db.execute('PRAGMA journal_mode = DELETE');
+            } catch (e) {
+              _log.w('Setting journal_mode=DELETE failed: $e');
+            }
+            try {
+              await db.execute('PRAGMA synchronous = NORMAL');
+            } catch (_) {}
+            try {
+              await db.execute('PRAGMA locking_mode = NORMAL');
+            } catch (_) {}
           } else {
             // Local disk: use WAL for best multi-client concurrency
             try {
               await db.execute('PRAGMA journal_mode = WAL');
             } catch (e) {
-              // Fallback in case WAL still fails (e.g. FS limitation)
-              _log.w(
-                'WAL mode failed ($e), falling back to DELETE journal mode',
-              );
-              await db.execute('PRAGMA journal_mode = DELETE');
+              _log.w('WAL mode failed ($e), falling back to DELETE journal mode');
+              try {
+                await db.execute('PRAGMA journal_mode = DELETE');
+              } catch (_) {}
             }
+
+            try {
+              await db.execute('PRAGMA synchronous = NORMAL');
+            } catch (_) {}
           }
 
-          // Keep persistent SQLite settings local-only.
-          if (!networkPath) {
-            await db.execute('PRAGMA synchronous = NORMAL');
+          // 4. Cache size for performance (wrap safely for network shares)
+          try {
+            await db.execute('PRAGMA cache_size = -64000'); // 64MB
+          } catch (e) {
+            _log.w('Setting cache_size failed (safe to ignore on network share): $e');
           }
-
-          // Cache size for better performance
-          await db.execute('PRAGMA cache_size = -64000'); // 64MB
 
           _log.i('Database PRAGMAs configured (network=$networkPath)');
         },
         onOpen: (db) async {
           _log.i('Database connection opened successfully');
-          // [TEMPORARY WIPE] Remove after one run
-          // await DbInitializer.wipeMachineData(db);
-
-          // A shared network database must not be initialized or migrated by
-          // a client merely connecting to it. It is managed at its source.
-          if (!skipInitialization && !isNetworkPath(resolvedDbPath)) {
+          if (!skipInitialization) {
             await DbInitializer.initializeDatabase(db);
           }
         },
@@ -187,16 +209,10 @@ class DbConnection {
     return false;
   }
 
-  /// Resolves mapped network drives like `Y:\folder\db.sqlite` to UNC paths.
+  /// Resolves database path. Preserves drive paths (e.g. Y:\..., D:\..., C:\...)
+  /// as-is to avoid SMB UNC file locking errors (code 3338).
   static String _resolveDatabasePath(String path) {
-    if (!Platform.isWindows || path.length < 2 || path[1] != ':') return path;
-
-    final displayRoot = _getDriveDisplayRoot(path.substring(0, 2));
-    if (displayRoot.isEmpty) return path;
-
-    final relativePath = path.substring(2).replaceAll('/', '\\');
-    if (relativePath.isEmpty) return displayRoot;
-    return '$displayRoot$relativePath';
+    return path;
   }
 
   /// Returns the UNC root for a mapped Windows drive, or an empty string.

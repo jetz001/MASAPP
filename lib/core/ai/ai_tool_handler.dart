@@ -1,12 +1,12 @@
-import 'package:uuid/uuid.dart';
-// lib/core/ai/ai_tool_handler.dart
-// Executes SQL queries on behalf of the AI — database-first with optional external search.
-
+import 'dart:io';
 import 'dart:convert';
-
+import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
 
 import '../database/db_helper.dart';
+import '../storage/attachment_storage_service.dart';
+import 'rag_document_service.dart';
 import 'vector_db_service.dart';
 
 class AiToolHandler {
@@ -32,7 +32,7 @@ class AiToolHandler {
     'DETACH',
     'PRAGMA',
   ];
-  static const _requestTimeout = Duration(seconds: 12);
+  static const _requestTimeout = Duration(seconds: 60);
   static const _braveSearchApiKeySetting = 'brave_search_api_key';
 
   /// Handle a tool call from AI
@@ -50,8 +50,14 @@ class AiToolHandler {
           return await _getTableSchema(args);
         case 'search_vector_knowledge':
           return await _searchVectorKnowledge(args);
+        case 'extract_document_text':
+        case 'read_document_text':
+          return await _extractDocumentText(args);
         case 'find_machine_assets':
           return await _findMachineAssets(args);
+        case 'manage_machine_assets':
+        case 'attach_machine_document':
+          return await _manageMachineAssets(args);
         case 'search_external_web':
           return await _searchExternalWeb(args);
         case 'search_external_images':
@@ -96,9 +102,29 @@ class AiToolHandler {
   static Future<Map<String, dynamic>?> _findMachine(String identifier) async {
     if (identifier.trim().isEmpty) return null;
     final id = identifier.trim();
+
+    // 1. Direct match
+    final exact = await DbHelper.queryOne(
+      'SELECT * FROM machines WHERE machine_no = @id OR machine_id = @id OR asset_no = @id LIMIT 1',
+      params: {'id': id},
+    );
+    if (exact != null) return exact;
+
+    // 2. Normalized alphanumeric match (e.g. "DP 01" matches "DP-01" or "DP01")
+    final normInput = id.toLowerCase().replaceAll(RegExp(r'[\s\-_]+'), '');
+    final allMachines = await DbHelper.query('SELECT * FROM machines WHERE is_active = 1 OR is_active IS NULL');
+    for (final m in allMachines) {
+      final mNo = (m['machine_no'] ?? '').toString().toLowerCase().replaceAll(RegExp(r'[\s\-_]+'), '');
+      final aNo = (m['asset_no'] ?? '').toString().toLowerCase().replaceAll(RegExp(r'[\s\-_]+'), '');
+      if (mNo == normInput || aNo == normInput) {
+        return m;
+      }
+    }
+
+    // 3. Fallback LIKE match
     return await DbHelper.queryOne(
-      'SELECT * FROM machines WHERE machine_no = @id OR machine_id = @id OR asset_no = @id OR machine_name LIKE @like LIMIT 1',
-      params: {'id': id, 'like': '%$id%'},
+      'SELECT * FROM machines WHERE machine_name LIKE @like OR machine_no LIKE @like LIMIT 1',
+      params: {'like': '%$id%'},
     );
   }
 
@@ -147,10 +173,228 @@ class AiToolHandler {
     );
   }
 
+  // ── 0. MACHINE ASSETS / DOCUMENTS (manage_machine_assets) ───────────────────
+
+  static Future<String> _manageMachineAssets(Map<String, dynamic> args) async {
+    final action = args['action']?.toString().toLowerCase().trim() ?? 'attach_document';
+    final rawIdentifiers = (args['machine_identifier'] ?? args['machine_no'] ?? args['machines'])?.toString().trim() ?? '';
+    if (rawIdentifiers.isEmpty) {
+      return jsonEncode({'error': 'กรุณาระบุรหัสเครื่องจักร (machine_identifier)'});
+    }
+
+    // Split or expand multiple machine identifiers (e.g. "BM-01 ถึง BM-09", "BM-01, BM-02", JSON array)
+    final machineList = <String>[];
+    final rangeMatch = RegExp(
+      r'([A-Za-z]+[-_]?\s*)(\d+)\s*(?:ถึง|to|-|\.\.)\s*(?:[A-Za-z]+[-_]?\s*)?(\d+)',
+      caseSensitive: false,
+    ).firstMatch(rawIdentifiers);
+
+    if (rangeMatch != null) {
+      final prefix = rangeMatch.group(1)?.trim() ?? '';
+      final startNum = int.tryParse(rangeMatch.group(2)!) ?? 1;
+      final endNum = int.tryParse(rangeMatch.group(3)!) ?? 1;
+      final padLen = rangeMatch.group(2)!.length;
+      if (startNum <= endNum && endNum - startNum <= 100) {
+        for (int n = startNum; n <= endNum; n++) {
+          final numStr = n.toString().padLeft(padLen, '0');
+          machineList.add('$prefix$numStr');
+        }
+      }
+    } else if (args['machines'] is List) {
+      for (final m in args['machines'] as List) {
+        if (m is Map && m['machine_no'] != null) {
+          machineList.add(m['machine_no'].toString().trim());
+        } else if (m is String) {
+          machineList.add(m.trim());
+        }
+      }
+    } else {
+      final parts = rawIdentifiers.split(RegExp(r'[,;\n\s]+'));
+      for (final p in parts) {
+        final clean = p
+            .replaceAll(RegExp(r'^(ถึง|และ|to|and)$', caseSensitive: false), '')
+            .trim();
+        if (clean.isNotEmpty && clean.length >= 2) {
+          machineList.add(clean);
+        }
+      }
+    }
+
+    if (machineList.isEmpty) {
+      machineList.add(rawIdentifiers);
+    }
+
+    // Resolve valid user_id to avoid FOREIGN KEY constraint error
+    String? validUserId;
+    if (args['user_id'] != null && args['user_id'].toString().isNotEmpty) {
+      final u = await _findUser(args['user_id'].toString());
+      validUserId = u?['user_id']?.toString();
+    }
+    validUserId ??= (await DbHelper.queryOne('SELECT user_id FROM users LIMIT 1'))?['user_id']?.toString();
+
+    final results = <String>[];
+    int successCount = 0;
+
+    for (final identifier in machineList) {
+      var machine = await _findMachine(identifier);
+      String machineId;
+      String machineNo;
+
+      if (machine == null) {
+        machineId = const Uuid().v4();
+        machineNo = identifier;
+        await DbHelper.execute('''
+          INSERT INTO machines (
+            machine_id, machine_no, machine_name, status, is_active, created_at, updated_at
+          ) VALUES (
+            @id, @no, @name, 'normal', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': machineId,
+          'no': machineNo,
+          'name': 'เครื่องจักร $machineNo',
+        });
+        for (final st in ['stage1', 'stage2', 'stage3']) {
+          await DbHelper.execute('''
+            INSERT INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
+            VALUES (@hid, @mid, @st, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ''', params: {'hid': const Uuid().v4(), 'mid': machineId, 'st': st});
+        }
+      } else {
+        machineId = machine['machine_id'].toString();
+        machineNo = machine['machine_no'].toString();
+      }
+
+      if (action == 'attach_document' || action == 'attach' || action == 'upload' || action == 'attach_file') {
+        final fileName = args['file_name']?.toString().trim() ?? 'เอกสารแนบ';
+        var filePath = (args['file_path'] ?? args['path'])?.toString().trim() ?? '';
+        final category = args['category']?.toString().trim() ?? 'manual';
+
+        var handover = await DbHelper.queryOne(
+          'SELECT handover_id FROM machine_handover WHERE machine_id = @mid ORDER BY created_at DESC LIMIT 1',
+          params: {'mid': machineId},
+        );
+
+        String handoverId;
+        if (handover != null) {
+          handoverId = handover['handover_id'].toString();
+        } else {
+          handoverId = const Uuid().v4();
+          await DbHelper.execute('''
+            INSERT INTO machine_handover (
+              handover_id, machine_id, stage, status, created_at, updated_at
+            ) VALUES (
+              @hid, @mid, 'stage2', 'completed', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+          ''', params: {'hid': handoverId, 'mid': machineId});
+        }
+
+        String savedPath = filePath;
+        int fileSize = 0;
+        String mimeType = 'application/pdf';
+
+        if (filePath.isNotEmpty) {
+          final sourceFile = File(filePath);
+          if (await sourceFile.exists()) {
+            fileSize = await sourceFile.length();
+            final ext = p.extension(filePath).toLowerCase();
+            if (ext == '.pdf') {
+              mimeType = 'application/pdf';
+            } else if (ext == '.png') {
+              mimeType = 'image/png';
+            } else if (ext == '.jpg' || ext == '.jpeg') {
+              mimeType = 'image/jpeg';
+            } else if (ext == '.xlsx' || ext == '.xls') {
+              mimeType = 'application/vnd.ms-excel';
+            } else if (ext == '.doc' || ext == '.docx') {
+              mimeType = 'application/msword';
+            }
+
+            try {
+              final asset = await AttachmentStorageService.instance.ingestFile(
+                moduleType: 'machine_handover',
+                entityId: handoverId,
+                sourcePath: filePath,
+                displayName: fileName,
+                category: category,
+              );
+              savedPath = asset.storagePath;
+              fileSize = asset.fileSize;
+              mimeType = asset.mimeType;
+            } catch (_) {
+              savedPath = filePath;
+            }
+          }
+        }
+
+        final attachmentId = const Uuid().v4();
+        await DbHelper.execute('''
+          INSERT INTO handover_attachments (
+            attachment_id, handover_id, file_name, file_path, file_size, mime_type, uploaded_by, uploaded_at
+          ) VALUES (
+            @id, @hid, @name, @path, @size, @mime, @uid, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': attachmentId,
+          'hid': handoverId,
+          'name': fileName,
+          'path': savedPath,
+          'size': fileSize,
+          'mime': mimeType,
+          'uid': validUserId,
+        });
+
+        if (category == 'cover' || mimeType.startsWith('image/')) {
+          await DbHelper.execute('''
+            UPDATE machines
+            SET cover_image = @img, updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = @mid
+          ''', params: {
+            'img': savedPath,
+            'mid': machineId,
+          });
+        }
+
+        results.add('$machineNo: แนบเอกสาร "$fileName" สำเร็จ');
+        successCount++;
+      } else if (action == 'remove_document' || action == 'delete_document') {
+        final attachmentId = args['attachment_id']?.toString().trim();
+        final fileName = args['file_name']?.toString().trim();
+
+        if (attachmentId != null && attachmentId.isNotEmpty) {
+          await DbHelper.execute(
+            'DELETE FROM handover_attachments WHERE attachment_id = @id',
+            params: {'id': attachmentId},
+          );
+        } else if (fileName != null && fileName.isNotEmpty) {
+          await DbHelper.execute('''
+            DELETE FROM handover_attachments
+            WHERE file_name LIKE @name
+              AND handover_id IN (SELECT handover_id FROM machine_handover WHERE machine_id = @mid)
+          ''', params: {'name': '%$fileName%', 'mid': machineId});
+        }
+
+        results.add('$machineNo: ลบเอกสารเรียบร้อย');
+        successCount++;
+      }
+    }
+
+    return jsonEncode({
+      'status': 'success',
+      'action': action,
+      'processed_count': successCount,
+      'details': results,
+      'message': 'ดำเนินการจัดการเอกสารเครื่องจักรสำเร็จ $successCount เครื่อง (${machineList.join(', ')}) เรียบร้อยแล้ว สามารถตรวจสอบได้ที่หน้า ทะเบียนเครื่องจักร -> เอกสาร',
+    });
+  }
+
   // ── 1. MACHINES CRUD (manage_machines) ─────────────────────────────────────
 
   static Future<String> _manageMachines(Map<String, dynamic> args) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'insert';
+    if (action == 'attach_document' || action == 'attach_file' || action == 'attach' || action == 'upload_doc') {
+      return await _manageMachineAssets(args);
+    }
 
     // Bulk registration support
     if (args['machines'] is List && (args['machines'] as List).isNotEmpty) {
@@ -284,7 +528,7 @@ class AiToolHandler {
       });
     }
 
-    if (action == 'update') {
+    if (action == 'update' || action == 'update_specs' || action == 'update_spec') {
       final machine = await _findMachine(identifier);
       if (machine == null) {
         return jsonEncode({'error': 'ไม่พบเครื่องจักร "$identifier" ที่ต้องการอัปเดต'});
@@ -316,39 +560,297 @@ class AiToolHandler {
         'notes': args['notes'],
       });
 
-      if (args['specs'] is Map) {
-        final specs = (args['specs'] as Map).cast<String, dynamic>();
-        await DbHelper.execute('''
-          INSERT OR REPLACE INTO machine_specs (
-            spec_id, machine_id, power_kw, voltage_v, current_a, capacity, updated_at
-          ) VALUES (
-            @sid, @mid, @power, @volt, @curr, @cap, CURRENT_TIMESTAMP
-          )
-        ''', params: {
-          'sid': const Uuid().v4(),
-          'mid': machineId,
-          'power': (specs['power_kw'] as num?)?.toDouble(),
-          'volt': (specs['voltage_v'] as num?)?.toDouble(),
-          'curr': (specs['current_a'] as num?)?.toDouble(),
-          'cap': (specs['capacity'] as num?)?.toDouble(),
-        });
+      final rawSpecs = (args['specs'] is Map)
+          ? (args['specs'] as Map).cast<String, dynamic>()
+          : args;
+
+      final powerKw = (rawSpecs['power_kw'] as num?)?.toDouble();
+      final voltV = (rawSpecs['voltage_v'] as num?)?.toDouble();
+      final currA = (rawSpecs['current_a'] as num?)?.toDouble();
+      final freqHz = (rawSpecs['frequency_hz'] as num?)?.toDouble();
+      final cap = (rawSpecs['capacity'] as num?)?.toDouble();
+      final capUnit = rawSpecs['capacity_unit']?.toString();
+      final weightKg = (rawSpecs['weight_kg'] as num?)?.toDouble();
+      final dimL = (rawSpecs['dim_length_mm'] as num?)?.toDouble();
+      final dimW = (rawSpecs['dim_width_mm'] as num?)?.toDouble();
+      final dimH = (rawSpecs['dim_height_mm'] as num?)?.toDouble();
+      final rpm = (rawSpecs['rpm'] as num?)?.toDouble();
+      final extraSpecs = rawSpecs['extra_specs'] != null
+          ? (rawSpecs['extra_specs'] is String
+              ? rawSpecs['extra_specs']
+              : jsonEncode(rawSpecs['extra_specs']))
+          : null;
+
+      final hasSpecs = powerKw != null ||
+          voltV != null ||
+          currA != null ||
+          freqHz != null ||
+          cap != null ||
+          capUnit != null ||
+          weightKg != null ||
+          dimL != null ||
+          dimW != null ||
+          dimH != null ||
+          rpm != null ||
+          extraSpecs != null;
+
+      if (hasSpecs) {
+        final existingSpec = await DbHelper.query(
+          'SELECT spec_id FROM machine_specs WHERE machine_id = @mid LIMIT 1',
+          params: {'mid': machineId},
+        );
+
+        if (existingSpec.isNotEmpty) {
+          await DbHelper.execute('''
+            UPDATE machine_specs
+            SET power_kw = COALESCE(@power, power_kw),
+                voltage_v = COALESCE(@volt, voltage_v),
+                current_a = COALESCE(@curr, current_a),
+                frequency_hz = COALESCE(@freq, frequency_hz),
+                capacity = COALESCE(@cap, capacity),
+                capacity_unit = COALESCE(@cap_unit, capacity_unit),
+                weight_kg = COALESCE(@weight, weight_kg),
+                dim_length_mm = COALESCE(@dim_l, dim_length_mm),
+                dim_width_mm = COALESCE(@dim_w, dim_width_mm),
+                dim_height_mm = COALESCE(@dim_h, dim_height_mm),
+                rpm = COALESCE(@rpm, rpm),
+                extra_specs = COALESCE(@extra, extra_specs),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = @mid
+          ''', params: {
+            'mid': machineId,
+            'power': powerKw,
+            'volt': voltV,
+            'curr': currA,
+            'freq': freqHz,
+            'cap': cap,
+            'cap_unit': capUnit,
+            'weight': weightKg,
+            'dim_l': dimL,
+            'dim_w': dimW,
+            'dim_h': dimH,
+            'rpm': rpm,
+            'extra': extraSpecs,
+          });
+        } else {
+          await DbHelper.execute('''
+            INSERT INTO machine_specs (
+              spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
+              capacity, capacity_unit, weight_kg, dim_length_mm, dim_width_mm, dim_height_mm,
+              rpm, extra_specs, updated_at
+            ) VALUES (
+              @sid, @mid, @power, @volt, @curr, @freq,
+              @cap, @cap_unit, @weight, @dim_l, @dim_w, @dim_h,
+              @rpm, @extra, CURRENT_TIMESTAMP
+            )
+          ''', params: {
+            'sid': const Uuid().v4(),
+            'mid': machineId,
+            'power': powerKw,
+            'volt': voltV,
+            'curr': currA,
+            'freq': freqHz,
+            'cap': cap,
+            'cap_unit': capUnit,
+            'weight': weightKg,
+            'dim_l': dimL,
+            'dim_w': dimW,
+            'dim_h': dimH,
+            'rpm': rpm,
+            'extra': extraSpecs,
+          });
+        }
       }
+
+      VectorDbService.syncMachine(machineId);
+
+      final updatedSpecsMap = <String, dynamic>{};
+      if (powerKw != null) updatedSpecsMap['power_kw'] = '$powerKw kW';
+      if (voltV != null) updatedSpecsMap['voltage_v'] = '$voltV V';
+      if (currA != null) updatedSpecsMap['current_a'] = '$currA A';
+      if (freqHz != null) updatedSpecsMap['frequency_hz'] = '$freqHz Hz';
+      if (cap != null) updatedSpecsMap['capacity'] = '$cap ${capUnit ?? ""}'.trim();
+      if (weightKg != null) updatedSpecsMap['weight_kg'] = '$weightKg kg';
+      if (dimL != null && dimW != null && dimH != null) {
+        updatedSpecsMap['dimensions_mm'] = '$dimL x $dimW x $dimH mm';
+      }
+      if (rpm != null) updatedSpecsMap['rpm'] = '$rpm RPM';
+      if (extraSpecs != null) updatedSpecsMap['extra_specs'] = extraSpecs;
 
       return jsonEncode({
         'status': 'success',
         'action': 'update',
         'machine_id': machineId,
         'machine_no': machineNo,
-        'message': 'อัปเดตข้อมูลเครื่องจักร $machineNo สำเร็จ',
+        'updated_specs': updatedSpecsMap,
+        'message': 'อัปเดตสเปกและข้อมูลเครื่องจักร $machineNo สำเร็จ',
       });
     }
 
-    // Default: Single Insert
+    // Default / Insert: Check if machine already exists first
     final machineNo = (args['machine_no'] ?? identifier).trim();
     if (machineNo.isEmpty) {
       return jsonEncode({'error': 'กรุณาระบุรหัสเครื่องจักร (machine_no)'});
     }
 
+    final existingMachine = await _findMachine(machineNo);
+    if (existingMachine != null) {
+      // Machine already exists! Smartly update machine & specs
+      final machineId = existingMachine['machine_id'].toString();
+      final existingNo = existingMachine['machine_no'].toString();
+
+      await DbHelper.execute('''
+        UPDATE machines
+        SET machine_name = COALESCE(@name, machine_name),
+            asset_no = COALESCE(@asset, asset_no),
+            brand = COALESCE(@brand, brand),
+            model = COALESCE(@model, model),
+            serial_no = COALESCE(@serial, serial_no),
+            location = COALESCE(@loc, location),
+            status = COALESCE(@status, status),
+            notes = COALESCE(@notes, notes),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE machine_id = @id
+      ''', params: {
+        'id': machineId,
+        'name': args['machine_name'],
+        'asset': args['asset_no'],
+        'brand': args['brand'],
+        'model': args['model'],
+        'serial': args['serial_no'],
+        'loc': args['location'],
+        'status': args['status']?.toString().toLowerCase(),
+        'notes': args['notes'],
+      });
+
+      final rawSpecs = (args['specs'] is Map)
+          ? (args['specs'] as Map).cast<String, dynamic>()
+          : args;
+
+      final powerKw = (rawSpecs['power_kw'] as num?)?.toDouble();
+      final voltV = (rawSpecs['voltage_v'] as num?)?.toDouble();
+      final currA = (rawSpecs['current_a'] as num?)?.toDouble();
+      final freqHz = (rawSpecs['frequency_hz'] as num?)?.toDouble();
+      final cap = (rawSpecs['capacity'] as num?)?.toDouble();
+      final capUnit = rawSpecs['capacity_unit']?.toString();
+      final weightKg = (rawSpecs['weight_kg'] as num?)?.toDouble();
+      final dimL = (rawSpecs['dim_length_mm'] as num?)?.toDouble();
+      final dimW = (rawSpecs['dim_width_mm'] as num?)?.toDouble();
+      final dimH = (rawSpecs['dim_height_mm'] as num?)?.toDouble();
+      final rpm = (rawSpecs['rpm'] as num?)?.toDouble();
+      final extraSpecs = rawSpecs['extra_specs'] != null
+          ? (rawSpecs['extra_specs'] is String
+              ? rawSpecs['extra_specs']
+              : jsonEncode(rawSpecs['extra_specs']))
+          : null;
+
+      final hasSpecs = powerKw != null ||
+          voltV != null ||
+          currA != null ||
+          freqHz != null ||
+          cap != null ||
+          capUnit != null ||
+          weightKg != null ||
+          dimL != null ||
+          dimW != null ||
+          dimH != null ||
+          rpm != null ||
+          extraSpecs != null;
+
+      if (hasSpecs) {
+        final existingSpec = await DbHelper.query(
+          'SELECT spec_id FROM machine_specs WHERE machine_id = @mid LIMIT 1',
+          params: {'mid': machineId},
+        );
+
+        if (existingSpec.isNotEmpty) {
+          await DbHelper.execute('''
+            UPDATE machine_specs
+            SET power_kw = COALESCE(@power, power_kw),
+                voltage_v = COALESCE(@volt, voltage_v),
+                current_a = COALESCE(@curr, current_a),
+                frequency_hz = COALESCE(@freq, frequency_hz),
+                capacity = COALESCE(@cap, capacity),
+                capacity_unit = COALESCE(@cap_unit, capacity_unit),
+                weight_kg = COALESCE(@weight, weight_kg),
+                dim_length_mm = COALESCE(@dim_l, dim_length_mm),
+                dim_width_mm = COALESCE(@dim_w, dim_width_mm),
+                dim_height_mm = COALESCE(@dim_h, dim_height_mm),
+                rpm = COALESCE(@rpm, rpm),
+                extra_specs = COALESCE(@extra, extra_specs),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = @mid
+          ''', params: {
+            'mid': machineId,
+            'power': powerKw,
+            'volt': voltV,
+            'curr': currA,
+            'freq': freqHz,
+            'cap': cap,
+            'cap_unit': capUnit,
+            'weight': weightKg,
+            'dim_l': dimL,
+            'dim_w': dimW,
+            'dim_h': dimH,
+            'rpm': rpm,
+            'extra': extraSpecs,
+          });
+        } else {
+          await DbHelper.execute('''
+            INSERT INTO machine_specs (
+              spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
+              capacity, capacity_unit, weight_kg, dim_length_mm, dim_width_mm, dim_height_mm,
+              rpm, extra_specs, updated_at
+            ) VALUES (
+              @sid, @mid, @power, @volt, @curr, @freq,
+              @cap, @cap_unit, @weight, @dim_l, @dim_w, @dim_h,
+              @rpm, @extra, CURRENT_TIMESTAMP
+            )
+          ''', params: {
+            'sid': const Uuid().v4(),
+            'mid': machineId,
+            'power': powerKw,
+            'volt': voltV,
+            'curr': currA,
+            'freq': freqHz,
+            'cap': cap,
+            'cap_unit': capUnit,
+            'weight': weightKg,
+            'dim_l': dimL,
+            'dim_w': dimW,
+            'dim_h': dimH,
+            'rpm': rpm,
+            'extra': extraSpecs,
+          });
+        }
+      }
+
+      VectorDbService.syncMachine(machineId);
+
+      final updatedSpecsMap = <String, dynamic>{};
+      if (powerKw != null) updatedSpecsMap['power_kw'] = '$powerKw kW';
+      if (voltV != null) updatedSpecsMap['voltage_v'] = '$voltV V';
+      if (currA != null) updatedSpecsMap['current_a'] = '$currA A';
+      if (freqHz != null) updatedSpecsMap['frequency_hz'] = '$freqHz Hz';
+      if (cap != null) updatedSpecsMap['capacity'] = '$cap ${capUnit ?? ""}'.trim();
+      if (weightKg != null) updatedSpecsMap['weight_kg'] = '$weightKg kg';
+      if (dimL != null && dimW != null && dimH != null) {
+        updatedSpecsMap['dimensions_mm'] = '$dimL x $dimW x $dimH mm';
+      }
+      if (rpm != null) updatedSpecsMap['rpm'] = '$rpm RPM';
+      if (extraSpecs != null) updatedSpecsMap['extra_specs'] = extraSpecs;
+
+      return jsonEncode({
+        'status': 'success',
+        'action': 'update',
+        'machine_id': machineId,
+        'machine_no': existingNo,
+        'updated_specs': updatedSpecsMap,
+        'message': 'อัปเดตสเปกและข้อมูลเครื่องจักร $existingNo สำเร็จ',
+      });
+    }
+
+    // New machine insert
     final machineId = const Uuid().v4();
     await DbHelper.execute('''
       INSERT INTO machines (
@@ -371,23 +873,70 @@ class AiToolHandler {
       'notes': args['notes'],
     });
 
-    if (args['specs'] is Map) {
-      final specs = (args['specs'] as Map).cast<String, dynamic>();
+    final rawSpecs = (args['specs'] is Map)
+        ? (args['specs'] as Map).cast<String, dynamic>()
+        : args;
+
+    final powerKw = (rawSpecs['power_kw'] as num?)?.toDouble();
+    final voltV = (rawSpecs['voltage_v'] as num?)?.toDouble();
+    final currA = (rawSpecs['current_a'] as num?)?.toDouble();
+    final freqHz = (rawSpecs['frequency_hz'] as num?)?.toDouble();
+    final cap = (rawSpecs['capacity'] as num?)?.toDouble();
+    final capUnit = rawSpecs['capacity_unit']?.toString();
+    final weightKg = (rawSpecs['weight_kg'] as num?)?.toDouble();
+    final dimL = (rawSpecs['dim_length_mm'] as num?)?.toDouble();
+    final dimW = (rawSpecs['dim_width_mm'] as num?)?.toDouble();
+    final dimH = (rawSpecs['dim_height_mm'] as num?)?.toDouble();
+    final rpm = (rawSpecs['rpm'] as num?)?.toDouble();
+    final extraSpecs = rawSpecs['extra_specs'] != null
+        ? (rawSpecs['extra_specs'] is String
+            ? rawSpecs['extra_specs']
+            : jsonEncode(rawSpecs['extra_specs']))
+        : null;
+
+    final hasSpecs = powerKw != null ||
+        voltV != null ||
+        currA != null ||
+        freqHz != null ||
+        cap != null ||
+        capUnit != null ||
+        weightKg != null ||
+        dimL != null ||
+        dimW != null ||
+        dimH != null ||
+        rpm != null ||
+        extraSpecs != null;
+
+    if (hasSpecs) {
       await DbHelper.execute('''
-        INSERT OR REPLACE INTO machine_specs (
-          spec_id, machine_id, power_kw, voltage_v, current_a, capacity, updated_at
+        INSERT INTO machine_specs (
+          spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
+          capacity, capacity_unit, weight_kg, dim_length_mm, dim_width_mm, dim_height_mm,
+          rpm, extra_specs, updated_at
         ) VALUES (
-          @sid, @mid, @power, @volt, @curr, @cap, CURRENT_TIMESTAMP
+          @sid, @mid, @power, @volt, @curr, @freq,
+          @cap, @cap_unit, @weight, @dim_l, @dim_w, @dim_h,
+          @rpm, @extra, CURRENT_TIMESTAMP
         )
       ''', params: {
         'sid': const Uuid().v4(),
         'mid': machineId,
-        'power': (specs['power_kw'] as num?)?.toDouble(),
-        'volt': (specs['voltage_v'] as num?)?.toDouble(),
-        'curr': (specs['current_a'] as num?)?.toDouble(),
-        'cap': (specs['capacity'] as num?)?.toDouble(),
+        'power': powerKw,
+        'volt': voltV,
+        'curr': currA,
+        'freq': freqHz,
+        'cap': cap,
+        'cap_unit': capUnit,
+        'weight': weightKg,
+        'dim_l': dimL,
+        'dim_w': dimW,
+        'dim_h': dimH,
+        'rpm': rpm,
+        'extra': extraSpecs,
       });
     }
+
+    VectorDbService.syncMachine(machineId);
 
     return jsonEncode({
       'status': 'success',
@@ -1027,47 +1576,163 @@ class AiToolHandler {
   static Future<String> _manageContractors(Map<String, dynamic> args) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_contractor';
 
+    // Bulk registration / Bulk update
+    final rawList = args['contractors'] ?? args['suppliers'] ?? args['items'];
+    if (rawList is List && rawList.isNotEmpty) {
+      int inserted = 0;
+      int updated = 0;
+      final processedNames = <String>[];
+
+      for (final item in rawList) {
+        if (item is! Map) continue;
+        final map = item.cast<String, dynamic>();
+        final name = (map['name'] ?? map['supplier_name'] ?? map['part_name'])?.toString().trim() ?? '';
+        final code = (map['supplier_code'] ?? map['contractor_identifier'] ?? map['code'] ?? map['part_identifier'])?.toString().trim() ?? '';
+        if (name.isEmpty && code.isEmpty) continue;
+
+        final contactName = (map['contact_name'] ?? map['contact'])?.toString().trim();
+        final phone = map['phone']?.toString().trim();
+        final email = map['email']?.toString().trim();
+        final address = map['address']?.toString().trim();
+        final scope = (map['service_scope'] ?? map['remarks'])?.toString().trim();
+        final vendorType = (map['vendor_type'] ?? map['category'] ?? 'supplier')?.toString().trim();
+        final isApproved = map['is_approved'] == true ? 1 : 0;
+
+        // Check if exists
+        final existing = await DbHelper.queryOne('''
+          SELECT supplier_id, supplier_code, name FROM suppliers
+          WHERE (supplier_code = @code AND @code != '')
+             OR (supplier_id = @code AND @code != '')
+             OR (name = @name AND @name != '')
+             OR (name LIKE @likeName AND @likeName != '')
+          LIMIT 1
+        ''', params: {
+          'code': code,
+          'name': name,
+          'likeName': name.isNotEmpty ? '%$name%' : '',
+        });
+
+        if (existing != null) {
+          final sId = existing['supplier_id'].toString();
+          await DbHelper.execute('''
+            UPDATE suppliers
+            SET name = CASE WHEN @name != '' THEN @name ELSE name END,
+                contact_name = COALESCE(@contact, contact_name),
+                phone = COALESCE(@phone, phone),
+                email = COALESCE(@email, email),
+                address = COALESCE(@addr, address),
+                service_scope = COALESCE(@scope, service_scope),
+                vendor_type = COALESCE(@type, vendor_type),
+                is_active = 1
+            WHERE supplier_id = @id
+          ''', params: {
+            'id': sId,
+            'name': name,
+            'contact': contactName,
+            'phone': phone,
+            'email': email,
+            'addr': address,
+            'scope': scope,
+            'type': vendorType,
+          });
+          updated++;
+          processedNames.add(name.isNotEmpty ? name : code);
+        } else {
+          final sId = const Uuid().v4();
+          final finalCode = code.isNotEmpty ? code : 'VEN-${DateTime.now().millisecondsSinceEpoch % 100000}';
+          await DbHelper.execute('''
+            INSERT INTO suppliers (
+              supplier_id, supplier_code, name, contact_name, phone, email,
+              address, is_outsource_vendor, service_scope, vendor_type, is_approved, is_active, created_at
+            ) VALUES (
+              @id, @code, @name, @contact, @phone, @email,
+              @addr, 1, @scope, @type, @approved, 1, CURRENT_TIMESTAMP
+            )
+          ''', params: {
+            'id': sId,
+            'code': finalCode,
+            'name': name.isNotEmpty ? name : finalCode,
+            'contact': contactName,
+            'phone': phone,
+            'email': email,
+            'addr': address,
+            'scope': scope,
+            'type': vendorType,
+            'approved': isApproved,
+          });
+          inserted++;
+          processedNames.add(name.isNotEmpty ? name : finalCode);
+        }
+      }
+
+      return jsonEncode({
+        'status': 'success',
+        'action': 'bulk_contractors',
+        'inserted_count': inserted,
+        'updated_count': updated,
+        'total_processed': inserted + updated,
+        'contractors': processedNames,
+        'message': 'บันทึก/อัปเดตข้อมูลผู้รับเหมาและซัพพลายเออร์สำเร็จ (เพิ่มใหม่ $inserted, อัปเดต $updated รายการ)',
+      });
+    }
+
+    final identifier = (args['contractor_identifier'] ??
+            args['supplier_code'] ??
+            args['part_identifier'] ??
+            args['part_code'] ??
+            args['name'])
+        ?.toString()
+        .trim() ??
+        '';
+
     if (action == 'delete_contractor' || action == 'delete') {
-      final identifier = (args['contractor_identifier'] ?? args['name'] ?? args['supplier_code'])?.toString().trim() ?? '';
       await DbHelper.execute(
-        'UPDATE suppliers SET is_active = 0 WHERE is_outsource_vendor = 1 AND (supplier_code = @id OR supplier_id = @id OR name = @id)',
-        params: {'id': identifier},
+        'UPDATE suppliers SET is_active = 0 WHERE supplier_code = @id OR supplier_id = @id OR name = @id OR name LIKE @likeId',
+        params: {'id': identifier, 'likeId': '%$identifier%'},
       );
       return jsonEncode({'status': 'success', 'message': 'ปิดการใช้งาน/ลบผู้รับเหมา "$identifier" เรียบร้อยแล้ว'});
     }
 
     if (action == 'update_contractor' || action == 'update') {
-      final identifier = (args['contractor_identifier'] ?? args['name'] ?? args['supplier_code'])?.toString().trim() ?? '';
-      await DbHelper.execute('''
-        UPDATE suppliers
-        SET name = COALESCE(@name, name),
-            contact_name = COALESCE(@contact, contact_name),
-            phone = COALESCE(@phone, phone),
-            email = COALESCE(@email, email),
-            address = COALESCE(@addr, address),
-            service_scope = COALESCE(@scope, service_scope),
-            vendor_type = COALESCE(@type, vendor_type),
-            is_approved = COALESCE(@approved, is_approved),
-            is_active = COALESCE(@active, is_active)
-        WHERE is_outsource_vendor = 1 AND (supplier_code = @id OR supplier_id = @id OR name = @id)
-      ''', params: {
-        'id': identifier,
-        'name': args['name'],
-        'contact': args['contact_name'],
-        'phone': args['phone'],
-        'email': args['email'],
-        'addr': args['address'],
-        'scope': args['service_scope'],
-        'type': args['vendor_type'],
-        'approved': args['is_approved'] == true ? 1 : (args['is_approved'] == false ? 0 : null),
-        'active': args['is_active'] == false ? 0 : (args['is_active'] == true ? 1 : null),
-      });
-      return jsonEncode({'status': 'success', 'message': 'อัปเดตข้อมูลผู้รับเหมา "$identifier" สำเร็จ'});
+      final existing = await DbHelper.queryOne('''
+        SELECT supplier_id, supplier_code, name FROM suppliers
+        WHERE supplier_code = @id OR supplier_id = @id OR name = @id OR name LIKE @likeId
+        LIMIT 1
+      ''', params: {'id': identifier, 'likeId': '%$identifier%'});
+
+      if (existing != null) {
+        final supplierId = existing['supplier_id'].toString();
+        await DbHelper.execute('''
+          UPDATE suppliers
+          SET name = COALESCE(@name, name),
+              contact_name = COALESCE(@contact, contact_name),
+              phone = COALESCE(@phone, phone),
+              email = COALESCE(@email, email),
+              address = COALESCE(@addr, address),
+              service_scope = COALESCE(@scope, service_scope),
+              vendor_type = COALESCE(@type, vendor_type),
+              is_approved = COALESCE(@approved, is_approved),
+              is_active = COALESCE(@active, is_active)
+          WHERE supplier_id = @id
+        ''', params: {
+          'id': supplierId,
+          'name': args['name'] ?? args['part_name'],
+          'contact': args['contact_name'],
+          'phone': args['phone'],
+          'email': args['email'],
+          'addr': args['address'],
+          'scope': args['service_scope'] ?? args['remarks'],
+          'type': args['vendor_type'] ?? args['category'],
+          'approved': args['is_approved'] == true ? 1 : (args['is_approved'] == false ? 0 : null),
+          'active': args['is_active'] == false ? 0 : (args['is_active'] == true ? 1 : null),
+        });
+        return jsonEncode({'status': 'success', 'message': 'อัปเดตข้อมูลผู้รับเหมา/ซัพพลายเออร์ "$identifier" สำเร็จ'});
+      }
     }
 
     // Default: create_contractor / insert
-    final name = args['name']?.toString().trim() ?? 'ผู้รับเหมาบริการ';
-    final supplierCode = args['supplier_code']?.toString().trim() ?? 'VEN-${DateTime.now().millisecondsSinceEpoch % 10000}';
+    final name = (args['name'] ?? args['part_name'])?.toString().trim() ?? 'ผู้รับเหมาบริการ';
+    final supplierCode = (args['supplier_code'] ?? args['contractor_identifier'] ?? args['part_identifier'])?.toString().trim() ?? 'VEN-${DateTime.now().millisecondsSinceEpoch % 10000}';
     final supplierId = const Uuid().v4();
 
     await DbHelper.execute('''
@@ -1086,8 +1751,8 @@ class AiToolHandler {
       'phone': args['phone'],
       'email': args['email'],
       'addr': args['address'],
-      'scope': args['service_scope'],
-      'type': args['vendor_type'] ?? 'maintenance',
+      'scope': args['service_scope'] ?? args['remarks'],
+      'type': args['vendor_type'] ?? args['category'] ?? 'maintenance',
       'approved': args['is_approved'] == true ? 1 : 0,
     });
 
@@ -1096,7 +1761,7 @@ class AiToolHandler {
       'supplier_id': supplierId,
       'supplier_code': supplierCode,
       'name': name,
-      'message': 'เพิ่มทะเบียนผู้รับเหมา "$name" ($supplierCode) สำเร็จ',
+      'message': 'เพิ่มทะเบียนผู้รับเหมา/ซัพพลายเออร์ "$name" ($supplierCode) สำเร็จ',
     });
   }
 
@@ -1301,6 +1966,7 @@ class AiToolHandler {
             'machid': linkedMachineId,
           });
         }
+        VectorDbService.syncSparePart(partId);
         partNames.add('$partCode: $partName');
       }
 
@@ -1325,6 +1991,20 @@ class AiToolHandler {
       final identifier = (args['part_identifier'] ?? args['part_code'])?.toString().trim() ?? '';
       final part = await _findPart(identifier);
       if (part == null) {
+        // Smart fallback: If this is actually a supplier/contractor record
+        final isSupplierHint = args.containsKey('contact_name') ||
+            args.containsKey('email') ||
+            args.containsKey('phone') ||
+            args.containsKey('address') ||
+            args.containsKey('remarks') ||
+            (args['category']?.toString().toLowerCase().contains('supplier') ?? false);
+        final sup = await DbHelper.queryOne(
+          'SELECT supplier_id FROM suppliers WHERE supplier_code = @id OR name = @id OR name LIKE @likeId LIMIT 1',
+          params: {'id': identifier, 'likeId': '%$identifier%'},
+        );
+        if (isSupplierHint || sup != null) {
+          return _manageContractors(args);
+        }
         return jsonEncode({'error': 'ไม่พบอะไหล่ "$identifier" ที่ต้องการแก้ไข'});
       }
       final partId = part['part_id'].toString();
@@ -1352,6 +2032,8 @@ class AiToolHandler {
           params: {'id': partId, 'loc': args['location']},
         );
       }
+
+      VectorDbService.syncSparePart(partId);
 
       return jsonEncode({'status': 'success', 'message': 'อัปเดตข้อมูลอะไหล่ ${part["part_code"]} สำเร็จ'});
     }
@@ -1402,6 +2084,8 @@ class AiToolHandler {
 
       final inv = await DbHelper.queryOne('SELECT quantity_on_hand FROM spare_parts_inventory WHERE part_id = @id', params: {'id': partId});
       final currentQty = inv?['quantity_on_hand'] ?? 0;
+      
+      VectorDbService.syncSparePart(partId);
 
       return jsonEncode({
         'status': 'success',
@@ -1474,6 +2158,8 @@ class AiToolHandler {
       'loc': args['location'] ?? 'A-01',
     });
 
+    VectorDbService.syncSparePart(partId);
+
     return jsonEncode({
       'status': 'success',
       'part_id': partId,
@@ -1524,6 +2210,8 @@ class AiToolHandler {
         'notes': args['notes'],
         'active': args['is_active'] == false ? 0 : (args['is_active'] == true ? 1 : null),
       });
+
+      VectorDbService.syncTool(toolId);
 
       return jsonEncode({'status': 'success', 'message': 'อัปเดตข้อมูลเครื่องมือ ${tool["tool_code"]} สำเร็จ'});
     }
@@ -1594,6 +2282,8 @@ class AiToolHandler {
       'price': (args['price'] as num?)?.toDouble() ?? 0.0,
       'notes': args['notes'],
     });
+
+    VectorDbService.syncTool(toolId);
 
     return jsonEncode({
       'status': 'success',
@@ -1870,6 +2560,22 @@ class AiToolHandler {
         )
         .join(',');
     return '{"table":"$t","columns":[$j]}';
+  }
+
+  static Future<String> _extractDocumentText(Map<String, dynamic> args) async {
+    final filePath = (args['file_path'] ?? args['path'] ?? '')?.toString().trim() ?? '';
+    if (filePath.isEmpty) {
+      return jsonEncode({'error': 'กรุณาระบุที่อยู่ไฟล์ (file_path)'});
+    }
+    final maxPages = (args['max_pages'] as num?)?.toInt() ?? 50;
+    final file = File(filePath);
+    final text = await RagDocumentService.extractText(file: file, maxPages: maxPages);
+    return jsonEncode({
+      'status': 'success',
+      'file_path': filePath,
+      'file_name': p.basename(filePath),
+      'extracted_text': text,
+    });
   }
 
   static Future<String> _findMachineAssets(Map<String, dynamic> args) async {

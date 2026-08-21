@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/config/app_config.dart';
 import 'core/database/db_connection.dart';
+import 'core/database/db_status_provider.dart';
 import 'core/navigation/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
@@ -37,8 +38,9 @@ class _MasAppState extends ConsumerState<MasApp> {
           config,
           skipInitialization: DbConnection.isNetworkPath(config.dbPath),
         );
+        ref.read(dbStatusProvider.notifier).setConnected(config.dbPath);
       } catch (e) {
-        AppConfigService.clearCache();
+        ref.read(dbStatusProvider.notifier).setError(config.dbPath, e);
         debugPrint('Startup DB connect failed for ${config.dbPath}: $e');
       }
     }

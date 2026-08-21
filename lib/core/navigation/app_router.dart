@@ -29,6 +29,9 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_screen.dart';
 import '../../features/outsource_vendors/outsource_vendor_detail_screen.dart';
 import '../../features/ai_chat/ai_chat_screen.dart';
+import '../../features/work_processes/screens/work_process_list_screen.dart';
+import '../../features/work_processes/screens/work_process_form_screen.dart';
+import '../../features/lean_analysis/screens/lean_analysis_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -190,8 +193,38 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           // Line Balancing
           GoRoute(
+            path: '/line-balancing',
+            builder: (context, state) => const LineBalancingScreen(),
+          ),
+          GoRoute(
             path: '/line_balancing',
             builder: (context, state) => const LineBalancingScreen(),
+          ),
+          // Work Processes & Flow Chart
+          GoRoute(
+            path: '/work-processes',
+            builder: (context, state) => const WorkProcessListScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (context, state) => WorkProcessFormScreen(
+                  initialMachineId: state.uri.queryParameters['machineId'],
+                ),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => WorkProcessFormScreen(
+                  processId: state.pathParameters['id'],
+                ),
+              ),
+            ],
+          ),
+          // Lean Analysis
+          GoRoute(
+            path: '/lean-analysis',
+            builder: (context, state) => LeanAnalysisScreen(
+              initialProcessId: state.uri.queryParameters['processId'],
+            ),
           ),
           // Workforce
           GoRoute(

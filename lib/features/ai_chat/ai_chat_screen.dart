@@ -8,14 +8,44 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:uuid/uuid.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/ai/ai_provider_config.dart';
 import '../../core/ai/ai_service.dart';
+import '../../core/ai/ai_tool_handler.dart';
+import '../../core/ai/rag_document_service.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../features/auth/auth_provider.dart';
 import 'ai_chat_provider.dart';
-import '../../core/ai/rag_document_service.dart';
-import 'package:file_picker/file_picker.dart';
+import 'widgets/chat_history_dialog.dart';
+
+class _PendingAttachmentItem {
+  final File file;
+  final String name;
+  final int size;
+  final String ext;
+  final Uint8List? imageBytes;
+
+  const _PendingAttachmentItem({
+    required this.file,
+    required this.name,
+    required this.size,
+    required this.ext,
+    this.imageBytes,
+  });
+
+  bool get isImage =>
+      ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].contains(ext.toLowerCase());
+  bool get isPdf => ext.toLowerCase() == 'pdf';
+  bool get isSpreadsheet => ['xlsx', 'xls', 'csv'].contains(ext.toLowerCase());
+  bool get isWord => ['doc', 'docx'].contains(ext.toLowerCase());
+  bool get isDocument =>
+      ['pdf', 'xlsx', 'xls', 'csv', 'txt', 'md', 'doc', 'docx'].contains(ext.toLowerCase());
+}
 
 class AiChatScreen extends ConsumerStatefulWidget {
   const AiChatScreen({super.key});
@@ -27,13 +57,39 @@ class AiChatScreen extends ConsumerStatefulWidget {
 class _AiChatScreenState extends ConsumerState<AiChatScreen> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
+  final _focusNode = FocusNode();
   bool _sending = false;
+  bool _isDragging = false;
+  bool _isPasting = false;
+  DateTime _lastPasteTime = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static const int _maxAttachments = 5;
+  final List<_PendingAttachmentItem> _pendingAttachments = [];
+
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+    Future.microtask(() => ref.read(aiChatProvider.notifier).reloadModel());
+  }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _controller.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.keyV &&
+        (HardwareKeyboard.instance.isControlPressed ||
+            HardwareKeyboard.instance.isMetaPressed)) {
+      _handleClipboardPaste();
+    }
+    return false;
   }
 
   void _scrollToBottom() {
@@ -48,33 +104,178 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     });
   }
 
+  Future<bool> _addSingleFile(File file, {bool showFeedback = true}) async {
+    try {
+      if (!await file.exists()) {
+        if (showFeedback && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ไม่พบไฟล์ที่เลือก'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return false;
+      }
 
+      if (_pendingAttachments.length >= _maxAttachments) {
+        if (showFeedback && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('สามารถแนบไฟล์ได้สูงสุด 5 ไฟล์พร้อมกันครับ'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return false;
+      }
 
-  File? _pendingAttachment;
-  String? _pendingAttachmentName;
-  int? _pendingAttachmentSize;
-  String? _pendingAttachmentExt;
+      if (_pendingAttachments.any((a) => a.file.path == file.path)) {
+        if (showFeedback && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('ไฟล์นี้ถูกแนบอยู่แล้ว'),
+              backgroundColor: Colors.grey,
+            ),
+          );
+        }
+        return false;
+      }
+
+      final name = p.basename(file.path);
+      final size = await file.length();
+      final ext = p.extension(file.path).toLowerCase().replaceAll('.', '');
+
+      final allowedExtensions = [
+        'pdf',
+        'xlsx',
+        'xls',
+        'csv',
+        'txt',
+        'md',
+        'doc',
+        'docx',
+        'png',
+        'jpg',
+        'jpeg',
+        'webp',
+        'bmp',
+        'gif',
+      ];
+
+      if (!allowedExtensions.contains(ext)) {
+        if (showFeedback && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'ไม่รองรับไฟล์ประเภท .$ext (รองรับ PDF, Word, Excel, CSV, TXT, รูปภาพ)',
+              ),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+        }
+        return false;
+      }
+
+      Uint8List? imageBytes;
+      if (['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif'].contains(ext)) {
+        try {
+          imageBytes = await file.readAsBytes();
+        } catch (_) {}
+      }
+
+      setState(() {
+        _pendingAttachments.add(_PendingAttachmentItem(
+          file: file,
+          name: name,
+          size: size,
+          ext: ext,
+          imageBytes: imageBytes,
+        ));
+      });
+
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.attachment_rounded, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'แนบไฟล์ $name เรียบร้อยแล้ว (${_pendingAttachments.length}/$_maxAttachments)',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Theme.of(context).colorScheme.primary,
+          ),
+        );
+      }
+      return true;
+    } catch (e) {
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('เกิดข้อผิดพลาดในการโหลดไฟล์: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
+  Future<void> _handleMultipleFiles(List<File> files) async {
+    int added = 0;
+    for (final f in files) {
+      if (_pendingAttachments.length >= _maxAttachments) break;
+      final ok = await _addSingleFile(f, showFeedback: false);
+      if (ok) added++;
+    }
+    if (added > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('แนบไฟล์เรียบร้อยแล้ว (${_pendingAttachments.length}/$_maxAttachments)'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    }
+  }
 
   Future<void> _pickAttachment() async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'xlsx', 'xls', 'csv', 'txt', 'md', 'png', 'jpg', 'jpeg'],
-        dialogTitle: 'เลือกไฟล์เอกสาร Excel, PDF คู่มือ หรือรูปภาพ',
+        allowMultiple: true,
+        allowedExtensions: [
+          'pdf',
+          'xlsx',
+          'xls',
+          'csv',
+          'txt',
+          'md',
+          'doc',
+          'docx',
+          'png',
+          'jpg',
+          'jpeg',
+          'webp',
+          'bmp',
+          'gif',
+        ],
+        dialogTitle: 'เลือกไฟล์เอกสาร PDF, Word, Excel หรือรูปภาพ (สูงสุด 5 ไฟล์)',
       );
 
-      if (result == null || result.files.single.path == null) return;
-      final file = File(result.files.single.path!);
-      final name = p.basename(file.path);
-      final size = await file.length();
-      final ext = p.extension(file.path).toLowerCase().replaceAll('.', '');
-
-      setState(() {
-        _pendingAttachment = file;
-        _pendingAttachmentName = name;
-        _pendingAttachmentSize = size;
-        _pendingAttachmentExt = ext;
-      });
+      if (result == null || result.files.isEmpty) return;
+      final files = result.files
+          .where((f) => f.path != null)
+          .map((f) => File(f.path!))
+          .toList();
+      await _handleMultipleFiles(files);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -87,12 +288,201 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     }
   }
 
-  void _clearAttachment() {
+  Future<bool> _handleClipboardPaste() async {
+    final now = DateTime.now();
+    if (_isPasting || now.difference(_lastPasteTime).inMilliseconds < 600) {
+      return true;
+    }
+    _isPasting = true;
+    _lastPasteTime = now;
+
+    try {
+      // 1. Check if clipboard contains raw image bytes (e.g. Snipping Tool, Screenshot, Copy Image)
+      try {
+        final imageBytes = await Pasteboard.image;
+        if (imageBytes != null && imageBytes.isNotEmpty) {
+          if (_pendingAttachments.length >= _maxAttachments) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('สามารถแนบไฟล์ได้สูงสุด 5 ไฟล์พร้อมกันครับ'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+            return true;
+          }
+
+          final tempDir = await getTemporaryDirectory();
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final tempFile = File(p.join(tempDir.path, 'screenshot_$timestamp.png'));
+          await tempFile.writeAsBytes(imageBytes);
+
+          setState(() {
+            _pendingAttachments.add(_PendingAttachmentItem(
+              file: tempFile,
+              name: 'screenshot_$timestamp.png',
+              size: imageBytes.length,
+              ext: 'png',
+              imageBytes: imageBytes,
+            ));
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Icon(Icons.image_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Text('วางรูปภาพจาก Clipboard เรียบร้อยแล้ว (${_pendingAttachments.length}/$_maxAttachments)'),
+                  ],
+                ),
+                duration: const Duration(seconds: 2),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+              ),
+            );
+          }
+          return true;
+        }
+      } catch (e) {
+        debugPrint('[Pasteboard.image error]: $e');
+      }
+
+      // 2. Check if clipboard contains copied files (e.g. Ctrl+C in File Explorer)
+      try {
+        final files = await Pasteboard.files();
+        if (files.isNotEmpty) {
+          final fileList = files.map((p) => File(p)).where((f) => f.existsSync()).toList();
+          if (fileList.isNotEmpty) {
+            await _handleMultipleFiles(fileList);
+            return true;
+          }
+        }
+      } catch (e) {
+        debugPrint('[Pasteboard.files error]: $e');
+      }
+
+      // 3. Fallback: Check if clipboard text is a local file path
+      try {
+        final plainData = await Clipboard.getData(Clipboard.kTextPlain);
+        final rawText = plainData?.text?.trim() ?? '';
+        if (rawText.isNotEmpty) {
+          final cleaned = rawText.replaceAll('"', '').replaceAll("'", '');
+          final file = File(cleaned);
+          if (await file.exists()) {
+            final ext = p.extension(cleaned).toLowerCase().replaceAll('.', '');
+            final supported = [
+              'png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif',
+              'pdf', 'xlsx', 'xls', 'csv', 'txt', 'md', 'doc', 'docx'
+            ];
+            if (supported.contains(ext)) {
+              await _addSingleFile(file);
+              return true;
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 4. Windows PowerShell Native Clipboard Fallback (100% works even if C++ plugin is missing or hot-reloading)
+      if (Platform.isWindows) {
+        try {
+          final tempDir = await getTemporaryDirectory();
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          final tempFile = File(p.join(tempDir.path, 'screenshot_$timestamp.png'));
+          final targetPath = tempFile.path.replaceAll(r'\', r'/');
+          final script = [
+            'Add-Type -AssemblyName System.Windows.Forms;',
+            'Add-Type -AssemblyName System.Drawing;',
+            r'$img = [System.Windows.Forms.Clipboard]::GetImage();',
+            r'if ($null -ne $img) {',
+            '  \$img.Save("$targetPath", [System.Drawing.Imaging.ImageFormat]::Png);',
+            '  Write-Output "OK";',
+            r'} else {',
+            r'  $files = [System.Windows.Forms.Clipboard]::GetFileDropList();',
+            r'  if ($null -ne $files -and $files.Count -gt 0) {',
+            r'    foreach ($f in $files) { Write-Output "FILE:$f"; }',
+            r'  }',
+            r'}',
+          ].join(' ');
+          final res = await Process.run(
+            'powershell',
+            ['-NoProfile', '-NonInteractive', '-Command', script],
+          );
+          if (res.exitCode == 0 && await tempFile.exists()) {
+            final imageBytes = await tempFile.readAsBytes();
+            if (imageBytes.isNotEmpty) {
+              if (_pendingAttachments.length >= _maxAttachments) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('สามารถแนบไฟล์ได้สูงสุด 5 ไฟล์พร้อมกันครับ'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+                return true;
+              }
+
+              setState(() {
+                _pendingAttachments.add(_PendingAttachmentItem(
+                  file: tempFile,
+                  name: 'screenshot_$timestamp.png',
+                  size: imageBytes.length,
+                  ext: 'png',
+                  imageBytes: imageBytes,
+                ));
+              });
+
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        const Icon(Icons.image_rounded, color: Colors.white, size: 18),
+                        const SizedBox(width: 8),
+                        Text('วางรูปภาพจาก Clipboard เรียบร้อยแล้ว (${_pendingAttachments.length}/$_maxAttachments)'),
+                      ],
+                    ),
+                    duration: const Duration(seconds: 2),
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                  ),
+                );
+              }
+              return true;
+            }
+          } else if (res.exitCode == 0 && res.stdout != null) {
+            final stdoutStr = res.stdout.toString();
+            final fileLines = stdoutStr
+                .split(RegExp(r'\r?\n'))
+                .where((l) => l.startsWith('FILE:'))
+                .map((l) => l.substring(5).trim())
+                .where((l) => l.isNotEmpty)
+                .toList();
+            if (fileLines.isNotEmpty) {
+              final fileList =
+                  fileLines.map((p) => File(p)).where((f) => f.existsSync()).toList();
+              if (fileList.isNotEmpty) {
+                await _handleMultipleFiles(fileList);
+                return true;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('[Windows PowerShell Clipboard Fallback Error]: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Clipboard paste error: $e');
+    } finally {
+      _isPasting = false;
+    }
+    return false;
+  }
+
+  void _clearAttachments() {
     setState(() {
-      _pendingAttachment = null;
-      _pendingAttachmentName = null;
-      _pendingAttachmentSize = null;
-      _pendingAttachmentExt = null;
+      _pendingAttachments.clear();
     });
   }
 
@@ -109,19 +499,15 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    final attachedFile = _pendingAttachment;
-    final attachedName = _pendingAttachmentName;
-    final attachedExt = _pendingAttachmentExt;
-
-    if ((text.isEmpty && attachedFile == null) || _sending) return;
+    if (text.isEmpty && _pendingAttachments.isEmpty) return;
+    if (_sending) return;
 
     final user = ref.read(authProvider);
+    final attachments = List<_PendingAttachmentItem>.from(_pendingAttachments);
+
     setState(() {
       _sending = true;
-      _pendingAttachment = null;
-      _pendingAttachmentName = null;
-      _pendingAttachmentSize = null;
-      _pendingAttachmentExt = null;
+      _pendingAttachments.clear();
     });
     _controller.clear();
 
@@ -129,55 +515,128 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
       String finalPrompt = text;
       String? displayText;
 
-      if (attachedFile != null) {
-        if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv'].contains(attachedExt)) {
-          // Ingest document into RAG
-          final res = await RagDocumentService.ingestDocument(file: attachedFile);
-          final docName = res['file_name'] ?? attachedName ?? 'เอกสาร';
-          final extractedText = res['extracted_text']?.toString() ?? '';
+      if (attachments.isNotEmpty) {
+        final List<String> promptSections = [];
+        final List<String> displayNames = [];
 
-          final userPrompt = text.isNotEmpty
-              ? text
-              : 'ช่วยสรุปและวิเคราะห์ข้อมูลสำคัญจากเอกสารนี้ให้หน่อยครับ';
+        for (int idx = 0; idx < attachments.length; idx++) {
+          final item = attachments[idx];
+          displayNames.add(item.name);
 
-          final truncatedText = extractedText.length > 15000
-              ? '${extractedText.substring(0, 15000)}\n...(ตัดทอนบางส่วน)...'
-              : extractedText;
+          if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv'].contains(item.ext)) {
+            String docName = item.name;
+            String extractedText = '';
+            try {
+              final res = await RagDocumentService.ingestDocument(file: item.file);
+              docName = res['file_name'] ?? item.name;
+              extractedText = res['extracted_text']?.toString() ?? '';
+            } catch (_) {
+              extractedText = '(เอกสารแนบ: $docName)';
+            }
 
-          displayText = '📄 [แนบเอกสาร: $docName]\n$userPrompt';
+            final truncatedText = extractedText.length > 15000
+                ? '${extractedText.substring(0, 15000)}\n...(ตัดทอนบางส่วน)...'
+                : extractedText;
 
-          finalPrompt = '📄 [แนบเอกสาร: $docName]\n$userPrompt\n\n'
-              '--- เนื้อหาที่อ่านได้จากเอกสาร ($docName) ---\n'
-              '$truncatedText\n'
-              '--- สิ้นสุดเนื้อหาเอกสาร ---';
-        } else {
-          // Image
-          if (text.isEmpty) {
-            displayText = '📸 [แนบรูปภาพ: $attachedName]\nช่วยวิเคราะห์อาการเสียหรือข้อมูลในภาพนี้ให้หน่อยครับ';
-            finalPrompt = displayText;
+            promptSections.add(
+              '${idx + 1}. [เอกสาร ${item.ext.toUpperCase()}] ชื่อ: "$docName"\n'
+              '   - ที่อยู่ไฟล์ (file_path): "${item.file.path}"\n'
+              '   - เนื้อหา:\n'
+              '${truncatedText.isNotEmpty ? truncatedText : "(ไม่มีเลเยอร์ข้อความหรือเป็นภาพสแกน)"}',
+            );
+          } else if (['doc', 'docx'].contains(item.ext)) {
+            promptSections.add(
+              '${idx + 1}. [เอกสาร Word] ชื่อ: "${item.name}"\n'
+              '   - ที่อยู่ไฟล์ (file_path): "${item.file.path}"\n'
+              '   - ประเภทไฟล์: ${item.ext}',
+            );
           } else {
-            displayText = '📸 [แนบรูปภาพ: $attachedName]\n$text';
-            finalPrompt = displayText;
+            // Image
+            promptSections.add(
+              '${idx + 1}. [รูปภาพ] ชื่อ: "${item.name}"\n'
+              '   - ที่อยู่ไฟล์ (file_path): "${item.file.path}"\n'
+              '   - ขนาด: ${(item.size / 1024).toStringAsFixed(1)} KB',
+            );
           }
+        }
+
+        final userPrompt = text.isNotEmpty
+            ? text
+            : (attachments.any((a) => a.isDocument)
+                ? 'ช่วยอ่านข้อมูลและสเปกทางเทคนิคจากเอกสารที่แนบ แล้วอัปเดตลงระบบให้หน่อยครับ'
+                : 'ช่วยอ่านข้อมูลและสเปกทางเทคนิคจากภาพที่แนบ แล้วอัปเดตลงระบบให้หน่อยครับ');
+
+        displayText = attachments.length == 1
+            ? '📎 [แนบไฟล์: ${displayNames.first}]\n$userPrompt'
+            : '📎 [แนบ ${attachments.length} ไฟล์: ${displayNames.join(', ')}]\n$userPrompt';
+
+        finalPrompt = '$userPrompt\n\n'
+            '--- ข้อมูลไฟล์แนบทั้งหมด (จำนวน ${attachments.length} ไฟล์) ---\n'
+            '${promptSections.join('\n\n')}\n'
+            '--- สิ้นสุดข้อมูลไฟล์แนบ ---';
+      }
+
+      final imageBytesList = <Uint8List>[];
+      final aiAttachments = <AiAttachment>[];
+
+      for (final a in attachments) {
+        Uint8List? bytes = a.imageBytes;
+        if (bytes == null || bytes.isEmpty) {
+          try {
+            if (await a.file.exists()) {
+              bytes = await a.file.readAsBytes();
+            }
+          } catch (_) {}
+        }
+
+        if (bytes != null && bytes.isNotEmpty) {
+          String mimeType = 'application/octet-stream';
+          final ext = a.ext.toLowerCase();
+          if (ext == 'pdf') {
+            mimeType = 'application/pdf';
+          } else if (ext == 'png') {
+            mimeType = 'image/png';
+          } else if (ext == 'jpg' || ext == 'jpeg') {
+            mimeType = 'image/jpeg';
+          } else if (ext == 'webp') {
+            mimeType = 'image/webp';
+          } else if (ext == 'gif') {
+            mimeType = 'image/gif';
+          }
+
+          if (a.isImage) {
+            imageBytesList.add(bytes);
+          }
+
+          aiAttachments.add(AiAttachment(
+            bytes: bytes,
+            mimeType: mimeType,
+            fileName: a.name,
+          ));
         }
       }
 
-      await ref
-          .read(aiChatProvider.notifier)
-          .sendMessage(finalPrompt, displayText: displayText, userId: user?.userId);
-
+      await ref.read(aiChatProvider.notifier).sendMessage(
+            finalPrompt,
+            displayText: displayText,
+            userId: user?.userId,
+            attachments: aiAttachments,
+            imageBytesList: imageBytesList,
+          );
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('เกิดข้อผิดพลาด: $e'),
+            content: Text('เกิดข้อผิดพลาดในการส่งข้อความ: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) {
+        setState(() => _sending = false);
+      }
     }
   }
 
@@ -217,6 +676,16 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.history_rounded),
+            tooltip: 'ประวัติการสนทนา (Chat History)',
+            onPressed: () => ChatHistoryDialog.show(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_comment_outlined),
+            tooltip: 'เริ่มการสนทนาใหม่ (New Chat)',
+            onPressed: () => ref.read(aiChatProvider.notifier).newChat(),
+          ),
+          IconButton(
             icon: const Icon(Icons.menu_book_rounded),
             tooltip: 'คลังคู่มือ & เอกสาร RAG',
             onPressed: _showRagDocumentsDialog,
@@ -224,7 +693,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
           if (state.messages.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep_outlined),
-              tooltip: 'ล้างบทสนทนา',
+              tooltip: 'ล้างบทสนทนานี้',
               onPressed: () {
                 showDialog(
                   context: context,
@@ -252,19 +721,106 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             ),
         ],
       ),
-      body: !state.isConfigured
-          ? _buildNotConfigured(theme)
-          : Column(
-              children: [
-                Expanded(
-                  child: state.messages.isEmpty
-                      ? _buildWelcome(theme)
-                      : _buildMessageList(state, theme),
+      body: DropTarget(
+          onDragEntered: (_) => setState(() => _isDragging = true),
+          onDragExited: (_) => setState(() => _isDragging = false),
+          onDragDone: (detail) async {
+            setState(() => _isDragging = false);
+            if (detail.files.isNotEmpty) {
+              final files = detail.files.map((f) => File(f.path)).toList();
+              await _handleMultipleFiles(files);
+            }
+          },
+          child: Stack(
+          children: [
+            !state.isConfigured
+                ? _buildNotConfigured(theme)
+                : Column(
+                    children: [
+                      Expanded(
+                        child: state.messages.isEmpty
+                            ? _buildWelcome(theme)
+                            : _buildMessageList(state, theme),
+                      ),
+                      _buildInputBar(theme),
+                    ],
+                  ),
+            if (_isDragging)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Container(
+                    margin: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: theme.colorScheme.primary,
+                        width: 2.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                          blurRadius: 20,
+                          spreadRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 76,
+                            height: 76,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  theme.colorScheme.primary,
+                                  theme.colorScheme.tertiary,
+                                ],
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: theme.colorScheme.primary
+                                      .withValues(alpha: 0.3),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.file_download_rounded,
+                              color: Colors.white,
+                              size: 42,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            'วางไฟล์ที่นี่เพื่อแนบเข้าสู่ AI Chat',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                              color: theme.colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'รองรับไฟล์คู่มือ PDF, สเปรดชีต Excel, CSV, Text และรูปภาพ',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onPrimaryContainer
+                                  .withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                _buildQuickActions(theme),
-                _buildInputBar(theme),
-              ],
-            ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -360,43 +916,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     );
   }
 
-  Widget _buildQuickActions(ThemeData theme) {
-    final chips = [
-      ('📚 คลังคู่มือ RAG', Icons.menu_book_rounded),
-      ('เครื่องที่ Breakdown', Icons.warning_amber_rounded),
-      ('อะไหล่ใกล้หมด', Icons.inventory_2_outlined),
-      ('งานที่ค้างอยู่', Icons.assignment_late_outlined),
-      ('OEE วันนี้', Icons.analytics_outlined),
-    ];
-
-    return SizedBox(
-      height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-        children: chips.map((c) {
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ActionChip(
-              avatar: Icon(c.$2, size: 16),
-              label: Text(c.$1, style: const TextStyle(fontSize: 12)),
-              onPressed: _sending
-                  ? null
-                  : () {
-                      if (c.$1 == '📚 คลังคู่มือ RAG') {
-                        _showRagDocumentsDialog();
-                      } else {
-                        _controller.text = c.$1;
-                        _send();
-                      }
-                    },
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   Widget _buildInputBar(ThemeData theme) {
     return Container(
       padding: const EdgeInsets.fromLTRB(
@@ -415,63 +934,128 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_pendingAttachment != null) ...[
+          if (_pendingAttachments.isNotEmpty) ...[
             Container(
               margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    _pendingAttachmentExt == 'pdf'
-                        ? Icons.picture_as_pdf_rounded
-                        : ['xlsx', 'xls', 'csv'].contains(_pendingAttachmentExt)
-                            ? Icons.table_chart_rounded
-                            : ['png', 'jpg', 'jpeg'].contains(_pendingAttachmentExt)
-                                ? Icons.image_rounded
-                                : Icons.description_rounded,
-                    size: 20,
-                    color: ['xlsx', 'xls', 'csv'].contains(_pendingAttachmentExt)
-                        ? Colors.green.shade700
-                        : theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 320),
-                    child: Text(
-                      _pendingAttachmentName ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.attach_file_rounded,
+                        size: 14,
+                        color: theme.colorScheme.primary,
                       ),
-                    ),
-                  ),
-                  if (_pendingAttachmentSize != null) ...[
-                    const SizedBox(width: 6),
-                    Text(
-                      '(${(_pendingAttachmentSize! / 1024).toStringAsFixed(1)} KB)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.onSurfaceVariant,
+                      const SizedBox(width: 4),
+                      Text(
+                        'ไฟล์แนบ (${_pendingAttachments.length}/$_maxAttachments)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: theme.colorScheme.primary,
+                        ),
                       ),
-                    ),
-                  ],
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: _sending ? null : _clearAttachment,
-                    borderRadius: BorderRadius.circular(10),
-                    child: const Padding(
-                      padding: EdgeInsets.all(2),
-                      child: Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                      const Spacer(),
+                      if (_pendingAttachments.length > 1)
+                        InkWell(
+                          onTap: _sending ? null : _clearAttachments,
+                          borderRadius: BorderRadius.circular(4),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            child: Text(
+                              'ลบทั้งหมด',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.red.shade400,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: List.generate(_pendingAttachments.length, (idx) {
+                        final item = _pendingAttachments[idx];
+                        return Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (item.isImage && item.imageBytes != null)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: Image.memory(
+                                    item.imageBytes!,
+                                    width: 22,
+                                    height: 22,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  item.isPdf
+                                      ? Icons.picture_as_pdf_rounded
+                                      : item.isSpreadsheet
+                                          ? Icons.table_chart_rounded
+                                          : item.isImage
+                                              ? Icons.image_rounded
+                                              : Icons.description_rounded,
+                                  size: 18,
+                                  color: item.isSpreadsheet
+                                      ? Colors.green.shade700
+                                      : item.isPdf
+                                          ? Colors.red.shade600
+                                          : theme.colorScheme.primary,
+                                ),
+                              const SizedBox(width: 8),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 160),
+                                child: Text(
+                                  item.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '(${ (item.size / 1024).toStringAsFixed(0) } KB)',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: _sending
+                                    ? null
+                                    : () => setState(() => _pendingAttachments.removeAt(idx)),
+                                borderRadius: BorderRadius.circular(10),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(2),
+                                  child: Icon(Icons.close_rounded, size: 16, color: Colors.grey),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
                     ),
                   ),
                 ],
@@ -482,30 +1066,60 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             children: [
               IconButton(
                 icon: const Icon(Icons.attach_file_rounded),
-                tooltip: 'แนบไฟล์คู่มือ PDF / รูปภาพ',
+                tooltip: 'แนบไฟล์เอกสาร PDF / Excel / Word / รูปภาพ (สูงสุด 5 ไฟล์)',
                 onPressed: _sending ? null : _pickAttachment,
+              ),
+              IconButton(
+                icon: const Icon(Icons.content_paste_go_rounded),
+                tooltip: 'วางรูปภาพหรือไฟล์จาก Clipboard (Ctrl+V)',
+                onPressed: _sending ? null : () => _handleClipboardPaste(),
               ),
               const SizedBox(width: 4),
               Expanded(
-                child: TextField(
-                  controller: _controller,
-                  enabled: !_sending,
-                  maxLines: null,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _send(),
-                  decoration: InputDecoration(
-                    hintText: _pendingAttachment != null
-                        ? 'พิมพ์คำถามเกี่ยวกับไฟล์ที่แนบไว้ แล้วกดส่ง...'
-                        : 'ถามเกี่ยวกับข้อมูลในระบบ...',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none,
+                child: Actions(
+                  actions: {
+                    PasteTextIntent: CallbackAction<PasteTextIntent>(
+                      onInvoke: (intent) async {
+                        final handled = await _handleClipboardPaste();
+                        if (!handled) {
+                          final data = await Clipboard.getData(Clipboard.kTextPlain);
+                          if (data?.text != null && data!.text!.isNotEmpty) {
+                            final text = _controller.text;
+                            final selection = _controller.selection;
+                            final start = selection.start >= 0 ? selection.start : text.length;
+                            final end = selection.end >= 0 ? selection.end : text.length;
+                            final newText = text.replaceRange(start, end, data.text!);
+                            _controller.text = newText;
+                            _controller.selection = TextSelection.collapsed(
+                              offset: start + data.text!.length,
+                            );
+                          }
+                        }
+                        return null;
+                      },
                     ),
-                    filled: true,
-                    fillColor: theme.colorScheme.surfaceContainerHighest,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
+                  },
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    enabled: !_sending,
+                    maxLines: null,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _send(),
+                    decoration: InputDecoration(
+                      hintText: _pendingAttachments.isNotEmpty
+                          ? 'พิมพ์คำถามเกี่ยวกับ ${_pendingAttachments.length} ไฟล์ที่แนบไว้ แล้วกดส่ง...'
+                          : 'ถามเกี่ยวกับข้อมูลในระบบ, ลากไฟล์มาวาง หรือกด Ctrl+V วางรูปภาพที่นี่...',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
                     ),
                   ),
                 ),
@@ -703,8 +1317,19 @@ class _MessageBubble extends StatelessWidget {
     final theme = Theme.of(context);
     final isUser = message.role == ChatRole.user;
 
+    // Check if user message has attachment header
+    String? attachmentHeader;
+    String cleanContent = message.content;
+    if (isUser && message.content.startsWith('📎 [')) {
+      final lineBreak = message.content.indexOf('\n');
+      if (lineBreak != -1) {
+        attachmentHeader = message.content.substring(0, lineBreak).replaceAll('📎 ', '').replaceAll('[', '').replaceAll(']', '');
+        cleanContent = message.content.substring(lineBreak + 1).trim();
+      }
+    }
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: isUser
@@ -715,15 +1340,24 @@ class _MessageBubble extends StatelessWidget {
             Container(
               width: 32,
               height: 32,
-              margin: const EdgeInsets.only(right: 8, top: 2),
+              margin: const EdgeInsets.only(right: 10, top: 2),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
                     theme.colorScheme.primary,
                     theme.colorScheme.tertiary,
                   ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: const Icon(
                 Icons.auto_awesome,
@@ -734,43 +1368,88 @@ class _MessageBubble extends StatelessWidget {
           ],
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
               decoration: BoxDecoration(
                 color: isUser
-                    ? theme.colorScheme.primary
+                    ? theme.colorScheme.primary.withValues(alpha: 0.9)
                     : message.isError
-                    ? theme.colorScheme.errorContainer
-                    : theme.colorScheme.surfaceContainerHighest,
+                        ? theme.colorScheme.errorContainer
+                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(isUser ? 16 : 4),
-                  bottomRight: Radius.circular(isUser ? 4 : 16),
+                  topLeft: const Radius.circular(18),
+                  topRight: const Radius.circular(18),
+                  bottomLeft: Radius.circular(isUser ? 18 : 4),
+                  bottomRight: Radius.circular(isUser ? 4 : 18),
                 ),
+                border: Border.all(
+                  color: isUser
+                      ? theme.colorScheme.primary.withValues(alpha: 0.4)
+                      : message.isError
+                          ? theme.colorScheme.error.withValues(alpha: 0.3)
+                          : theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+                  width: 0.8,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: message.isLoading
-                  ? Row(
+                  ? _ThinkingLoadingBubble(message: message)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: theme.colorScheme.primary,
+                        if (attachmentHeader != null) ...[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.black12,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white24, width: 0.8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.attachment_rounded, size: 14, color: Colors.white70),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    attachmentHeader,
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'กำลังคิด...',
-                          style: TextStyle(
-                            color: theme.colorScheme.outline,
-                            fontSize: 13,
+                        ],
+                        if (!isUser &&
+                            ((message.reasoningSteps.isNotEmpty &&
+                                    message.reasoningSteps.length > 1) ||
+                                (message.reasoningContent != null &&
+                                    message.reasoningContent!
+                                        .trim()
+                                        .isNotEmpty)))
+                          _ReasoningSection(
+                            steps: message.reasoningSteps,
+                            reasoningContent: message.reasoningContent,
                           ),
+                        _MessageContent(
+                          message: message,
+                          overrideContent: cleanContent,
                         ),
                       ],
-                    )
-                  : _MessageContent(message: message),
+                    ),
             ),
           ),
           if (isUser) const SizedBox(width: 8),
@@ -780,10 +1459,274 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
+class _ThinkingLoadingBubble extends StatelessWidget {
+  final ChatMessage message;
+  const _ThinkingLoadingBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final steps = message.reasoningSteps;
+    final hasReasoningContent = message.reasoningContent != null &&
+        message.reasoningContent!.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'กำลังคิดและประมวลผล...',
+              style: TextStyle(
+                color: theme.colorScheme.primary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        if (steps.isNotEmpty || hasReasoningContent) ...[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
+                width: 0.8,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ...steps.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final step = entry.value;
+                  final isLast = idx == steps.length - 1;
+
+                  return Padding(
+                    padding: EdgeInsets.only(
+                      bottom: isLast && !hasReasoningContent ? 0 : 4,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2, right: 6),
+                          child: Icon(
+                            isLast
+                                ? Icons.play_arrow_rounded
+                                : Icons.check_circle_rounded,
+                            size: 13,
+                            color: isLast
+                                ? theme.colorScheme.primary
+                                : Colors.green.shade600,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            step,
+                            style: TextStyle(
+                              fontSize: 11,
+                              height: 1.35,
+                              color: isLast
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.8),
+                              fontWeight:
+                                  isLast ? FontWeight.w600 : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+                if (hasReasoningContent) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      message.reasoningContent!.trim(),
+                      maxLines: 8,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        height: 1.35,
+                        fontFamily: 'monospace',
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _ReasoningSection extends StatefulWidget {
+  final List<String> steps;
+  final String? reasoningContent;
+
+  const _ReasoningSection({
+    required this.steps,
+    this.reasoningContent,
+  });
+
+  @override
+  State<_ReasoningSection> createState() => _ReasoningSectionState();
+}
+
+class _ReasoningSectionState extends State<_ReasoningSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final count = widget.steps.length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+          width: 0.8,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.psychology_outlined,
+                    size: 14,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'กระบวนการคิด (${count > 0 ? '$count ขั้นตอน' : 'Reasoning'})',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: theme.colorScheme.outline,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(height: 8, thickness: 0.5),
+                  ...widget.steps.map((step) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2, right: 6),
+                              child: Icon(
+                                Icons.check_circle_rounded,
+                                size: 12,
+                                color: Colors.green.shade600,
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                step,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.35,
+                                  color: theme.colorScheme.onSurfaceVariant
+                                      .withValues(alpha: 0.85),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )),
+                  if (widget.reasoningContent != null &&
+                      widget.reasoningContent!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: SelectableText(
+                        widget.reasoningContent!.trim(),
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          height: 1.35,
+                          fontFamily: 'monospace',
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageContent extends StatelessWidget {
   final ChatMessage message;
+  final String? overrideContent;
 
-  const _MessageContent({required this.message});
+  const _MessageContent({required this.message, this.overrideContent});
 
   @override
   Widget build(BuildContext context) {
@@ -792,14 +1735,23 @@ class _MessageContent extends StatelessWidget {
     final textColor = isUser
         ? theme.colorScheme.onPrimary
         : message.isError
-        ? theme.colorScheme.onErrorContainer
-        : theme.colorScheme.onSurface;
+            ? theme.colorScheme.onErrorContainer
+            : theme.colorScheme.onSurface;
 
-    final blocks = _AiMessageBlockParser.parse(message.content);
+    final contentToRender = overrideContent ?? message.content;
+    final baseStyle = TextStyle(
+      color: textColor,
+      fontSize: isUser ? 14 : 13.5,
+      height: 1.55,
+      letterSpacing: 0.15,
+    );
+
+    final blocks = _AiMessageBlockParser.parse(contentToRender);
     if (blocks.length == 1 && blocks.first.type == _AiMessageBlockType.text) {
-      return SelectableText(
-        message.content,
-        style: TextStyle(color: textColor, fontSize: 14, height: 1.5),
+      return _MarkdownTextRenderer(
+        text: contentToRender,
+        baseStyle: baseStyle,
+        isUser: isUser,
       );
     }
 
@@ -809,10 +1761,11 @@ class _MessageContent extends StatelessWidget {
         switch (block.type) {
           case _AiMessageBlockType.text:
             return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: SelectableText(
-                block.text,
-                style: TextStyle(color: textColor, fontSize: 14, height: 1.5),
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _MarkdownTextRenderer(
+                text: block.text,
+                baseStyle: baseStyle,
+                isUser: isUser,
               ),
             );
           case _AiMessageBlockType.code:
@@ -854,13 +1807,304 @@ class _MessageContent extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: _TimelineBlock(items: block.timelineItems),
             );
+          case _AiMessageBlockType.actionConfirmation:
+            if (block.actionConfirmation == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _ActionConfirmationCard(data: block.actionConfirmation!),
+            );
         }
       }).toList(),
     );
   }
 }
 
-enum _AiMessageBlockType { text, code, table, image, pdf, timeline }
+class _MarkdownTextRenderer extends StatelessWidget {
+  final String text;
+  final TextStyle baseStyle;
+  final bool isUser;
+
+  const _MarkdownTextRenderer({
+    required this.text,
+    required this.baseStyle,
+    this.isUser = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lines = text.split('\n');
+    final widgets = <Widget>[];
+
+    int i = 0;
+    while (i < lines.length) {
+      final line = lines[i];
+      final trimmed = line.trim();
+
+      if (trimmed.isEmpty) {
+        widgets.add(const SizedBox(height: 6));
+        i++;
+        continue;
+      }
+
+      // 1. Heading 1 (# Heading)
+      if (trimmed.startsWith('# ')) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 4),
+          child: Text(
+            trimmed.substring(2).trim(),
+            style: baseStyle.copyWith(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: isUser ? baseStyle.color : theme.colorScheme.primary,
+            ),
+          ),
+        ));
+        i++;
+        continue;
+      }
+
+      // 2. Heading 2 (## Heading)
+      if (trimmed.startsWith('## ')) {
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Text(
+            trimmed.substring(3).trim(),
+            style: baseStyle.copyWith(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: isUser ? baseStyle.color : theme.colorScheme.onSurface,
+            ),
+          ),
+        ));
+        i++;
+        continue;
+      }
+
+      // 3. Heading 3 (### Heading or **Heading:**)
+      if (trimmed.startsWith('### ') ||
+          (trimmed.startsWith('**') &&
+              trimmed.endsWith('**') &&
+              !trimmed.contains('\n') &&
+              trimmed.length <= 45)) {
+        final cleanTitle = trimmed.startsWith('### ')
+            ? trimmed.substring(4).trim()
+            : trimmed.replaceAll('**', '').trim();
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 3.5,
+                height: 14,
+                margin: const EdgeInsets.only(right: 6),
+                decoration: BoxDecoration(
+                  color: isUser ? Colors.white70 : theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  cleanTitle,
+                  style: baseStyle.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: isUser ? baseStyle.color : theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ));
+        i++;
+        continue;
+      }
+
+      // 4. Blockquote (> Note)
+      if (trimmed.startsWith('>')) {
+        final quoteLines = <String>[];
+        while (i < lines.length && lines[i].trim().startsWith('>')) {
+          quoteLines.add(lines[i].trim().replaceFirst(RegExp(r'^>\s*'), ''));
+          i++;
+        }
+        widgets.add(Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isUser
+                ? Colors.white12
+                : theme.colorScheme.primaryContainer.withValues(alpha: 0.25),
+            borderRadius: BorderRadius.circular(8),
+            border: Border(
+              left: BorderSide(
+                color: isUser ? Colors.white60 : theme.colorScheme.primary,
+                width: 3.5,
+              ),
+            ),
+          ),
+          child: Text(
+            quoteLines.join('\n'),
+            style: baseStyle.copyWith(
+              fontSize: 12.5,
+              fontStyle: FontStyle.italic,
+              color: isUser
+                  ? baseStyle.color
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ));
+        continue;
+      }
+
+      // 5. Bullet item (- item or * item or • item or 1. item)
+      final bulletMatch =
+          RegExp(r'^(\s*)([-*•]|\d+[\.\)])\s+(.*)$').firstMatch(line);
+      if (bulletMatch != null) {
+        final indent = bulletMatch.group(1)?.length ?? 0;
+        final prefix = bulletMatch.group(2) ?? '•';
+        final content = bulletMatch.group(3) ?? '';
+        final isNumbered = RegExp(r'^\d+[\.\)]').hasMatch(prefix);
+
+        widgets.add(Padding(
+          padding: EdgeInsets.only(
+            left: indent > 0 ? (indent * 8.0) : 4,
+            top: 2,
+            bottom: 2,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 6, right: 8),
+                child: isNumbered
+                    ? Text(
+                        prefix,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: isUser
+                              ? Colors.white70
+                              : theme.colorScheme.primary,
+                        ),
+                      )
+                    : Icon(
+                        Icons.circle,
+                        size: 5,
+                        color: isUser
+                            ? Colors.white70
+                            : theme.colorScheme.primary,
+                      ),
+              ),
+              Expanded(
+                child: _buildFormattedText(content, baseStyle, theme, isUser),
+              ),
+            ],
+          ),
+        ));
+        i++;
+        continue;
+      }
+
+      // 6. Regular paragraph
+      widgets.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: _buildFormattedText(line, baseStyle, theme, isUser),
+      ));
+      i++;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: widgets,
+    );
+  }
+
+  Widget _buildFormattedText(
+      String text, TextStyle style, ThemeData theme, bool isUser) {
+    final spans = <InlineSpan>[];
+    final regex =
+        RegExp(r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))');
+    int lastEnd = 0;
+
+    for (final match in regex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd, match.start),
+          style: style,
+        ));
+      }
+
+      final matchedStr = match.group(0)!;
+      if (matchedStr.startsWith('`') && matchedStr.endsWith('`')) {
+        // Inline code
+        final codeText = matchedStr.substring(1, matchedStr.length - 1);
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: isUser
+                  ? Colors.black26
+                  : theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(
+                color: isUser
+                    ? Colors.white24
+                    : theme.colorScheme.outlineVariant
+                        .withValues(alpha: 0.5),
+                width: 0.7,
+              ),
+            ),
+            child: Text(
+              codeText,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isUser ? Colors.white : theme.colorScheme.primary,
+              ),
+            ),
+          ),
+        ));
+      } else if (matchedStr.startsWith('**') && matchedStr.endsWith('**')) {
+        // Bold
+        spans.add(TextSpan(
+          text: matchedStr.substring(2, matchedStr.length - 2),
+          style: style.copyWith(
+            fontWeight: FontWeight.bold,
+            color: isUser ? Colors.white : theme.colorScheme.onSurface,
+          ),
+        ));
+      } else if (matchedStr.startsWith('*') && matchedStr.endsWith('*')) {
+        // Italic
+        spans.add(TextSpan(
+          text: matchedStr.substring(1, matchedStr.length - 1),
+          style: style.copyWith(fontStyle: FontStyle.italic),
+        ));
+      }
+
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastEnd),
+        style: style,
+      ));
+    }
+
+    return SelectableText.rich(
+      TextSpan(children: spans),
+      style: style,
+    );
+  }
+}
+
+enum _AiMessageBlockType { text, code, table, image, pdf, timeline, actionConfirmation }
 
 class _AiTimelineItem {
   final String time;
@@ -876,6 +2120,54 @@ class _AiTimelineItem {
   });
 }
 
+class _AiActionConfirmationData {
+  final String actionId;
+  final String tool;
+  final String action;
+  final String title;
+  final String summary;
+  final List<String> options;
+  final Map<String, dynamic> params;
+
+  const _AiActionConfirmationData({
+    required this.actionId,
+    required this.tool,
+    required this.action,
+    required this.title,
+    required this.summary,
+    this.options = const [],
+    required this.params,
+  });
+
+  factory _AiActionConfirmationData.fromMap(Map<String, dynamic> map) {
+    final rawOptions = map['options'];
+    final optList = <String>[];
+    if (rawOptions is List) {
+      for (final o in rawOptions) {
+        if (o != null && o.toString().trim().isNotEmpty) {
+          optList.add(o.toString().trim());
+        }
+      }
+    }
+
+    final action = map['action']?.toString() ?? 'update';
+    final params = (map['params'] as Map?)?.cast<String, dynamic>() ?? {};
+    if (!params.containsKey('action')) {
+      params['action'] = action;
+    }
+
+    return _AiActionConfirmationData(
+      actionId: map['action_id']?.toString() ?? const Uuid().v4(),
+      tool: map['tool']?.toString() ?? 'manage_machines',
+      action: action,
+      title: map['title']?.toString() ?? 'ยืนยันการดำเนินการ',
+      summary: map['summary']?.toString() ?? '',
+      options: optList,
+      params: params,
+    );
+  }
+}
+
 class _AiMessageBlock {
   final _AiMessageBlockType type;
   final String text;
@@ -888,6 +2180,7 @@ class _AiMessageBlock {
   final String thumbnail;
   final int? pages;
   final List<_AiTimelineItem> timelineItems;
+  final _AiActionConfirmationData? actionConfirmation;
 
   const _AiMessageBlock.text(this.text)
     : type = _AiMessageBlockType.text,
@@ -899,7 +2192,8 @@ class _AiMessageBlock {
       title = '',
       thumbnail = '',
       pages = null,
-      timelineItems = const [];
+      timelineItems = const [],
+      actionConfirmation = null;
 
   const _AiMessageBlock.code(this.text, {this.language = ''})
     : type = _AiMessageBlockType.code,
@@ -910,7 +2204,8 @@ class _AiMessageBlock {
       title = '',
       thumbnail = '',
       pages = null,
-      timelineItems = const [];
+      timelineItems = const [],
+      actionConfirmation = null;
 
   const _AiMessageBlock.table({
     required this.headers,
@@ -923,7 +2218,8 @@ class _AiMessageBlock {
        title = '',
        thumbnail = '',
        pages = null,
-       timelineItems = const [];
+       timelineItems = const [],
+       actionConfirmation = null;
 
   const _AiMessageBlock.image({required this.source, required this.altText})
     : type = _AiMessageBlockType.image,
@@ -934,7 +2230,8 @@ class _AiMessageBlock {
       title = '',
       thumbnail = '',
       pages = null,
-      timelineItems = const [];
+      timelineItems = const [],
+      actionConfirmation = null;
 
   const _AiMessageBlock.pdf({
     required this.title,
@@ -947,7 +2244,8 @@ class _AiMessageBlock {
        headers = const [],
        rows = const [],
        altText = '',
-       timelineItems = const [];
+       timelineItems = const [],
+       actionConfirmation = null;
 
   const _AiMessageBlock.timeline({required this.timelineItems})
     : type = _AiMessageBlockType.timeline,
@@ -959,7 +2257,21 @@ class _AiMessageBlock {
       altText = '',
       title = '',
       thumbnail = '',
-      pages = null;
+      pages = null,
+      actionConfirmation = null;
+
+  const _AiMessageBlock.actionConfirmation(this.actionConfirmation)
+    : type = _AiMessageBlockType.actionConfirmation,
+      text = '',
+      language = '',
+      headers = const [],
+      rows = const [],
+      source = '',
+      altText = '',
+      title = '',
+      thumbnail = '',
+      pages = null,
+      timelineItems = const [];
 }
 
 class _AiMessageBlockParser {
@@ -1010,6 +2322,7 @@ class _AiMessageBlockParser {
         final specialBlock = switch (normalizedLanguage) {
           'pdfcard' => _parsePdfCard(code),
           'timeline' => _parseTimeline(code),
+          'action_confirmation' || 'action_request' || 'confirmation' => _parseActionConfirmation(code),
           _ => null,
         };
         if (specialBlock != null) {
@@ -1088,6 +2401,16 @@ class _AiMessageBlockParser {
     }
 
     flushText();
+
+    // Ensure at most ONE consolidated confirmation card if no explicit block was parsed
+    final hasActionConfirmation = blocks.any((b) => b.type == _AiMessageBlockType.actionConfirmation);
+    if (!hasActionConfirmation) {
+      final autoCard = _detectAutoActionConfirmation(input);
+      if (autoCard != null) {
+        blocks.add(_AiMessageBlock.actionConfirmation(autoCard));
+      }
+    }
+
     return blocks.isEmpty ? [_AiMessageBlock.text(input)] : blocks;
   }
 
@@ -1198,10 +2521,590 @@ class _AiMessageBlockParser {
     }
   }
 
+  static _AiMessageBlock? _parseActionConfirmation(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final data = _AiActionConfirmationData.fromMap(decoded);
+      return _AiMessageBlock.actionConfirmation(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static _AiActionConfirmationData? _detectAutoActionConfirmation(String text) {
+    final lines = text.split('\n');
+    final options = <String>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      final match = RegExp(r'^(?:\d+[\.\)]|[-*•])\s*\*{0,2}(.*?)\*{0,2}\s*$').firstMatch(trimmed);
+      if (match != null) {
+        final optText = match.group(1)?.replaceAll(RegExp(r'\*\*'), '').trim() ?? '';
+        if (optText.length >= 6 &&
+            !optText.startsWith('http') &&
+            !optText.startsWith('|') &&
+            !optText.toLowerCase().startsWith('select ') &&
+            (optText.contains('แนบ') ||
+                optText.contains('อัพเดท') ||
+                optText.contains('อัปเดต') ||
+                optText.contains('เพิ่ม') ||
+                optText.contains('ลบ') ||
+                optText.contains('จัดการ') ||
+                optText.contains('บันทึก') ||
+                optText.contains('สร้าง') ||
+                optText.contains('ดำเนินการ') ||
+                optText.contains('เครื่องจักร') ||
+                optText.contains('วิธี'))) {
+          options.add(optText);
+        }
+      }
+    }
+
+    final hasActionIntent = text.contains('ต้องการให้ดำเนินการใช่หรือไม่') ||
+        text.contains('กรุณากดยืนยันเพื่อเริ่มดำเนินการ') ||
+        text.contains('ต้องการให้บันทึก/อัปเดตลงระบบทันทีหรือไม่') ||
+        text.contains('ยืนยันการบันทึกข้อมูล:');
+
+    if (hasActionIntent && options.isNotEmpty) {
+      String title = 'ยืนยันขั้นตอนดำเนินการ';
+      String action = 'update';
+      if (text.contains('แนบเอกสาร') || text.contains('attach') || text.contains('คู่มือ')) {
+        title = 'ยืนยันการแนบเอกสาร / จัดการข้อมูลเครื่องจักร';
+        action = 'attach_document';
+      } else if (text.contains('ลบ') || text.contains('delete')) {
+        title = 'ยืนยันการลบข้อมูล';
+        action = 'delete';
+      } else if (text.contains('เพิ่ม') || text.contains('insert') || text.contains('สร้าง')) {
+        title = 'ยืนยันการเพิ่มข้อมูลใหม่';
+        action = 'insert';
+      }
+
+      return _AiActionConfirmationData(
+        actionId: const Uuid().v4(),
+        tool: 'manage_machines',
+        action: action,
+        title: title,
+        summary: options.isNotEmpty
+            ? 'เลือกแนวทางที่ต้องการดำเนินการ หรือกดยืนยันเพื่อเริ่มทันที'
+            : 'ต้องการให้ระบบดำเนินการตามข้อเสนอนี้หรือไม่',
+        options: options,
+        params: {},
+      );
+    }
+    return null;
+  }
+
   static String _fileNameFromPath(String path) {
     final normalized = path.replaceAll('\\', '/');
     final parts = normalized.split('/');
     return parts.isNotEmpty ? parts.last : path;
+  }
+}
+
+class _ActionConfirmationCard extends ConsumerStatefulWidget {
+  final _AiActionConfirmationData data;
+  const _ActionConfirmationCard({required this.data});
+
+  @override
+  ConsumerState<_ActionConfirmationCard> createState() =>
+      _ActionConfirmationCardState();
+}
+
+class _ActionConfirmationCardState
+    extends ConsumerState<_ActionConfirmationCard> {
+  bool _executing = false;
+  bool _completed = false;
+  bool _cancelled = false;
+  String? _resultMessage;
+  bool _showOtherInput = false;
+  final _otherCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _otherCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleOptionSelected(String option) {
+    setState(() {
+      _completed = true;
+      _resultMessage = 'เลือก: $option';
+    });
+    final user = ref.read(authProvider);
+    ref.read(aiChatProvider.notifier).sendMessage(
+      'เลือกแนวทาง: $option',
+      userId: user?.userId,
+    );
+  }
+
+  Future<void> _handleConfirm() async {
+    if (widget.data.params.isEmpty) {
+      setState(() {
+        _completed = true;
+        _resultMessage = 'ยืนยันดำเนินการตามที่เสนอ';
+      });
+      final user = ref.read(authProvider);
+      ref.read(aiChatProvider.notifier).sendMessage(
+        'ยืนยันดำเนินการ: ${widget.data.title}',
+        userId: user?.userId,
+      );
+      return;
+    }
+
+    setState(() => _executing = true);
+    try {
+      final user = ref.read(authProvider);
+      final params = Map<String, dynamic>.from(widget.data.params);
+      if (!params.containsKey('action') || params['action'] == null || params['action'].toString().isEmpty) {
+        params['action'] = widget.data.action;
+      }
+      if (user?.userId != null) {
+        params['user_id'] = user!.userId;
+      }
+
+      final rawResult = await AiToolHandler.handleToolCall(
+        widget.data.tool,
+        params,
+      );
+
+      String message = 'ดำเนินการเรียบร้อยแล้ว';
+      try {
+        final decoded = jsonDecode(rawResult) as Map<String, dynamic>;
+        if (decoded.containsKey('error')) {
+          throw decoded['error'];
+        }
+        if (decoded.containsKey('message')) {
+          message = decoded['message'].toString();
+        }
+      } catch (e) {
+        if (rawResult.contains('error')) {
+          throw rawResult;
+        }
+      }
+
+      setState(() {
+        _executing = false;
+        _completed = true;
+        _resultMessage = message;
+      });
+
+      if (mounted) {
+        await ref.read(aiChatProvider.notifier).addAssistantMessage(
+          '✅ ดำเนินการ **${widget.data.title}** เรียบร้อยแล้วครับ\n$message',
+          userId: user?.userId,
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _executing = false;
+        _resultMessage = 'เกิดข้อผิดพลาด: $e';
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ไม่สามารถดำเนินการได้: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleCancel() {
+    setState(() {
+      _cancelled = true;
+    });
+    final user = ref.read(authProvider);
+    ref.read(aiChatProvider.notifier).addAssistantMessage(
+      '❌ ยกเลิกการดำเนินการ **${widget.data.title}** เรียบร้อยแล้ว',
+      userId: user?.userId,
+    );
+  }
+
+  void _handleOtherSubmit() {
+    final text = _otherCtrl.text.trim();
+    if (text.isEmpty) return;
+    setState(() => _showOtherInput = false);
+    final user = ref.read(authProvider);
+    ref.read(aiChatProvider.notifier).sendMessage(
+      'สำหรับการดำเนินการ "${widget.data.title}": $text',
+      userId: user?.userId,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isAttach =
+        widget.data.action.contains('attach') ||
+        widget.data.tool.contains('asset');
+    final isDelete =
+        widget.data.action.contains('delete') ||
+        widget.data.action.contains('remove');
+    final isInsert =
+        widget.data.action.contains('insert') ||
+        widget.data.action.contains('create');
+
+    final actionColor = isDelete
+        ? Colors.red
+        : isAttach
+            ? Colors.indigo
+            : isInsert
+                ? Colors.teal
+                : theme.colorScheme.primary;
+
+    final actionLabel = isDelete
+        ? 'DELETE'
+        : isAttach
+            ? 'ATTACH'
+            : isInsert
+                ? 'INSERT'
+                : 'UPDATE';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _completed
+              ? Colors.green.withValues(alpha: 0.5)
+              : _cancelled
+                  ? theme.colorScheme.outlineVariant.withValues(alpha: 0.4)
+                  : actionColor.withValues(alpha: 0.4),
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: actionColor.withValues(alpha: 0.08),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(11),
+                topRight: Radius.circular(11),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isAttach
+                      ? Icons.attach_file_rounded
+                      : isDelete
+                          ? Icons.delete_outline_rounded
+                          : isInsert
+                              ? Icons.add_circle_outline_rounded
+                              : Icons.tune_rounded,
+                  size: 16,
+                  color: actionColor,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.data.title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12.5,
+                      color: actionColor,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: actionColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    actionLabel,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                      color: actionColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Body Summary & Params & Options
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (widget.data.summary.isNotEmpty) ...[
+                  Text(
+                    widget.data.summary,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+
+                // Options list (Clickable alternatives)
+                if (!_completed && !_cancelled && widget.data.options.isNotEmpty) ...[
+                  const Text(
+                    'ตัวเลือก/ขั้นตอนดำเนินการ (กดเลือกได้ทันที):',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ...widget.data.options.map((opt) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: Icon(
+                          Icons.arrow_circle_right_outlined,
+                          size: 14,
+                          color: actionColor,
+                        ),
+                        label: Text(
+                          opt,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                          textAlign: TextAlign.left,
+                        ),
+                        onPressed: _executing ? null : () => _handleOptionSelected(opt),
+                        style: OutlinedButton.styleFrom(
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          side: BorderSide(
+                            color: actionColor.withValues(alpha: 0.35),
+                          ),
+                        ),
+                      ),
+                    ),
+                  )),
+                  const SizedBox(height: 8),
+                ],
+
+                if (widget.data.params.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: widget.data.params.entries
+                        .where(
+                          (e) =>
+                              e.value != null &&
+                              e.value.toString().isNotEmpty &&
+                              e.key != 'action' &&
+                              e.key != 'user_id',
+                        )
+                        .take(6)
+                        .map((entry) {
+                          return Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${entry.key}: ${entry.value}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          );
+                        })
+                        .toList(),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                // Completed state
+                if (_completed) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          color: Colors.green,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            _resultMessage ?? 'ดำเนินการเรียบร้อยแล้ว',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.green,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (_cancelled) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.cancel_outlined,
+                          color: theme.colorScheme.outline,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'ยกเลิกการดำเนินการแล้ว',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.outline,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  // Action Buttons: OK, Cancel, Other
+                  Row(
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _executing ? null : _handleConfirm,
+                        icon: _executing
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.check_rounded, size: 15),
+                        label: const Text(
+                          'ยืนยัน (Confirm)',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: actionColor,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: _executing ? null : _handleCancel,
+                        icon: const Icon(Icons.close_rounded, size: 15),
+                        label: const Text(
+                          'ยกเลิก (Cancel)',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: _executing
+                            ? null
+                            : () => setState(
+                                () => _showOtherInput = !_showOtherInput,
+                              ),
+                        icon: const Icon(Icons.edit_note_rounded, size: 16),
+                        label: const Text(
+                          'ระบุอื่น ๆ...',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_showOtherInput) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _otherCtrl,
+                            decoration: const InputDecoration(
+                              hintText: 'พิมพ์ความต้องการเพิ่มเติม หรือรายละเอียดคำสั่ง...',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 8,
+                              ),
+                            ),
+                            onSubmitted: (_) => _handleOtherSubmit(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: _handleOtherSubmit,
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                          child: const Text('ส่ง', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

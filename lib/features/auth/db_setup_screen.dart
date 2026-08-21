@@ -11,6 +11,8 @@ import '../../core/database/db_connection.dart';
 import '../../core/database/db_initializer.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/database/db_status_provider.dart';
+import '../../core/widgets/db_connection_error_dialog.dart';
 
 /// First-launch setup wizard — Windows OOBE-inspired two-column layout.
 class DbSetupScreen extends ConsumerStatefulWidget {
@@ -55,6 +57,17 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
       duration: const Duration(seconds: 10),
     )..repeat(reverse: true);
     _initDefaultPath();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final dbStatus = ref.read(dbStatusProvider);
+      if (!dbStatus.isConnected && dbStatus.errorMessage != null) {
+        if (dbStatus.dbPath != null) {
+          _pathCtrl.text = dbStatus.dbPath!;
+          _isCreatingNew = false;
+        }
+        DbConnectionErrorDialog.show(context);
+      }
+    });
   }
 
   Future<void> _initDefaultPath() async {
@@ -487,6 +500,80 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
               // Page header (fixed)
               _buildPageHeader(),
               const SizedBox(height: 10),
+              if (!ref.watch(dbStatusProvider).isConnected &&
+                  ref.watch(dbStatusProvider).errorMessage != null) ...[
+                Builder(builder: (context) {
+                  final dbStatus = ref.watch(dbStatusProvider);
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.red.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline_rounded,
+                            color: Colors.red, size: 22),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูลล่าสุดได้ (${dbStatus.dbPath ?? ""})',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: Colors.red.shade900,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                dbStatus.errorMessage ??
+                                    "ไม่สามารถเปิดไฟล์ฐานข้อมูลได้",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.red.shade800,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade700,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                          ),
+                          icon: dbStatus.isRetrying
+                              ? const SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.refresh_rounded, size: 14),
+                          label: const Text('ลองใหม่',
+                              style: TextStyle(fontSize: 11)),
+                          onPressed: dbStatus.isRetrying
+                              ? null
+                              : () async {
+                                  final ok = await ref
+                                      .read(dbStatusProvider.notifier)
+                                      .retryConnect();
+                                  if (ok) widget.onConnected();
+                                },
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
               // Hint box
               _SetupHintBox(
                 icon: Icons.lightbulb_outline_rounded,

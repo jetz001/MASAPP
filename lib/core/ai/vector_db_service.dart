@@ -291,7 +291,363 @@ class VectorDbService {
     }
   }
 
-  /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions) and Machine Documents into Vector DB.
+  /// Automatically sync a single Work Process and its steps/Lean analysis to Vector DB
+  static Future<void> syncWorkProcess(String processId) async {
+    try {
+      final rows = await DbHelper.query(
+        'SELECT wp.*, m.machine_no, m.machine_name FROM work_processes wp '
+        'LEFT JOIN machines m ON wp.machine_id = m.machine_id '
+        'WHERE wp.process_id = @id LIMIT 1',
+        params: {'id': processId},
+      );
+      if (rows.isEmpty) return;
+
+      final p = rows.first;
+      final processNo = p['process_no'] ?? '';
+      final title = p['title'] ?? '';
+      final method = p['method_type'] == 'improved'
+          ? 'ฉบับปรับปรุง (Improved)'
+          : 'ฉบับปัจจุบัน (Current)';
+      final workType = p['work_type'] == 'product'
+          ? 'ผลิตภัณฑ์ (Product)'
+          : 'คน (Man)';
+      final dept = p['department'] ?? '-';
+      final machineNo = p['machine_no'] ?? '-';
+
+      final stepRows = await DbHelper.query(
+        'SELECT * FROM work_process_steps WHERE process_id = @id ORDER BY step_no ASC',
+        params: {'id': processId},
+      );
+
+      final stepsText = stepRows.map((s) {
+        final no = s['step_no'];
+        final desc = s['description'];
+        final event = s['event_type'];
+        final val = s['value_type'];
+        final dur = s['duration_minutes'];
+        final dist = s['distance_meters'];
+        final prob = s['problem_cause']?.toString() ?? '';
+        final idea = s['improvement_idea']?.toString() ?? '';
+        final probStr = prob.isNotEmpty ? ' | ปัญหา: $prob' : '';
+        final ideaStr = idea.isNotEmpty ? ' | แนวทาง ECRS: $idea' : '';
+        return '$no. [$event | $val] $desc (เวลา: $dur นาที, ระยะ: $dist ม.)$probStr$ideaStr';
+      }).join('\n');
+
+      final chunk =
+          'การวิเคราะห์ขั้นตอนการทำงานและ Lean Analysis: $processNo - $title\n'
+          'วิธีการ: $method | ประเภท: $workType | แผนก: $dept | เครื่องจักร: $machineNo\n'
+          'ขั้นตอนการทำงานทั้งหมด (${stepRows.length} ขั้นตอน):\n$stepsText';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_wp_$processId',
+          sourceType: 'work_process',
+          sourceId: processId,
+          title: '$processNo - $title',
+          category: 'lean_analysis',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'process_no': processNo,
+            'method_type': p['method_type'],
+            'work_type': p['work_type'],
+            'machine_id': p['machine_id'],
+          },
+        );
+        _log.i('[VectorDB] Auto-synced work process $processNo to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync work process: $e');
+    }
+  }
+
+  /// Automatically sync a Production Line & Line Balancing & VSM to Vector DB
+  static Future<void> syncLineBalancing(String lineId) async {
+    try {
+      final lineRows = await DbHelper.query(
+        'SELECT * FROM production_lines WHERE line_id = @id LIMIT 1',
+        params: {'id': lineId},
+      );
+      if (lineRows.isEmpty) return;
+
+      final l = lineRows.first;
+      final lineName = l['line_name'] ?? '';
+      final dept = l['department'] ?? '-';
+      final availMin = (l['available_time_min'] as num?)?.toDouble() ?? 480.0;
+      final demand = (l['demand_quantity'] as num?)?.toDouble() ?? 1000.0;
+      final taktSec = demand > 0 ? (availMin * 60) / demand : 0.0;
+
+      final stationRows = await DbHelper.query(
+        'SELECT * FROM production_line_stations WHERE line_id = @id ORDER BY station_no ASC',
+        params: {'id': lineId},
+      );
+
+      double totalCycleSec = 0.0;
+      double maxCycleSec = 0.0;
+      String bottleneckStation = '-';
+      int totalWorkers = 0;
+      double totalVaSec = 0.0;
+      double totalNvaSec = 0.0;
+
+      final stationsText = stationRows.map((s) {
+        final no = s['station_no'];
+        final name = s['station_name'];
+        final mcName = s['machine_name'] ?? '-';
+        final ct = (s['cycle_time_sec'] as num?)?.toDouble() ?? 0.0;
+        final wk = (s['workers'] as num?)?.toInt() ?? 1;
+        final evt = s['event_type'] ?? 'operation';
+        final val = s['value_type'] ?? 'va';
+        final wait = (s['waiting_time_sec'] as num?)?.toDouble() ?? 0.0;
+
+        totalCycleSec += ct;
+        totalWorkers += wk;
+        if (val == 'va') {
+          totalVaSec += ct;
+        } else {
+          totalNvaSec += ct;
+        }
+        totalNvaSec += wait;
+
+        if (ct > maxCycleSec) {
+          maxCycleSec = ct;
+          bottleneckStation = '$name ($ct วินาที)';
+        }
+
+        return '$no. สถานี: $name | เครื่องจักร: $mcName | Cycle Time: $ct วิ. (พนักงาน: $wk คน) | ประเภท Lean: [$evt / $val] | เวลารอคอย: $wait วิ.';
+      }).join('\n');
+
+      final lineEfficiency = (stationRows.isNotEmpty && maxCycleSec > 0)
+          ? (totalCycleSec / (stationRows.length * maxCycleSec)) * 100
+          : 0.0;
+      final balanceDelay = 100 - lineEfficiency;
+      final totalLeadSec = totalVaSec + totalNvaSec;
+      final pce = totalLeadSec > 0 ? (totalVaSec / totalLeadSec) * 100 : 0.0;
+
+      final chunk =
+          'สายการผลิตและการวิเคราะห์ Line Balancing & Value Stream Mapping (VSM):\n'
+          'ชื่อสายการผลิต: $lineName | แผนก: $dept\n'
+          'Takt Time: ${taktSec.toStringAsFixed(1)} วินาที/ชิ้น | Demand: ${demand.toStringAsFixed(0)} ชิ้น | เวลาทำงาน: ${availMin.toStringAsFixed(0)} นาที\n'
+          'ประสิทธิภาพสายการผลิต (Line Efficiency): ${lineEfficiency.toStringAsFixed(1)}% | Balance Delay (ความสูญเปล่า): ${balanceDelay.toStringAsFixed(1)}%\n'
+          'สถานีคอขวด (Bottleneck): $bottleneckStation\n'
+          'จำนวนสถานี: ${stationRows.length} สถานี | พนักงานรวม: $totalWorkers คน\n'
+          'VSM Process Cycle Efficiency (PCE): ${pce.toStringAsFixed(1)}% | เวลารวมสร้างมูลค่า (VA): ${totalVaSec.toStringAsFixed(1)} วินาที | เวลารวมสูญเปล่า/รอคอย (NVA/Delay): ${totalNvaSec.toStringAsFixed(1)} วินาที\n'
+          'รายละเอียดสถานีงานในไลน์:\n$stationsText';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_line_$lineId',
+          sourceType: 'line_balancing',
+          sourceId: lineId,
+          title: 'สายการผลิต: $lineName (Line Balancing & VSM)',
+          category: 'line_balancing_vsm',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'line_id': lineId,
+            'line_name': lineName,
+            'line_efficiency': lineEfficiency,
+            'takt_time_sec': taktSec,
+            'bottleneck': bottleneckStation,
+            'pce': pce,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced production line $lineName to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync line balancing: $e');
+    }
+  }
+
+  /// Automatically sync a single Machine and its specs to Vector DB
+  static Future<void> syncMachine(String machineId) async {
+    try {
+      final rows = await DbHelper.query('''
+        SELECT m.machine_id, m.machine_no, m.machine_name, m.brand, m.model, m.serial_no, m.location, m.status,
+               s.power_kw, s.voltage_v, s.current_a, s.capacity, s.weight_kg, s.extra_specs
+        FROM machines m
+        LEFT JOIN machine_specs s ON m.machine_id = s.machine_id
+        WHERE m.machine_id = @id OR m.machine_no = @id
+        LIMIT 1
+      ''', params: {'id': machineId});
+      if (rows.isEmpty) return;
+
+      final mc = rows.first;
+      final mId = mc['machine_id']?.toString() ?? machineId;
+      final no = mc['machine_no'] ?? '';
+      final name = mc['machine_name'] ?? '';
+      final brand = mc['brand'] ?? '';
+      final model = mc['model'] ?? '';
+      final loc = mc['location'] ?? '';
+      final status = mc['status'] ?? '';
+      final kw = mc['power_kw'] ?? '-';
+      final v = mc['voltage_v'] ?? '-';
+      final a = mc['current_a'] ?? '-';
+      final cap = mc['capacity'] ?? '-';
+      final w = mc['weight_kg'] ?? '-';
+
+      // Find linked work process steps / SOP
+      final wpRows = await DbHelper.query('''
+        SELECT wp.process_no, wp.title, wp.process_id
+        FROM work_processes wp
+        WHERE wp.machine_id = @id
+        ORDER BY wp.created_at DESC LIMIT 1
+      ''', params: {'id': mId});
+
+      String sopText = '';
+      if (wpRows.isNotEmpty) {
+        final wpId = wpRows.first['process_id'].toString();
+        final wpTitle = wpRows.first['title'] ?? '';
+        final stepRows = await DbHelper.query(
+          'SELECT step_no, description, duration_minutes FROM work_process_steps WHERE process_id = @id ORDER BY step_no ASC',
+          params: {'id': wpId},
+        );
+        if (stepRows.isNotEmpty) {
+          final stepsStr = stepRows.map((s) => '${s['step_no']}. ${s['description']} (${s['duration_minutes']} นาที)').join(' -> ');
+          sopText = '\nขั้นตอนการทำงานมาตรฐาน (SOP: $wpTitle): $stepsStr';
+        }
+      }
+
+      final chunk = 'ข้อมูลเครื่องจักรและสเปก: $no ($name)\n'
+          'ยี่ห้อ: $brand | รุ่น: $model | ตำแหน่ง: $loc | สถานะ: $status\n'
+          'กำลังไฟฟ้า: $kw kW | แรงดันไฟฟ้า: $v V | กระแสไฟฟ้า: $a A\n'
+          'ความสามารถในการผลิต/ความจุ: $cap | น้ำหนักเครื่อง: $w kg$sopText';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_mc_$mId',
+          sourceType: 'machine_spec',
+          sourceId: mId,
+          title: '$no - $name',
+          category: 'machine_specs',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'machine_no': no,
+            'machine_name': name,
+            'brand': brand,
+            'model': model,
+            'location': loc,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced machine $no ($name) to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync machine: $e');
+    }
+  }
+
+  /// Automatically sync a single Spare Part to Vector DB
+  static Future<void> syncSparePart(String partId) async {
+    try {
+      final rows = await DbHelper.query('''
+        SELECT sp.part_id, sp.part_code, sp.part_name, sp.category, sp.unit_cost, sp.reorder_level,
+               inv.quantity_on_hand, inv.location
+        FROM spare_parts sp
+        LEFT JOIN spare_parts_inventory inv ON sp.part_id = inv.part_id
+        WHERE sp.part_id = @id OR sp.part_code = @id
+        LIMIT 1
+      ''', params: {'id': partId});
+      if (rows.isEmpty) return;
+
+      final sp = rows.first;
+      final pId = sp['part_id']?.toString() ?? partId;
+      final code = sp['part_code'] ?? '';
+      final name = sp['part_name'] ?? '';
+      final cat = sp['category'] ?? '-';
+      final cost = sp['unit_cost'] ?? 0;
+      final reorder = sp['reorder_level'] ?? 0;
+      final qty = sp['quantity_on_hand'] ?? 0;
+      final loc = sp['location'] ?? '-';
+
+      // Find linked machines
+      final mapRows = await DbHelper.query('''
+        SELECT m.machine_no, m.machine_name
+        FROM part_machine_map pmm
+        JOIN machines m ON pmm.machine_id = m.machine_id
+        WHERE pmm.part_id = @id
+      ''', params: {'id': pId});
+      final linkedMc = mapRows.map((m) => '${m['machine_no']} (${m['machine_name']})').join(', ');
+
+      final chunk = 'ข้อมูลอะไหล่และการใช้งาน: $code - $name\n'
+          'หมวดหมู่: $cat | คงเหลือในคลัง: $qty หน่วย (จุดสั่งซื้อ: $reorder) | ตำแหน่งเก็บ: $loc | ราคาต่อหน่วย: ฿$cost\n'
+          'ใช้กับเครื่องจักร: ${linkedMc.isEmpty ? 'ทั่วไป' : linkedMc}';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_part_$pId',
+          sourceType: 'spare_part',
+          sourceId: pId,
+          title: '$code - $name',
+          category: 'spare_parts',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'part_code': code,
+            'part_name': name,
+            'category': cat,
+            'location': loc,
+            'quantity_on_hand': qty,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced spare part $code ($name) to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync spare part: $e');
+    }
+  }
+
+  /// Automatically sync a single Tool to Vector DB
+  static Future<void> syncTool(String toolId) async {
+    try {
+      final rows = await DbHelper.query('''
+        SELECT tool_id, tool_code, tool_name, category, status, notes
+        FROM tools
+        WHERE tool_id = @id OR tool_code = @id
+        LIMIT 1
+      ''', params: {'id': toolId});
+      if (rows.isEmpty) return;
+
+      final t = rows.first;
+      final tId = t['tool_id']?.toString() ?? toolId;
+      final code = t['tool_code'] ?? '';
+      final name = t['tool_name'] ?? '';
+      final cat = t['category'] ?? '-';
+      final status = t['status'] ?? 'available';
+      final notes = t['notes'] ?? '';
+
+      final chunk = 'ข้อมูลเครื่องมือช่างและอุปกรณ์: $code - $name\n'
+          'หมวดหมู่: $cat | สถานะปัจจุบัน: $status\n'
+          'หมายเหตุ/สถานที่จัดเก็บ: $notes';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_tool_$tId',
+          sourceType: 'tool_equipment',
+          sourceId: tId,
+          title: '$code - $name',
+          category: 'tools_equipment',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'tool_code': code,
+            'tool_name': name,
+            'category': cat,
+            'status': status,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced tool $code ($name) to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync tool: $e');
+    }
+  }
+
+  /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions), Machines, Spare Parts, Tools, and Lean Processes into Vector DB.
   static Future<int> indexHistoricalKnowledge() async {
     await ensureTable();
     int count = 0;
@@ -381,7 +737,7 @@ class VectorDbService {
       // 3. Index Machine Specs
       final mcRows = await DbHelper.query('''
         SELECT m.machine_id, m.machine_no, m.machine_name, m.brand, m.model,
-               s.motor_power_kw, s.voltage_v, s.air_pressure_bar, s.hydraulic_pressure_bar
+               s.power_kw, s.voltage_v, s.current_a, s.capacity, s.weight_kg, s.extra_specs
         FROM machines m
         LEFT JOIN machine_specs s ON m.machine_id = s.machine_id
       ''');
@@ -391,15 +747,16 @@ class VectorDbService {
         final name = mc['machine_name'] ?? '';
         final brand = mc['brand'] ?? '';
         final model = mc['model'] ?? '';
-        final kw = mc['motor_power_kw'] ?? '-';
+        final kw = mc['power_kw'] ?? '-';
         final v = mc['voltage_v'] ?? '-';
-        final air = mc['air_pressure_bar'] ?? '-';
-        final hyd = mc['hydraulic_pressure_bar'] ?? '-';
+        final a = mc['current_a'] ?? '-';
+        final cap = mc['capacity'] ?? '-';
+        final w = mc['weight_kg'] ?? '-';
 
         final chunk = 'ข้อมูลเครื่องจักรและสเปก: $no ($name)\n'
             'ยี่ห้อ: $brand | รุ่น: $model\n'
-            'กำลังมอเตอร์: $kw kW | แรงดันไฟฟ้า: $v V\n'
-            'แรงดันลมมาตรฐาน: $air bar | แรงดันไฮดรอลิกมาตรฐาน: $hyd bar';
+            'กำลังไฟฟ้า: $kw kW | แรงดันไฟฟ้า: $v V | กระแสไฟฟ้า: $a A\n'
+            'ความสามารถในการผลิต/ความจุ: $cap | น้ำหนักเครื่อง: $w kg';
 
         final emb = await EmbeddingService.getEmbedding(chunk);
         if (emb.isNotEmpty) {
@@ -417,6 +774,46 @@ class VectorDbService {
               'model': model,
             },
           );
+          count++;
+        }
+      }
+
+      // 4. Index Spare Parts
+      final partRows = await DbHelper.query('SELECT part_id FROM spare_parts WHERE is_active = 1');
+      for (final part in partRows) {
+        final pId = part['part_id']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          await syncSparePart(pId);
+          count++;
+        }
+      }
+
+      // 5. Index Tools & Equipment
+      final toolRows = await DbHelper.query('SELECT tool_id FROM tools WHERE is_active = 1');
+      for (final tool in toolRows) {
+        final tId = tool['tool_id']?.toString();
+        if (tId != null && tId.isNotEmpty) {
+          await syncTool(tId);
+          count++;
+        }
+      }
+
+      // 6. Index Work Processes & Lean Analysis
+      final wpRows = await DbHelper.query('SELECT process_id FROM work_processes');
+      for (final wp in wpRows) {
+        final pId = wp['process_id']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          await syncWorkProcess(pId);
+          count++;
+        }
+      }
+
+      // 7. Index Production Lines & Line Balancing
+      final lineRows = await DbHelper.query('SELECT line_id FROM production_lines');
+      for (final l in lineRows) {
+        final lId = l['line_id']?.toString();
+        if (lId != null && lId.isNotEmpty) {
+          await syncLineBalancing(lId);
           count++;
         }
       }

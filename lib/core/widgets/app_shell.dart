@@ -10,6 +10,8 @@ import '../theme/theme_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_text_styles.dart';
 import '../theme/app_spacing.dart';
+import '../database/db_status_provider.dart';
+import 'db_connection_error_dialog.dart';
 
 /// App shell: sidebar + content area
 class AppShell extends ConsumerStatefulWidget {
@@ -34,6 +36,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     final user = ref.watch(authProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final dbStatus = ref.watch(dbStatusProvider);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -69,6 +72,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                   sidebarExpanded: _sidebarExpanded,
                   onThemeToggle: _onThemeToggle,
                 ),
+                if (!dbStatus.isConnected && dbStatus.errorMessage != null)
+                  _buildDbConnectionBanner(dbStatus, theme),
                 Container(
                   height: 1,
                   color: colorScheme.outlineVariant.withValues(alpha: 0.5),
@@ -82,10 +87,68 @@ class _AppShellState extends ConsumerState<AppShell> {
       ),
     );
   }
+
+  Widget _buildDbConnectionBanner(DbStatusState dbStatus, ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.red.shade900,
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '⚠️ ขาดการเชื่อมต่อฐานข้อมูล: ',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 12),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              backgroundColor: Colors.white.withValues(alpha: 0.15),
+            ),
+            onPressed: () => DbConnectionErrorDialog.show(context),
+            child: const Text(
+              'ดูรายละเอียด / ตั้งค่า',
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.red.shade900,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            ),
+            onPressed: dbStatus.isRetrying
+                ? null
+                : () => ref.read(dbStatusProvider.notifier).retryConnect(),
+            child: dbStatus.isRetrying
+                ? const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text(
+                    '🔄 ลองใหม่',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// โโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโ
-// Sidebar
 // โโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโโ
 
 class _NavItem {
@@ -169,7 +232,7 @@ const _navItems = [
     route: '/tools',
   ),
   _NavItem(
-    label: 'วิเคราะห์ & AI',
+    label: 'สถิติ & ประสิทธิภาพ (KPIs)',
     icon: HugeIcons.strokeRoundedAnalytics01,
     iconSelected: HugeIcons.strokeRoundedAnalytics01,
     route: '/analytics',
@@ -193,6 +256,20 @@ const _navItems = [
     icon: HugeIcons.strokeRoundedFlowSquare,
     iconSelected: HugeIcons.strokeRoundedFlowSquare,
     route: '/line_balancing',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
+    label: 'ขั้นตอนการทำงาน',
+    icon: HugeIcons.strokeRoundedTask02,
+    iconSelected: HugeIcons.strokeRoundedTask02,
+    route: '/work-processes',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
+    label: 'Lean Analysis',
+    icon: HugeIcons.strokeRoundedChartLineData02,
+    iconSelected: HugeIcons.strokeRoundedChartLineData02,
+    route: '/lean-analysis',
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(

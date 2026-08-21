@@ -249,6 +249,58 @@ class DbInitializer {
           );
         }
 
+        // Check for work_processes and work_process_steps (Added 2026-08)
+        final workProcTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'work_processes'],
+        );
+        if (workProcTable.isEmpty) {
+          _log.i('Migration: Creating work_processes and work_process_steps tables...');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS work_processes (
+              process_id        TEXT PRIMARY KEY,
+              process_no        TEXT NOT NULL,
+              title             TEXT NOT NULL,
+              company           TEXT,
+              factory           TEXT,
+              department        TEXT,
+              method_type       TEXT NOT NULL DEFAULT 'current',
+              parent_process_id TEXT REFERENCES work_processes(process_id) ON DELETE SET NULL,
+              work_type         TEXT NOT NULL DEFAULT 'man',
+              machine_id        TEXT REFERENCES machines(machine_id) ON DELETE SET NULL,
+              line_id           TEXT,
+              prepared_by       TEXT,
+              prepared_date     TEXT,
+              approved_by       TEXT,
+              approved_date     TEXT,
+              notes             TEXT,
+              status            TEXT NOT NULL DEFAULT 'draft',
+              created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS work_process_steps (
+              step_id          TEXT PRIMARY KEY,
+              process_id       TEXT NOT NULL REFERENCES work_processes(process_id) ON DELETE CASCADE,
+              step_no          INTEGER NOT NULL,
+              description      TEXT NOT NULL,
+              event_type       TEXT NOT NULL,
+              distance_meters  REAL NOT NULL DEFAULT 0.0,
+              parts_quantity   TEXT,
+              tools_used       TEXT,
+              duration_minutes REAL NOT NULL DEFAULT 0.0,
+              value_type       TEXT NOT NULL,
+              problem_cause    TEXT,
+              improvement_idea TEXT,
+              created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_work_process_steps_process ON work_process_steps(process_id, step_no)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_work_processes_method ON work_processes(method_type, parent_process_id)');
+        }
+
         // 9. Check for work_order_outsource (Added 2026-08)
         final outsourceTable = await db.query(
           'sqlite_master',
@@ -732,6 +784,7 @@ class DbInitializer {
 
       await _ensureFileAssetsSchema(db);
       await _ensureKnowledgeVectorsSchema(db);
+      await _ensureAiChatHistorySchema(db);
       await _backfillLegacyFileAssets(db);
       await _migrateLegacyFileAssetsToManagedStorage(db);
 
@@ -950,6 +1003,33 @@ class DbInitializer {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_category ON knowledge_vectors(category)',
+    );
+  }
+
+  static Future<void> _ensureAiChatHistorySchema(Database db) async {
+    final table = await db.query(
+      'sqlite_master',
+      where: 'type = ? AND name = ?',
+      whereArgs: ['table', 'ai_chat_history'],
+    );
+
+    if (table.isEmpty) {
+      _log.i('Migration: Creating ai_chat_history table...');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS ai_chat_history (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id  TEXT NOT NULL,
+          user_id     TEXT,
+          role        TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'tool')),
+          content     TEXT NOT NULL,
+          tool_calls  TEXT,
+          created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      ''');
+    }
+
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_ai_chat_session ON ai_chat_history(session_id, created_at)',
     );
   }
 

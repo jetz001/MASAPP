@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 import 'core/theme/ui_scale_provider.dart';
@@ -7,6 +8,9 @@ import 'app.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Disable runtime fetching so app always uses bundled local fonts (100% offline & firewall safe)
+  GoogleFonts.config.allowRuntimeFetching = false;
 
   // Pre-load scale settings to prevent debugger crash during build loop
   final prefs = await SharedPreferences.getInstance();

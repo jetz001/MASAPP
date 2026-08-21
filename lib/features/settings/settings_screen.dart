@@ -192,6 +192,10 @@ class _OrganizationInfoTab extends ConsumerStatefulWidget {
 
 class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
   late TextEditingController _nameCtrl;
+  late TextEditingController _plantCtrl;
+  late TextEditingController _deptCtrl;
+  late TextEditingController _businessTypeCtrl;
+  late TextEditingController _aiContextCtrl;
   late TextEditingController _addressCtrl;
   late TextEditingController _taxIdCtrl;
   late TextEditingController _phoneCtrl;
@@ -203,7 +207,19 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     super.initState();
     final settings = ref.read(appSettingsProvider).valueOrNull;
     _nameCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgName) ?? '',
+      text: settings?.get(AppSettingKeys.orgName, defaultValue: 'บริษัท บอส คาร์ตัน จำกัด') ?? 'บริษัท บอส คาร์ตัน จำกัด',
+    );
+    _plantCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgPlant, defaultValue: 'โรงงานลาดหลุมแก้ว') ?? 'โรงงานลาดหลุมแก้ว',
+    );
+    _deptCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgDepartment, defaultValue: 'หน่วยงานซ่อมบำรุง (Maintenance)') ?? 'หน่วยงานซ่อมบำรุง (Maintenance)',
+    );
+    _businessTypeCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgBusinessType, defaultValue: 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น') ?? 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น',
+    );
+    _aiContextCtrl = TextEditingController(
+      text: settings?.get(AppSettingKeys.orgAiContext, defaultValue: 'บริษัท บอส คาร์ตัน จำกัด เป็นโรงงานผลิตกล่องกระดาษลูกฟูกและบรรจุภัณฑ์ครบวงจร มีเครื่องจักรหลักคือ เครื่องพิมพ์, เครื่องไดคัท, เครื่องปะกาวเกี่ยวก้น, เครื่องตัดกระดาษ, รถโฟล์คลิฟต์') ?? '',
     );
     _addressCtrl = TextEditingController(
       text: settings?.get(AppSettingKeys.orgAddress) ?? '',
@@ -219,6 +235,10 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _plantCtrl.dispose();
+    _deptCtrl.dispose();
+    _businessTypeCtrl.dispose();
+    _aiContextCtrl.dispose();
     _addressCtrl.dispose();
     _taxIdCtrl.dispose();
     _phoneCtrl.dispose();
@@ -232,10 +252,14 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
 
   Future<void> _save() async {
     final notifier = ref.read(appSettingsProvider.notifier);
-    await notifier.updateSetting(AppSettingKeys.orgName, _nameCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.orgAddress, _addressCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.orgTaxId, _taxIdCtrl.text);
-    await notifier.updateSetting(AppSettingKeys.orgPhone, _phoneCtrl.text);
+    await notifier.updateSetting(AppSettingKeys.orgName, _nameCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgPlant, _plantCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgDepartment, _deptCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgBusinessType, _businessTypeCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgAiContext, _aiContextCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgAddress, _addressCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgTaxId, _taxIdCtrl.text.trim());
+    await notifier.updateSetting(AppSettingKeys.orgPhone, _phoneCtrl.text.trim());
 
     setState(() {
       _isDirty = false;
@@ -277,21 +301,61 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                 'ชื่อบริษัท / องค์กร',
                 Icons.business_rounded,
               ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildField(
+                      _plantCtrl,
+                      'โรงงาน / สาขา',
+                      Icons.factory_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _buildField(
+                      _deptCtrl,
+                      'ส่วน / แผนกหลัก',
+                      Icons.work_outline_rounded,
+                    ),
+                  ),
+                ],
+              ),
+              _buildField(
+                _businessTypeCtrl,
+                'ประเภทธุรกิจ & กระบวนการผลิตหลัก',
+                Icons.precision_manufacturing_rounded,
+                maxLines: 2,
+              ),
+              _buildField(
+                _aiContextCtrl,
+                '🤖 บริบทองค์กรสำหรับ AI Assistant (ให้ AI เข้าใจโรงงานไม่งง)',
+                Icons.auto_awesome_rounded,
+                maxLines: 3,
+              ),
               _buildField(
                 _addressCtrl,
                 'ที่อยู่สำนักงาน',
                 Icons.location_on_rounded,
-                maxLines: 3,
+                maxLines: 2,
               ),
-              _buildField(
-                _taxIdCtrl,
-                'เลขประจำตัวผู้เสียภาษี',
-                Icons.badge_rounded,
-              ),
-              _buildField(
-                _phoneCtrl,
-                'เบอร์โทรศัพท์ติดต่อ',
-                Icons.phone_rounded,
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildField(
+                      _taxIdCtrl,
+                      'เลขประจำตัวผู้เสียภาษี',
+                      Icons.badge_rounded,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _buildField(
+                      _phoneCtrl,
+                      'เบอร์โทรศัพท์ติดต่อ',
+                      Icons.phone_rounded,
+                    ),
+                  ),
+                ],
               ),
 
               const SizedBox(height: 16),
@@ -1230,6 +1294,31 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
     if (ok) {
       await AiService.saveConfig(config);
       await ref.read(aiChatProvider.notifier).reloadModel();
+
+      // Auto-sync embedding API key if using matching provider or if empty
+      if (_selectedEmbeddingProvider.name == config.provider.name ||
+          _embApiKeyController.text.trim().isEmpty) {
+        final embKind = EmbeddingProviderKind.values.firstWhere(
+          (k) => k.name == config.provider.name,
+          orElse: () => _selectedEmbeddingProvider,
+        );
+        if (embKind != EmbeddingProviderKind.local) {
+          final embDef = EmbeddingProviderCatalog.of(embKind);
+          final embConfig = EmbeddingProviderConfig(
+            provider: embKind,
+            apiKey: config.apiKey,
+            model: _embModelController.text.trim().isNotEmpty
+                ? _embModelController.text.trim()
+                : embDef.defaultModel,
+            baseUrl: config.baseUrl ?? embDef.defaultBaseUrl,
+          );
+          await EmbeddingService.saveConfig(embConfig);
+          _selectedEmbeddingProvider = embKind;
+          _embApiKeyController.text = config.apiKey;
+          _embConfigured = true;
+        }
+      }
+
       if (mounted) {
         setState(() {
           _testing = false;

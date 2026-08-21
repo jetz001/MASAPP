@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
@@ -15,10 +16,34 @@ class AiConversationMessage {
   const AiConversationMessage({required this.role, required this.content});
 }
 
+class AiAttachment {
+  final Uint8List bytes;
+  final String mimeType;
+  final String fileName;
+
+  const AiAttachment({
+    required this.bytes,
+    required this.mimeType,
+    required this.fileName,
+  });
+}
+
+class AiChatResult {
+  final String text;
+  final List<String> reasoningSteps;
+  final String? reasoningContent;
+
+  const AiChatResult({
+    required this.text,
+    this.reasoningSteps = const [],
+    this.reasoningContent,
+  });
+}
+
 class AiService {
   static const _activeProviderKey = 'ai_provider';
   static const _legacyGeminiKey = 'gemini_api_key';
-  static const _requestTimeout = Duration(seconds: 30);
+  static const _requestTimeout = Duration(seconds: 180);
 
   static const _systemInstruction = '''
 You are MASAPP AI Assistant, an intelligent assistant for a factory maintenance management system.
@@ -46,9 +71,27 @@ IMPORTANT CONSTRAINTS:
 20. When you want to show a PDF/file card, use a fenced block with language pdfcard and a JSON object with keys: title, path, pages, thumbnail. Set thumbnail only when it is an actual image URL/path, not a PDF URL.
 21. File metadata is available in file_assets, including storage_path, thumbnail_path, preview_path, mime_type, page_count, module_type, entity_id, and display_name.
 22. When the user asks about symptoms, how to fix an issue, troubleshooting, root cause analysis (RCA), machine manual instructions, or maintenance standards, ALWAYS use search_vector_knowledge to find relevant semantic vector knowledge chunks from historical repairs and manuals before answering.
+23. When the user asks to attach, upload, or link a document/PDF/manual/photo to a machine (e.g. DP-01, DP 01), use `manage_machine_assets` with `action: 'attach_document'`, `machine_identifier`, `file_name`, and `file_path`. The machine will then show the document in ทะเบียนเครื่องจักร -> เอกสาร.
+24. CONSOLIDATE BULK & MULTI-ITEM OPERATIONS INTO A SINGLE ACTION:
+   When the user asks to operate on multiple items, a range of machines (e.g. "BM-01 ถึง BM-09", "เครื่องจักรทั้งหมด", or multiple parts/records), ALWAYS consolidate all items into ONE SINGLE `action_confirmation` block.
+   DO NOT split into multiple confirmation steps or cards. DO NOT ask confirmation one by one.
+   Use `machine_identifier: "BM-01 ถึง BM-09"` (or list of machines) in the single action params so the user clicks [OK ยืนยัน] ONLY ONCE to process everything!
+25. Action confirmation format using ```action_confirmation with valid JSON:
+```action_confirmation
+{
+  "action_id": "<uuid-or-unique-string>",
+  "tool": "<tool_name_e.g_manage_machine_assets_or_manage_machines>",
+  "action": "<insert|update|delete|attach_document>",
+  "title": "<Short consolidated title in Thai e.g. แนบคู่มือลงในเครื่องจักร BM-01 ถึง BM-09 ทั้งหมด>",
+  "summary": "<Clear Thai description of changes to be made across all items>",
+  "params": { ...tool arguments with full range/list of machines... }
+}
+```
+26. NO REDUNDANT CONFIRMATION: Once an action is confirmed or executed, complete the task immediately and do not generate further confirmation blocks.
 
-DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete across all modules):
-- Machines: Call `manage_machines` (action: insert / update / delete). Also supports bulk `machines` list for importing documents.
+DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules):
+- Machine Documents/Assets: Call `manage_machine_assets` (action: attach_document, remove_document, set_cover_image).
+- Machines: Call `manage_machines` (action: insert / update / delete / attach_document). Also supports bulk `machines` list for importing documents.
 - Locations & Layout: Call `manage_locations` (action: create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).
 - PM/AM Master Plans: Call `manage_pm_plans` (action: create_plan, update_plan, delete_plan, add_task, delete_task).
 - PM/AM Schedules: Call `manage_pm_schedules` (action: create_schedule, update_status, record_execution, delete_schedule).
@@ -59,18 +102,52 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete across all modules):
 - Tools & Equipment: Call `manage_tools` (action: create_tool, update_tool, delete_tool, record_transaction).
 - OEE Logs: Call `manage_oee_logs` (action: record_log, update_log, delete_log).
 - Technicians & Skills: Call `manage_technicians` (action: add_skill, update_skill, delete_skill, set_availability).
+- Work Processes & Flow Chart: Query tables `work_processes` and `work_process_steps` to view process steps, ASME symbols (⭕ Operation, ⇨ Transport, ◻ Inspection, D Delay, ▽ Storage), and Lean value classifications (VA จำเป็น, NVA สูญเปล่า, NNVA สูญเปล่าจำเป็น).
+- Lean Analysis, VSM & 5-Why RCA:
+  - Value Stream Mapping (VSM): Map Material & Information flow, Cycle Time (C/T), Lead Time (L/T), Buffer Queues, Process Cycle Efficiency (PCE % = VA / Total Lead Time * 100%), and identify Bottlenecks & Kaizen Bursts 💥.
+  - VSM Bottleneck RCA (5-Why & Fishbone 4M1E): Conduct 5-Why root cause drill-down and Ishikawa 4M1E analysis (Man, Machine, Material, Method, Environment) on the top waste/bottleneck steps to formulate Corrective & Preventive ECRS countermeasures.
+
+27. STRICT AUTONOMOUS SEARCH FOR MACHINE NAMES & IDENTIFIERS:
+   - When the user refers to any machine by name, nickname, Thai term, or colloquial factory word (e.g. "ปะกาวเกี่ยวก้น", "ปะกาวเกี่ยวกัน", "ปะกาวเซมิ", "ปะกาวเลเซอร์", "ไดคัท", "พิมพ์ 5 สี", "ปั๊มฟอยล์", "ตัดกระดาษ"):
+     1. IMMEDIATELY check the registered machines directory below or execute `query_database` (e.g. `SELECT machine_id, machine_no, machine_name FROM machines WHERE machine_name LIKE '%...%' OR machine_no LIKE '%...'`) or `search_vector_knowledge` to resolve the machine code (machine_no e.g. "GM-04").
+     2. NEVER ask the user to provide the machine code (machine identifier) or ask "กรุณาระบุรหัสเครื่องจักร" or ask if they want you to search when you can find it yourself!
+     3. Once resolved, immediately execute the requested task (attach document, update specs, query history) with the resolved machine_no.
+
+28. MACHINE SPECIFICATIONS & MANUAL INGESTION:
+   - When the user asks to update machine specs (e.g. "อัพเดทสเปค", "อ่านไฟล์แล้วอัพเดทสเปค", "บันทึกสเปกจากคู่มือ"), or when an attached document/manual PDF/image contains technical specifications:
+     1. CAREFULLY READ and EXTRACT all available technical parameters from the attached PDF/image/document:
+        - กำลังไฟฟ้า: `power_kw` (kW)
+        - แรงดันไฟฟ้า: `voltage_v` (V)
+        - กระแสไฟฟ้า: `current_a` (A)
+        - ความถี่: `frequency_hz` (Hz)
+        - อัตรา/กำลังการผลิต: `capacity` และ `capacity_unit` (เช่น 1500 กล่อง/ชม., ชิ้น/นาที)
+        - ขนาดมิติเครื่อง: `dim_length_mm`, `dim_width_mm`, `dim_height_mm` (มิลลิเมตร)
+        - น้ำหนักเครื่อง: `weight_kg` (กก.)
+        - ความเร็วรอบ: `rpm`
+        - สเปกและคุณสมบัติเพิ่มเติม: `extra_specs` (เช่น ความจุกาว, ชนิดกาว, แรงดันลม, อุณหภูมิ)
+        - ยี่ห้อ: `brand`, รุ่น: `model`, หมายเลขเครื่อง: `serial_no`, ตำแหน่ง: `location`
+     2. CRITICAL: You MUST call `manage_machines` with `action: 'update'` or `action: 'update_specs'`, `machine_identifier` (e.g. 'GM-04'), and pass ALL extracted spec parameters directly into the database!
+     3. DO NOT ONLY call `manage_machine_assets` (attach_document)! Attaching a document does NOT update the machine specs table! You MUST also call `manage_machines` to write the specs (`power_kw`, `voltage_v`, `capacity`, `brand`, `model`, etc.) into `machine_specs` and `machines` tables!
+     4. NEVER reply that specs are updated without calling `manage_machines` with the extracted numeric parameters!
+     5. Always summarize the updated specs clearly with numbers and units in your response table/bullet points.
+
+29. CONTRACTORS, VENDORS & SUPPLIERS MANAGEMENT:
+   - When managing outsource vendors, suppliers, parts providers, or contractors (เช่น ผู้รับเหมา, ซัพพลายเออร์, ร้านค้า, บริษัทผู้จำหน่าย):
+     1. ALWAYS use `manage_contractors` (stored in `suppliers` table), NEVER use `manage_spare_parts`!
+     2. You can pass single contractor updates, or a batch list in `contractors` or `suppliers` parameter.
+     3. Parameters include: `contractor_identifier` (or `supplier_code`), `name`, `contact_name`, `phone`, `email`, `address`, `service_scope`, `vendor_type`, `is_approved`.
 
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
 
   static final _manageMachinesTool = FunctionDeclaration(
     'manage_machines',
-    'Manage machine records (Insert, Update, Delete/Deactivate, and Specs) in MASAPP database. Supports bulk import array.',
+    'Manage machine records and technical specifications in MASAPP database. Supports updating specs (power_kw, voltage_v, current_a, frequency_hz, capacity, capacity_unit, dim_length_mm, dim_width_mm, dim_height_mm, weight_kg, rpm, extra_specs).',
     Schema(
       SchemaType.object,
       properties: {
-        'action': Schema(SchemaType.string, description: 'insert, update, delete'),
-        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "MC-01") or ID'),
+        'action': Schema(SchemaType.string, description: 'insert, update, update_specs, delete'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "GM-04", "MC-01") or ID'),
         'machine_no': Schema(SchemaType.string, description: 'Unique machine code/ID'),
         'machine_name': Schema(SchemaType.string, description: 'Name of machine'),
         'asset_no': Schema(SchemaType.string, description: 'Asset tag number'),
@@ -80,6 +157,18 @@ Start by greeting the user and asking how you can help with maintenance operatio
         'location': Schema(SchemaType.string, description: 'Installation area/room/line'),
         'status': Schema(SchemaType.string, description: 'normal, breakdown, pm, offline'),
         'notes': Schema(SchemaType.string, description: 'Additional remarks or specs summary'),
+        'power_kw': Schema(SchemaType.number, description: 'Power in kW (e.g. 5.5)'),
+        'voltage_v': Schema(SchemaType.number, description: 'Voltage in V (e.g. 380, 220)'),
+        'current_a': Schema(SchemaType.number, description: 'Current in A (e.g. 15.0)'),
+        'frequency_hz': Schema(SchemaType.number, description: 'Frequency in Hz (e.g. 50, 60)'),
+        'capacity': Schema(SchemaType.number, description: 'Capacity/Speed value (e.g. 1500)'),
+        'capacity_unit': Schema(SchemaType.string, description: 'Capacity unit (e.g. "กล่อง/ชั่วโมง", "ชิ้น/นาที")'),
+        'weight_kg': Schema(SchemaType.number, description: 'Machine weight in kg (e.g. 250)'),
+        'dim_length_mm': Schema(SchemaType.number, description: 'Length in mm (e.g. 1200)'),
+        'dim_width_mm': Schema(SchemaType.number, description: 'Width in mm (e.g. 2000)'),
+        'dim_height_mm': Schema(SchemaType.number, description: 'Height in mm (e.g. 1500)'),
+        'rpm': Schema(SchemaType.number, description: 'Motor/Spindle speed in RPM'),
+        'extra_specs': Schema(SchemaType.string, description: 'Extra specifications JSON or description (e.g. glue capacity, air pressure, temperature)'),
         'machines': Schema(
           SchemaType.array,
           items: Schema(
@@ -524,6 +613,26 @@ Start by greeting the user and asking how you can help with maintenance operatio
     ),
   );
 
+  static final _extractDocumentTextTool = FunctionDeclaration(
+    'extract_document_text',
+    'Extract full text, pages, or spreadsheet tables from any local document (PDF, Excel xlsx/xls, CSV, TXT, JSON, Markdown).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'file_path': Schema(
+          SchemaType.string,
+          description:
+              'Absolute or relative local file path to read and extract text from.',
+        ),
+        'max_pages': Schema(
+          SchemaType.integer,
+          description: 'Maximum number of pages to extract (default: 50).',
+        ),
+      },
+      requiredProperties: ['file_path'],
+    ),
+  );
+
   static final _findMachineAssetsTool = FunctionDeclaration(
     'find_machine_assets',
     'Find manuals, PDFs, attachments, and images related to a machine by machine number, name, asset number, brand, model, or serial number.',
@@ -570,7 +679,103 @@ Start by greeting the user and asking how you can help with maintenance operatio
     ),
   );
 
+  static final _manageMachineAssetsTool = FunctionDeclaration(
+    'manage_machine_assets',
+    'Attach, update, or remove files, PDFs, manuals, and photos for a machine in the database (action: attach_document, remove_document, set_cover_image).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(
+          SchemaType.string,
+          description: 'attach_document, remove_document, set_cover_image',
+        ),
+        'machine_identifier': Schema(
+          SchemaType.string,
+          description: 'Machine code/No (e.g. "DP-01", "DP 01") or ID',
+        ),
+        'file_path': Schema(
+          SchemaType.string,
+          description: 'Local storage or original path to the file to attach',
+        ),
+        'file_name': Schema(
+          SchemaType.string,
+          description: 'Display name of the file',
+        ),
+        'category': Schema(
+          SchemaType.string,
+          description: 'manual, drawing, inspection, cover, attachment',
+        ),
+        'attachment_id': Schema(
+          SchemaType.string,
+          description: 'Attachment ID for removal',
+        ),
+      },
+      requiredProperties: ['action', 'machine_identifier'],
+    ),
+  );
+
   static final _openAiTools = [
+    {
+      'type': 'function',
+      'function': {
+        'name': 'extract_document_text',
+        'description':
+            'Extract full text, pages, or spreadsheet tables from any local document (PDF, Excel xlsx/xls, CSV, TXT, JSON, Markdown).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'file_path': {
+              'type': 'string',
+              'description':
+                  'Absolute or relative local file path to read and extract text from.',
+            },
+            'max_pages': {
+              'type': 'integer',
+              'description': 'Maximum number of pages to extract (default: 50).',
+            },
+          },
+          'required': ['file_path'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_machine_assets',
+        'description':
+            'Attach, update, or remove files, PDFs, manuals, and photos for a machine in the database (action: attach_document, remove_document, set_cover_image).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {
+              'type': 'string',
+              'description': 'attach_document, remove_document, set_cover_image',
+            },
+            'machine_identifier': {
+              'type': 'string',
+              'description': 'Machine code/No (e.g. "DP-01", "DP 01") or ID',
+            },
+            'file_path': {
+              'type': 'string',
+              'description': 'Local storage or original path to the file to attach',
+            },
+            'file_name': {
+              'type': 'string',
+              'description': 'Display name of the file',
+            },
+            'category': {
+              'type': 'string',
+              'description': 'manual, drawing, inspection, cover, attachment',
+            },
+            'attachment_id': {
+              'type': 'string',
+              'description': 'Attachment ID for removal',
+            },
+          },
+          'required': ['action', 'machine_identifier'],
+        },
+      },
+    },
     {
       'type': 'function',
       'function': {
@@ -959,6 +1164,61 @@ Start by greeting the user and asking how you can help with maintenance operatio
   ];
 
   static final _anthropicTools = [
+    {
+      'name': 'manage_machine_assets',
+      'description':
+          'Attach, update, or remove files, PDFs, manuals, and photos for a machine in the database (action: attach_document, remove_document, set_cover_image).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {
+            'type': 'string',
+            'description': 'attach_document, remove_document, set_cover_image',
+          },
+          'machine_identifier': {
+            'type': 'string',
+            'description': 'Machine code/No (e.g. "DP-01", "DP 01") or ID',
+          },
+          'file_path': {
+            'type': 'string',
+            'description': 'Local storage or original path to the file to attach',
+          },
+          'file_name': {
+            'type': 'string',
+            'description': 'Display name of the file',
+          },
+          'category': {
+            'type': 'string',
+            'description': 'manual, drawing, inspection, cover, attachment',
+          },
+          'attachment_id': {
+            'type': 'string',
+            'description': 'Attachment ID for removal',
+          },
+        },
+        'required': ['action', 'machine_identifier'],
+      },
+    },
+    {
+      'name': 'extract_document_text',
+      'description':
+          'Extract full text, pages, or spreadsheet tables from any local document (PDF, Excel xlsx/xls, CSV, TXT, JSON, Markdown).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'file_path': {
+            'type': 'string',
+            'description':
+                'Absolute or relative local file path to read and extract text from.',
+          },
+          'max_pages': {
+            'type': 'integer',
+            'description': 'Maximum number of pages to extract (default: 50).',
+          },
+        },
+        'required': ['file_path'],
+      },
+    },
     {
       'name': 'manage_machines',
       'description': 'Manage machine records (Insert, Update, Delete/Deactivate, and Specs) in MASAPP database. Supports bulk import array.',
@@ -1416,40 +1676,312 @@ Start by greeting the user and asking how you can help with maintenance operatio
     }
   }
 
-  static Future<String> chat({
-    required AiProviderConfig config,
+  static (String, String?) _extractThinkTags(String text) {
+    final thinkRegex = RegExp(r'<think>(.*?)</think>', dotAll: true);
+    final match = thinkRegex.firstMatch(text);
+    if (match != null) {
+      final reasoning = match.group(1)?.trim();
+      final cleanText = text.replaceAll(thinkRegex, '').trim();
+      return (cleanText, reasoning);
+    }
+    return (text, null);
+  }
+
+  static String _describeToolCall(String name, Map<String, dynamic> args) {
+    switch (name) {
+      case 'query_database':
+        final sql = args['sql']?.toString().replaceAll(RegExp(r'\s+'), ' ').trim() ?? '';
+        if (sql.isNotEmpty) {
+          final preview = sql.length > 50 ? '${sql.substring(0, 50)}...' : sql;
+          return 'ค้นหาในฐานข้อมูล: $preview';
+        }
+        return 'ค้นหาข้อมูลในฐานข้อมูล MASAPP';
+      case 'get_available_tables':
+        return 'ตรวจสอบตารางข้อมูลทั้งหมดในระบบ';
+      case 'get_table_schema':
+        final table = args['table_name'] ?? '';
+        return 'ตรวจสอบโครงสร้างตาราง $table';
+      case 'search_vector_knowledge':
+        final q = args['query'] ?? '';
+        return 'ค้นหาคู่มือ & องค์ความรู้ RAG "$q"';
+      case 'extract_document_text':
+      case 'read_document_text':
+        final path = args['file_path'] ?? '';
+        return 'สกัดและอ่านข้อความจากเอกสาร ($path)';
+      case 'find_machine_assets':
+        final id = args['machine_identifier'] ?? '';
+        return 'ค้นหาไฟล์เอกสาร/คู่มือของเครื่อง $id';
+      case 'manage_machine_assets':
+      case 'attach_machine_document':
+        final action = args['action'] ?? '';
+        final id = args['machine_identifier'] ?? args['machine_no'] ?? '';
+        final file = args['file_name'] ?? '';
+        return 'แนบ/จัดการเอกสารเครื่องจักร $id ($action $file)'.trim();
+      case 'manage_machines':
+      case 'register_machines':
+        final action = args['action'] ?? '';
+        final id = args['machine_identifier'] ?? args['machine_no'] ?? '';
+        return 'จัดการ/ตรวจสอบข้อมูลเครื่องจักร ($action $id)'.trim();
+      case 'manage_work_orders':
+      case 'create_work_order':
+        final action = args['action'] ?? '';
+        final id = args['wo_identifier'] ?? args['machine_identifier'] ?? '';
+        return 'ตรวจสอบ/จัดการใบแจ้งซ่อม ($action $id)'.trim();
+      case 'manage_pm_plans':
+      case 'create_pm_plans':
+        final action = args['action'] ?? '';
+        final plan = args['plan_identifier'] ?? args['machine_identifier'] ?? '';
+        return 'ตรวจสอบแผน PM/AM ($action $plan)'.trim();
+      case 'manage_pm_schedules':
+        final action = args['action'] ?? '';
+        final plan = args['plan_identifier'] ?? '';
+        return 'ตรวจสอบตารางงานบำรุงรักษา ($action $plan)'.trim();
+      case 'manage_spare_parts':
+      case 'register_spare_parts':
+        final action = args['action'] ?? '';
+        final part = args['part_identifier'] ?? args['part_name'] ?? '';
+        return 'ตรวจสอบข้อมูลสต็อกอะไหล่ ($action $part)'.trim();
+      case 'manage_tools':
+        final action = args['action'] ?? '';
+        final tool = args['tool_identifier'] ?? args['tool_name'] ?? '';
+        return 'ตรวจสอบอุปกรณ์และเครื่องมือช่าง ($action $tool)'.trim();
+      case 'manage_oee_logs':
+        final action = args['action'] ?? '';
+        return 'คำนวณ/ตรวจสอบสถิติ OEE ($action)';
+      case 'manage_technicians':
+        final action = args['action'] ?? '';
+        final tech = args['technician_identifier'] ?? '';
+        return 'ตรวจสอบข้อมูลช่างซ่อมบำรุง ($action $tech)'.trim();
+      case 'manage_work_permits':
+        final action = args['action'] ?? '';
+        final id = args['permit_identifier'] ?? '';
+        return 'ตรวจสอบใบอนุญาตทำงาน Work Permit ($action $id)'.trim();
+      case 'manage_contractors':
+        final action = args['action'] ?? '';
+        final name = args['contractor_identifier'] ?? '';
+        return 'ตรวจสอบข้อมูลผู้รับเหมา ($action $name)'.trim();
+      case 'manage_locations':
+        final action = args['action'] ?? '';
+        return 'ตรวจสอบผังโรงงานและตำแหน่งเครื่อง ($action)';
+      case 'external_web_search':
+        final q = args['query'] ?? '';
+        return 'ค้นหาข้อมูลภายนอกจากอินเทอร์เน็ต: $q';
+      case 'external_image_search':
+        final q = args['query'] ?? '';
+        return 'ค้นหารูปภาพที่เกี่ยวข้อง: $q';
+      default:
+        return 'เรียกใช้เครื่องมือ: $name';
+    }
+  }
+
+  static Future<AiChatResult> chat({
+    AiProviderConfig? config,
     required List<AiConversationMessage> history,
     required String userMessage,
+    List<AiAttachment> attachments = const [],
+    List<Uint8List> imageBytesList = const [],
+    void Function(String reasoningStep)? onReasoningStep,
+    void Function(String reasoningChunk)? onReasoningChunk,
   }) async {
-    await _ensureProviderReachable(config);
+    final effectiveConfig = config ?? await loadConfig();
+    await _ensureProviderReachable(effectiveConfig);
 
-    switch (config.provider) {
+    switch (effectiveConfig.provider) {
       case AiProviderKind.gemini:
-        return _chatWithGemini(config, history, userMessage);
+        return _chatWithGemini(
+          effectiveConfig,
+          history,
+          userMessage,
+          attachments: attachments,
+          imageBytesList: imageBytesList,
+          onReasoningStep: onReasoningStep,
+          onReasoningChunk: onReasoningChunk,
+        );
       case AiProviderKind.claude:
-        return _chatWithClaude(config, history, userMessage);
+        return _chatWithClaude(
+          effectiveConfig,
+          history,
+          userMessage,
+          attachments: attachments,
+          imageBytesList: imageBytesList,
+          onReasoningStep: onReasoningStep,
+          onReasoningChunk: onReasoningChunk,
+        );
       case AiProviderKind.ollama:
-        return _chatWithOllama(config, history, userMessage);
+        return _chatWithOllama(
+          effectiveConfig,
+          history,
+          userMessage,
+          onReasoningStep: onReasoningStep,
+          onReasoningChunk: onReasoningChunk,
+        );
       case AiProviderKind.openai:
       case AiProviderKind.deepseek:
       case AiProviderKind.grok:
       case AiProviderKind.mistral:
-        return _chatWithOpenAiCompatible(config, history, userMessage);
+        return _chatWithOpenAiCompatible(
+          effectiveConfig,
+          history,
+          userMessage,
+          attachments: attachments,
+          imageBytesList: imageBytesList,
+          onReasoningStep: onReasoningStep,
+          onReasoningChunk: onReasoningChunk,
+        );
     }
   }
 
-  static Future<String> _chatWithGemini(
+  static Future<String> _buildDynamicSystemInstruction() async {
+    final buffer = StringBuffer(_systemInstruction);
+    try {
+      // 0. Organization & Factory Context
+      final orgRows = await DbHelper.query(
+        "SELECT setting_key, setting_value FROM app_settings WHERE setting_key LIKE 'org_%'",
+      );
+      final orgSettings = <String, String>{};
+      for (final r in orgRows) {
+        final k = r['setting_key']?.toString();
+        final v = r['setting_value']?.toString();
+        if (k != null && v != null) orgSettings[k] = v;
+      }
+      final orgName = orgSettings['org_name']?.trim().isNotEmpty == true
+          ? orgSettings['org_name']!.trim()
+          : 'บริษัท บอส คาร์ตัน จำกัด (BOSSCARTON CO., LTD.)';
+      final orgPlant = orgSettings['org_plant']?.trim().isNotEmpty == true
+          ? orgSettings['org_plant']!.trim()
+          : 'โรงงานลาดหลุมแก้ว (จ.ปทุมธานี)';
+      final orgDept = orgSettings['org_department']?.trim().isNotEmpty == true
+          ? orgSettings['org_department']!.trim()
+          : 'หน่วยงานซ่อมบำรุง (Maintenance Department)';
+      final orgBusinessType = orgSettings['org_business_type']?.trim().isNotEmpty == true
+          ? orgSettings['org_business_type']!.trim()
+          : 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น';
+      final orgAiContext = orgSettings['org_ai_context']?.trim() ?? '';
+
+      buffer.writeln('\n\n=== FACTORY & ORGANIZATION DOMAIN CONTEXT ===');
+      buffer.writeln('- Company / Organization: $orgName');
+      buffer.writeln('- Plant / Location: $orgPlant');
+      buffer.writeln('- Primary Department: $orgDept');
+      buffer.writeln('- Core Manufacturing & Business: $orgBusinessType');
+      if (orgAiContext.isNotEmpty) {
+        buffer.writeln('- Factory Context & Details: $orgAiContext');
+      }
+      buffer.writeln('FACTORY SCOPE & DOMAIN KNOWLEDGE: You are the dedicated Smart Maintenance & Industrial Engineering AI for this factory. When analyzing machines (e.g. ปะกาว, ไดคัท, เครื่องพิมพ์), maintenance orders, spare parts, and Lean VSM process steps, strictly align with this factory domain.');
+
+      // 1. Registered Machines
+      final machines = await DbHelper.query(
+        'SELECT machine_no, machine_name, brand, model FROM machines WHERE is_active = 1 ORDER BY machine_no ASC LIMIT 100',
+      );
+      if (machines.isNotEmpty) {
+        buffer.writeln('\n\nCURRENT MASAPP REGISTERED MACHINES DIRECTORY (Total ${machines.length} machines):');
+        for (final m in machines) {
+          final no = m['machine_no']?.toString().trim() ?? '';
+          final name = m['machine_name']?.toString().trim() ?? '';
+          final brand = m['brand']?.toString().trim() ?? '';
+          final model = m['model']?.toString().trim() ?? '';
+          final extra = [if (brand.isNotEmpty) brand, if (model.isNotEmpty) model].join(' ');
+          final extraStr = extra.isNotEmpty ? ' ($extra)' : '';
+          buffer.writeln('- $no: $name$extraStr');
+        }
+        buffer.writeln('INSTRUCTION: Always resolve colloquial machine names (e.g. "ปะกาวเกี่ยวก้น" -> GM-04) from the directory above. NEVER ask the user to provide machine code!');
+      }
+
+      // 2. Spare Parts Overview
+      final parts = await DbHelper.query('''
+        SELECT sp.part_code, sp.part_name, sp.category, inv.quantity_on_hand
+        FROM spare_parts sp
+        LEFT JOIN spare_parts_inventory inv ON sp.part_id = inv.part_id
+        WHERE sp.is_active = 1
+        ORDER BY sp.part_code ASC LIMIT 60
+      ''');
+      if (parts.isNotEmpty) {
+        buffer.writeln('\nSPARE PARTS & WAREHOUSE DIRECTORY (Total ${parts.length} items):');
+        for (final p in parts) {
+          final code = p['part_code'] ?? '';
+          final name = p['part_name'] ?? '';
+          final cat = p['category'] ?? '-';
+          final qty = p['quantity_on_hand'] ?? 0;
+          buffer.writeln('- $code: $name ($cat, คงเหลือ: $qty)');
+        }
+      }
+
+      // 3. Tools & Equipment Overview
+      final tools = await DbHelper.query(
+        'SELECT tool_code, tool_name, status FROM tools WHERE is_active = 1 ORDER BY tool_code ASC LIMIT 40',
+      );
+      if (tools.isNotEmpty) {
+        buffer.writeln('\nTOOLS & EQUIPMENT DIRECTORY:');
+        for (final t in tools) {
+          final code = t['tool_code'] ?? '';
+          final name = t['tool_name'] ?? '';
+          final status = t['status'] ?? 'available';
+          buffer.writeln('- $code: $name (สถานะ: $status)');
+        }
+      }
+
+      // 4. Active Work Orders
+      final openWos = await DbHelper.query('''
+        SELECT wo_no, title, priority, status FROM work_orders
+        WHERE status IN ('open', 'in_progress', 'pending')
+        ORDER BY created_at DESC LIMIT 15
+      ''');
+      if (openWos.isNotEmpty) {
+        buffer.writeln('\nACTIVE/OPEN WORK ORDERS:');
+        for (final wo in openWos) {
+          final no = wo['wo_no'] ?? '';
+          final title = wo['title'] ?? '';
+          final prio = wo['priority'] ?? 'medium';
+          final status = wo['status'] ?? 'open';
+          buffer.writeln('- $no: $title [สถานะ: $status, ความเร่งด่วน: $prio]');
+        }
+      }
+
+      // 5. Work Processes & Lean Analysis
+      final wps = await DbHelper.query(
+        'SELECT process_no, title, method_type FROM work_processes ORDER BY created_at DESC LIMIT 15',
+      );
+      if (wps.isNotEmpty) {
+        buffer.writeln('\nREGISTERED WORK PROCESSES & LEAN FLOWS:');
+        for (final wp in wps) {
+          final pNo = wp['process_no'] ?? '';
+          final title = wp['title'] ?? '';
+          final method = wp['method_type'] == 'improved' ? 'ฉบับปรับปรุง' : 'ฉบับปัจจุบัน';
+          buffer.writeln('- $pNo: $title ($method)');
+        }
+      }
+    } catch (_) {}
+    return buffer.toString();
+  }
+
+  static Future<AiChatResult> _chatWithGemini(
     AiProviderConfig config,
     List<AiConversationMessage> history,
-    String userMessage,
-  ) async {
+    String userMessage, {
+    List<AiAttachment> attachments = const [],
+    List<Uint8List> imageBytesList = const [],
+    void Function(String reasoningStep)? onReasoningStep,
+    void Function(String reasoningChunk)? onReasoningChunk,
+  }) async {
+    final steps = <String>[];
+    void addStep(String s) {
+      if (!steps.contains(s)) {
+        steps.add(s);
+        onReasoningStep?.call(s);
+      }
+    }
+
+    addStep('กำลังวิเคราะห์คำถามและบริบท...');
+
+    final dynamicSystemInstruction = await _buildDynamicSystemInstruction();
+
     final model = GenerativeModel(
       model: config.model,
       apiKey: config.apiKey,
-      systemInstruction: Content.system(_systemInstruction),
+      systemInstruction: Content.system(dynamicSystemInstruction),
       tools: [
         Tool(
           functionDeclarations: [
+            _manageMachineAssetsTool,
             _manageMachinesTool,
             _manageLocationsTool,
             _managePmPlansTool,
@@ -1466,6 +1998,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
             _registerSparePartsTool,
             _createWorkOrderTool,
             _searchVectorKnowledgeTool,
+            _extractDocumentTextTool,
             _queryDbTool,
             _getTablesTool,
             _getSchemaTool,
@@ -1489,41 +2022,103 @@ Start by greeting the user and asking how you can help with maintenance operatio
     }).toList();
 
     final session = model.startChat(history: geminiHistory);
-    var response = await session.sendMessage(Content.text(userMessage));
+    final userParts = <Part>[TextPart(userMessage)];
+    for (final att in attachments) {
+      userParts.add(DataPart(att.mimeType, att.bytes));
+    }
+    for (final imgBytes in imageBytesList) {
+      userParts.add(DataPart('image/png', imgBytes));
+    }
+
+    var response = await session.sendMessage(
+      userParts.length > 1 ? Content.multi(userParts) : Content.text(userMessage),
+    );
 
     for (var i = 0; i < 8 && response.functionCalls.isNotEmpty; i++) {
       final functionResponses = <FunctionResponse>[];
 
       for (final call in response.functionCalls) {
+        final toolArgs = call.args.cast<String, dynamic>();
+        addStep(_describeToolCall(call.name, toolArgs));
+
         final result = await AiToolHandler.handleToolCall(
           call.name,
-          call.args.cast<String, dynamic>(),
+          toolArgs,
         );
         functionResponses.add(FunctionResponse(call.name, {'output': result}));
       }
 
+      addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
       response = await session.sendMessage(
         Content.functionResponses(functionResponses),
       );
     }
 
-    return response.text ?? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ';
+    final (cleanText, extractedReasoning) = _extractThinkTags(response.text ?? '');
+    final finalText = cleanText.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : cleanText;
+
+    return AiChatResult(
+      text: finalText,
+      reasoningSteps: steps,
+      reasoningContent: extractedReasoning,
+    );
   }
 
-  static Future<String> _chatWithOpenAiCompatible(
+  static Future<AiChatResult> _chatWithOpenAiCompatible(
     AiProviderConfig config,
     List<AiConversationMessage> history,
-    String userMessage,
-  ) async {
+    String userMessage, {
+    List<AiAttachment> attachments = const [],
+    List<Uint8List> imageBytesList = const [],
+    void Function(String reasoningStep)? onReasoningStep,
+    void Function(String reasoningChunk)? onReasoningChunk,
+  }) async {
+    final steps = <String>[];
+    void addStep(String s) {
+      if (!steps.contains(s)) {
+        steps.add(s);
+        onReasoningStep?.call(s);
+      }
+    }
+
+    final reasoningBuffer = StringBuffer();
+    addStep('กำลังวิเคราะห์คำถามและบริบท...');
+
+    final dynamicSystemInstruction = await _buildDynamicSystemInstruction();
+
+    final hasVisuals = attachments.isNotEmpty || imageBytesList.isNotEmpty;
+    final dynamic userContent;
+    if (!hasVisuals) {
+      userContent = userMessage;
+    } else {
+      userContent = <Map<String, dynamic>>[
+        {'type': 'text', 'text': userMessage},
+        ...attachments
+            .where((a) => a.mimeType.startsWith('image/'))
+            .map((a) => {
+                  'type': 'image_url',
+                  'image_url': {
+                    'url': 'data:${a.mimeType};base64,${base64Encode(a.bytes)}',
+                  },
+                }),
+        ...imageBytesList.map((b) => {
+              'type': 'image_url',
+              'image_url': {
+                'url': 'data:image/png;base64,${base64Encode(b)}',
+              },
+            }),
+      ];
+    }
+
     final messages = <Map<String, dynamic>>[
-      {'role': 'system', 'content': _systemInstruction},
+      {'role': 'system', 'content': dynamicSystemInstruction},
       ...history.map(
         (message) => {
           'role': message.role == 'assistant' ? 'assistant' : 'user',
           'content': message.content,
         },
       ),
-      {'role': 'user', 'content': userMessage},
+      {'role': 'user', 'content': userContent},
     ];
 
     for (var i = 0; i < 8; i++) {
@@ -1550,10 +2145,29 @@ Start by greeting the user and asking how you can help with maintenance operatio
           (choice['message'] as Map?)?.cast<String, dynamic>() ?? {};
       final toolCalls = (message['tool_calls'] as List?) ?? const [];
 
-      if (toolCalls.isEmpty) {
-        final text = _extractOpenAiContent(message['content']);
-        return text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+      final rawReasoning = message['reasoning_content']?.toString() ??
+          message['reasoning']?.toString() ??
+          '';
+      if (rawReasoning.isNotEmpty) {
+        reasoningBuffer.write(rawReasoning);
+        onReasoningChunk?.call(rawReasoning);
       }
+
+      if (toolCalls.isEmpty) {
+        var text = _extractOpenAiContent(message['content']);
+        final (cleanText, extractedReasoning) = _extractThinkTags(text);
+        if (extractedReasoning != null && extractedReasoning.isNotEmpty) {
+          reasoningBuffer.write(extractedReasoning);
+          text = cleanText;
+        }
+        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        return AiChatResult(
+          text: finalText,
+          reasoningSteps: steps,
+          reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+        );
+      }
+
 
       messages.add({
         'role': 'assistant',
@@ -1565,8 +2179,11 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final function =
             (rawCall['function'] as Map?)?.cast<String, dynamic>() ?? {};
         final args = _decodeArguments(function['arguments']);
+        final toolName = function['name']?.toString() ?? '';
+        addStep(_describeToolCall(toolName, args));
+
         final result = await AiToolHandler.handleToolCall(
-          function['name']?.toString() ?? '',
+          toolName,
           args,
         );
         messages.add({
@@ -1575,16 +2192,78 @@ Start by greeting the user and asking how you can help with maintenance operatio
           'content': result,
         });
       }
+      addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
     }
 
-    return 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ';
+    return AiChatResult(
+      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      reasoningSteps: steps,
+      reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+    );
   }
 
-  static Future<String> _chatWithClaude(
+  static Future<AiChatResult> _chatWithClaude(
     AiProviderConfig config,
     List<AiConversationMessage> history,
-    String userMessage,
-  ) async {
+    String userMessage, {
+    List<AiAttachment> attachments = const [],
+    List<Uint8List> imageBytesList = const [],
+    void Function(String reasoningStep)? onReasoningStep,
+    void Function(String reasoningChunk)? onReasoningChunk,
+  }) async {
+    final steps = <String>[];
+    void addStep(String s) {
+      if (!steps.contains(s)) {
+        steps.add(s);
+        onReasoningStep?.call(s);
+      }
+    }
+
+    final reasoningBuffer = StringBuffer();
+    addStep('กำลังวิเคราะห์คำถามและบริบท...');
+
+    final dynamicSystemInstruction = await _buildDynamicSystemInstruction();
+
+    final hasVisuals = attachments.isNotEmpty || imageBytesList.isNotEmpty;
+    final dynamic userContent;
+    if (!hasVisuals) {
+      userContent = userMessage;
+    } else {
+      userContent = <Map<String, dynamic>>[
+        {'type': 'text', 'text': userMessage},
+        ...attachments.map((a) {
+          if (a.mimeType.startsWith('image/')) {
+            return {
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': a.mimeType,
+                'data': base64Encode(a.bytes),
+              },
+            };
+          } else if (a.mimeType == 'application/pdf') {
+            return {
+              'type': 'document',
+              'source': {
+                'type': 'base64',
+                'media_type': 'application/pdf',
+                'data': base64Encode(a.bytes),
+              },
+            };
+          }
+          return {'type': 'text', 'text': '(เอกสารแนบ: ${a.fileName})'};
+        }),
+        ...imageBytesList.map((b) => {
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': 'image/png',
+                'data': base64Encode(b),
+              },
+            }),
+      ];
+    }
+
     final messages = <Map<String, dynamic>>[
       ...history.map(
         (message) => {
@@ -1592,7 +2271,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           'content': message.content,
         },
       ),
-      {'role': 'user', 'content': userMessage},
+      {'role': 'user', 'content': userContent},
     ];
 
     for (var i = 0; i < 8; i++) {
@@ -1604,7 +2283,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         },
         body: {
           'model': config.model,
-          'system': _systemInstruction,
+          'system': dynamicSystemInstruction,
           'messages': messages,
           'tools': _anthropicTools,
           'temperature': 0.3,
@@ -1618,16 +2297,27 @@ Start by greeting the user and asking how you can help with maintenance operatio
 
       for (final block in content.cast<Map<String, dynamic>>()) {
         final type = block['type']?.toString() ?? '';
+        if (type == 'thinking') {
+          final thinkingText = block['thinking']?.toString() ?? '';
+          if (thinkingText.isNotEmpty) {
+            reasoningBuffer.write(thinkingText);
+            onReasoningChunk?.call(thinkingText);
+          }
+          continue;
+        }
         if (type == 'text') {
           final text = block['text']?.toString() ?? '';
           if (text.isNotEmpty) textParts.add(text);
           continue;
         }
         if (type == 'tool_use') {
+          final toolName = block['name']?.toString() ?? '';
+          final toolArgs = (block['input'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
+          addStep(_describeToolCall(toolName, toolArgs));
+
           final result = await AiToolHandler.handleToolCall(
-            block['name']?.toString() ?? '',
-            (block['input'] as Map?)?.cast<String, dynamic>() ??
-                <String, dynamic>{},
+            toolName,
+            toolArgs,
           );
           toolResults.add({
             'type': 'tool_result',
@@ -1639,23 +2329,48 @@ Start by greeting the user and asking how you can help with maintenance operatio
 
       if (toolResults.isEmpty) {
         final text = textParts.join('\n').trim();
-        return text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        return AiChatResult(
+          text: finalText,
+          reasoningSteps: steps,
+          reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+        );
       }
 
+      addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
       messages.add({'role': 'assistant', 'content': content});
       messages.add({'role': 'user', 'content': toolResults});
     }
 
-    return 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ';
+    return AiChatResult(
+      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      reasoningSteps: steps,
+      reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+    );
   }
 
-  static Future<String> _chatWithOllama(
+  static Future<AiChatResult> _chatWithOllama(
     AiProviderConfig config,
     List<AiConversationMessage> history,
-    String userMessage,
-  ) async {
+    String userMessage, {
+    void Function(String reasoningStep)? onReasoningStep,
+    void Function(String reasoningChunk)? onReasoningChunk,
+  }) async {
+    final steps = <String>[];
+    void addStep(String s) {
+      if (!steps.contains(s)) {
+        steps.add(s);
+        onReasoningStep?.call(s);
+      }
+    }
+
+    final reasoningBuffer = StringBuffer();
+    addStep('กำลังวิเคราะห์คำถามและบริบท...');
+
+    final dynamicSystemInstruction = await _buildDynamicSystemInstruction();
+
     final messages = <Map<String, dynamic>>[
-      {'role': 'system', 'content': _systemInstruction},
+      {'role': 'system', 'content': dynamicSystemInstruction},
       ...history.map(
         (message) => {
           'role': message.role == 'assistant' ? 'assistant' : 'user',
@@ -1685,9 +2400,27 @@ Start by greeting the user and asking how you can help with maintenance operatio
       final message = (json['message'] as Map?)?.cast<String, dynamic>() ?? {};
       final toolCalls = (message['tool_calls'] as List?) ?? const [];
 
+      final rawReasoning = message['reasoning_content']?.toString() ??
+          message['reasoning']?.toString() ??
+          '';
+      if (rawReasoning.isNotEmpty) {
+        reasoningBuffer.write(rawReasoning);
+        onReasoningChunk?.call(rawReasoning);
+      }
+
       if (toolCalls.isEmpty) {
-        final text = message['content']?.toString().trim() ?? '';
-        return text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        var text = message['content']?.toString().trim() ?? '';
+        final (cleanText, extractedReasoning) = _extractThinkTags(text);
+        if (extractedReasoning != null && extractedReasoning.isNotEmpty) {
+          reasoningBuffer.write(extractedReasoning);
+          text = cleanText;
+        }
+        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        return AiChatResult(
+          text: finalText,
+          reasoningSteps: steps,
+          reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+        );
       }
 
       messages.add({
@@ -1700,8 +2433,11 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final function =
             (rawCall['function'] as Map?)?.cast<String, dynamic>() ?? {};
         final args = _decodeArguments(function['arguments']);
+        final toolName = function['name']?.toString() ?? '';
+        addStep(_describeToolCall(toolName, args));
+
         final result = await AiToolHandler.handleToolCall(
-          function['name']?.toString() ?? '',
+          toolName,
           args,
         );
         messages.add({
@@ -1710,9 +2446,14 @@ Start by greeting the user and asking how you can help with maintenance operatio
           'content': result,
         });
       }
+      addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
     }
 
-    return 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ';
+    return AiChatResult(
+      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      reasoningSteps: steps,
+      reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
+    );
   }
 
   static Future<bool> _testGemini(AiProviderConfig config) async {

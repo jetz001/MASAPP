@@ -41,3 +41,4 @@ bin/
 # Local app config / release outputs
 .masapp/
 Output/
+dist/

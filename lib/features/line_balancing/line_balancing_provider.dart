@@ -1,13 +1,20 @@
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
+import '../../core/ai/vector_db_service.dart';
 
 class MachineBalancingData {
   final double cycleTime;
   final double energyCost;
   final int workers;
 
-  MachineBalancingData({required this.cycleTime, required this.energyCost, this.workers = 1});
+  MachineBalancingData({
+    required this.cycleTime,
+    required this.energyCost,
+    this.workers = 1,
+  });
 }
 
 class WorkstationData {
@@ -17,6 +24,12 @@ class WorkstationData {
   final String? machineId;
   final String? machineName;
   final int workers; // number of workers
+
+  // Lean Classification
+  final String eventType; // 'operation', 'transportation', 'inspection', 'delay', 'storage'
+  final String valueType; // 'va', 'nva', 'nnva'
+  final double waitingTimeSec; // Buffer / wait time before this station
+  final int bufferQuantity; // WIP pieces
 
   // Detailed Costs (per hour)
   final double laborCost;
@@ -36,6 +49,10 @@ class WorkstationData {
     this.machineId,
     this.machineName,
     this.workers = 1,
+    this.eventType = 'operation',
+    this.valueType = 'va',
+    this.waitingTimeSec = 0.0,
+    this.bufferQuantity = 0,
     this.laborCost = 300.0,
     this.energyCost = 0.0,
     this.materialCost = 0.0,
@@ -45,14 +62,19 @@ class WorkstationData {
     this.position = Offset.zero,
   });
 
-  double get totalHourlyCost => laborCost + energyCost + materialCost + otherCost;
+  double get totalHourlyCost =>
+      laborCost + energyCost + materialCost + otherCost;
 
   WorkstationData copyWith({
-    String? name, 
-    double? cycleTime, 
-    String? machineId, 
-    String? machineName, 
+    String? name,
+    double? cycleTime,
+    String? machineId,
+    String? machineName,
     int? workers,
+    String? eventType,
+    String? valueType,
+    double? waitingTimeSec,
+    int? bufferQuantity,
     double? laborCost,
     double? energyCost,
     double? materialCost,
@@ -68,6 +90,10 @@ class WorkstationData {
       machineId: machineId ?? this.machineId,
       machineName: machineName ?? this.machineName,
       workers: workers ?? this.workers,
+      eventType: eventType ?? this.eventType,
+      valueType: valueType ?? this.valueType,
+      waitingTimeSec: waitingTimeSec ?? this.waitingTimeSec,
+      bufferQuantity: bufferQuantity ?? this.bufferQuantity,
       laborCost: laborCost ?? this.laborCost,
       energyCost: energyCost ?? this.energyCost,
       materialCost: materialCost ?? this.materialCost,
@@ -80,6 +106,9 @@ class WorkstationData {
 }
 
 class LineBalancingState {
+  final String lineId;
+  final String lineName;
+  final String? department;
   final double availableTimeMin;
   final double demandQuantity;
   final double electricityRate;
@@ -87,17 +116,22 @@ class LineBalancingState {
   final List<WorkstationData> stations;
 
   LineBalancingState({
+    this.lineId = 'default_line',
+    this.lineName = 'สายการผลิตหลัก (Main Line)',
+    this.department,
     required this.availableTimeMin,
     required this.demandQuantity,
     this.electricityRate = 4.0, // Default 4 THB/kWh
-    this.fuelRate = 30.0,       // Default 30 THB/L
+    this.fuelRate = 30.0, // Default 30 THB/L
     required this.stations,
   });
 
-  double get taktTimeSec => demandQuantity > 0 ? (availableTimeMin * 60) / demandQuantity : 0;
-  
-  double get totalCycleTime => stations.fold(0.0, (sum, st) => sum + st.cycleTime);
-  
+  double get taktTimeSec =>
+      demandQuantity > 0 ? (availableTimeMin * 60) / demandQuantity : 0;
+
+  double get totalCycleTime =>
+      stations.fold(0.0, (sum, st) => sum + st.cycleTime);
+
   double get maxCycleTime {
     if (stations.isEmpty) return 0;
     return stations.map((e) => e.cycleTime).reduce((a, b) => a > b ? a : b);
@@ -110,53 +144,88 @@ class LineBalancingState {
 
   double get balanceDelay => 100 - lineEfficiency;
 
-  // New metrics
+  // Total VA Time (Value Added) in seconds
+  double get totalVaTimeSec => stations
+      .where((s) => s.valueType == 'va')
+      .fold(0.0, (sum, s) => sum + s.cycleTime);
+
+  // Total NVA Time (Non-Value Added / Waste / Waiting) in seconds
+  double get totalNvaTimeSec {
+    final nvaCycle = stations
+        .where((s) => s.valueType != 'va')
+        .fold(0.0, (sum, s) => sum + s.cycleTime);
+    final totalWait =
+        stations.fold(0.0, (sum, s) => sum + s.waitingTimeSec);
+    return nvaCycle + totalWait;
+  }
+
+  // Process Cycle Efficiency (PCE %)
+  double get processCycleEfficiency {
+    final totalLead = totalVaTimeSec + totalNvaTimeSec;
+    if (totalLead == 0) return 0;
+    return (totalVaTimeSec / totalLead) * 100;
+  }
+
+  // Lead time calculation
   double get leadTimeSec {
     if (stations.isEmpty) return 0.0;
-    
-    // Find root nodes (no prev)
-    final Map<String, WorkstationData> nodeMap = { for (var s in stations) s.id: s };
+
+    final Map<String, WorkstationData> nodeMap = {
+      for (var s in stations) s.id: s
+    };
     final Map<String, double> maxPath = {};
-    
+
     double findLongestPath(String nodeId) {
       if (maxPath.containsKey(nodeId)) return maxPath[nodeId]!;
-      
+
       final node = nodeMap[nodeId];
       if (node == null) return 0.0;
-      
+
       double maxChildPath = 0.0;
       for (final nextId in node.nextStationIds) {
         final childPath = findLongestPath(nextId);
         if (childPath > maxChildPath) maxChildPath = childPath;
       }
-      
-      final result = node.cycleTime + maxChildPath;
+
+      final result = node.cycleTime + node.waitingTimeSec + maxChildPath;
       maxPath[nodeId] = result;
       return result;
     }
-    
+
     final roots = stations.where((s) => s.prevStationIds.isEmpty).toList();
-    if (roots.isEmpty) return totalCycleTime; // fallback if circular
-    
+    if (roots.isEmpty) return totalCycleTime;
+
     double maxLeadTime = 0.0;
     for (final root in roots) {
       final pathTime = findLongestPath(root.id);
       if (pathTime > maxLeadTime) maxLeadTime = pathTime;
     }
-    
+
     return maxLeadTime;
   }
-  
-  double get totalLaborCost => stations.fold(0.0, (sum, st) => sum + st.laborCost) * (availableTimeMin / 60);
-  double get totalEnergyCost => stations.fold(0.0, (sum, st) => sum + st.energyCost) * (availableTimeMin / 60);
-  double get totalMaterialCost => stations.fold(0.0, (sum, st) => sum + st.materialCost) * (availableTimeMin / 60);
-  double get totalOtherCost => stations.fold(0.0, (sum, st) => sum + st.otherCost) * (availableTimeMin / 60);
 
-  double get totalOperationalCost => totalLaborCost + totalEnergyCost + totalMaterialCost + totalOtherCost;
+  double get totalLaborCost =>
+      stations.fold(0.0, (sum, st) => sum + st.laborCost) *
+      (availableTimeMin / 60);
+  double get totalEnergyCost =>
+      stations.fold(0.0, (sum, st) => sum + st.energyCost) *
+      (availableTimeMin / 60);
+  double get totalMaterialCost =>
+      stations.fold(0.0, (sum, st) => sum + st.materialCost) *
+      (availableTimeMin / 60);
+  double get totalOtherCost =>
+      stations.fold(0.0, (sum, st) => sum + st.otherCost) *
+      (availableTimeMin / 60);
+
+  double get totalOperationalCost =>
+      totalLaborCost + totalEnergyCost + totalMaterialCost + totalOtherCost;
 
   int get totalWorkers => stations.fold(0, (sum, st) => sum + st.workers);
 
   LineBalancingState copyWith({
+    String? lineId,
+    String? lineName,
+    String? department,
     double? availableTimeMin,
     double? demandQuantity,
     double? electricityRate,
@@ -164,6 +233,9 @@ class LineBalancingState {
     List<WorkstationData>? stations,
   }) {
     return LineBalancingState(
+      lineId: lineId ?? this.lineId,
+      lineName: lineName ?? this.lineName,
+      department: department ?? this.department,
       availableTimeMin: availableTimeMin ?? this.availableTimeMin,
       demandQuantity: demandQuantity ?? this.demandQuantity,
       electricityRate: electricityRate ?? this.electricityRate,
@@ -176,29 +248,246 @@ class LineBalancingState {
 class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
   LineBalancingNotifier()
       : super(LineBalancingState(
+          lineId: 'main_line',
+          lineName: 'สายการผลิตหลัก (Main Line)',
           availableTimeMin: 480, // 8 hours
           demandQuantity: 1000,
           stations: [],
-        ));
+        )) {
+    _initAndLoad();
+  }
+
+  static Future<void> ensureTables() async {
+    try {
+      await DbHelper.execute('''
+        CREATE TABLE IF NOT EXISTS production_lines (
+          line_id             TEXT PRIMARY KEY,
+          line_name           TEXT NOT NULL,
+          department          TEXT,
+          available_time_min  REAL NOT NULL DEFAULT 480,
+          demand_quantity     REAL NOT NULL DEFAULT 1000,
+          electricity_rate    REAL NOT NULL DEFAULT 4.0,
+          fuel_rate           REAL NOT NULL DEFAULT 30.0,
+          created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+
+      await DbHelper.execute('''
+        CREATE TABLE IF NOT EXISTS production_line_stations (
+          station_id          TEXT PRIMARY KEY,
+          line_id             TEXT NOT NULL,
+          station_no          INTEGER NOT NULL,
+          station_name        TEXT NOT NULL,
+          machine_id          TEXT,
+          machine_name        TEXT,
+          cycle_time_sec      REAL NOT NULL DEFAULT 0.0,
+          workers             INTEGER NOT NULL DEFAULT 1,
+          labor_cost          REAL NOT NULL DEFAULT 300.0,
+          energy_cost         REAL NOT NULL DEFAULT 0.0,
+          material_cost       REAL NOT NULL DEFAULT 0.0,
+          other_cost          REAL NOT NULL DEFAULT 0.0,
+          event_type          TEXT NOT NULL DEFAULT 'operation',
+          value_type          TEXT NOT NULL DEFAULT 'va',
+          waiting_time_sec    REAL NOT NULL DEFAULT 0.0,
+          buffer_quantity     INTEGER NOT NULL DEFAULT 0,
+          pos_x               REAL NOT NULL DEFAULT 0.0,
+          pos_y               REAL NOT NULL DEFAULT 0.0,
+          prev_station_ids    TEXT,
+          next_station_ids    TEXT,
+          created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+    } catch (_) {}
+  }
+
+  Future<void> _initAndLoad() async {
+    await ensureTables();
+    await loadFirstAvailableLine();
+  }
+
+  Future<void> loadFirstAvailableLine() async {
+    try {
+      final lines = await DbHelper.query(
+        'SELECT * FROM production_lines ORDER BY created_at ASC LIMIT 1',
+      );
+      if (lines.isNotEmpty) {
+        await loadLine(lines.first['line_id'].toString());
+      }
+    } catch (_) {}
+  }
+
+  Future<void> loadLine(String lineId) async {
+    try {
+      await ensureTables();
+      final lineRes = await DbHelper.queryOne(
+        'SELECT * FROM production_lines WHERE line_id = @id',
+        params: {'id': lineId},
+      );
+      if (lineRes == null) return;
+
+      final stationRows = await DbHelper.query(
+        'SELECT * FROM production_line_stations WHERE line_id = @id ORDER BY station_no ASC',
+        params: {'id': lineId},
+      );
+
+      final loadedStations = stationRows.map((s) {
+        List<String> prevs = [];
+        List<String> nexts = [];
+        try {
+          if (s['prev_station_ids'] != null &&
+              s['prev_station_ids'].toString().isNotEmpty) {
+            prevs = List<String>.from(jsonDecode(s['prev_station_ids']));
+          }
+          if (s['next_station_ids'] != null &&
+              s['next_station_ids'].toString().isNotEmpty) {
+            nexts = List<String>.from(jsonDecode(s['next_station_ids']));
+          }
+        } catch (_) {}
+
+        return WorkstationData(
+          id: s['station_id'].toString(),
+          name: s['station_name'] ?? 'สถานีงาน',
+          cycleTime: (s['cycle_time_sec'] as num?)?.toDouble() ?? 0.0,
+          machineId: s['machine_id']?.toString(),
+          machineName: s['machine_name']?.toString(),
+          workers: (s['workers'] as num?)?.toInt() ?? 1,
+          eventType: s['event_type'] ?? 'operation',
+          valueType: s['value_type'] ?? 'va',
+          waitingTimeSec: (s['waiting_time_sec'] as num?)?.toDouble() ?? 0.0,
+          bufferQuantity: (s['buffer_quantity'] as num?)?.toInt() ?? 0,
+          laborCost: (s['labor_cost'] as num?)?.toDouble() ?? 300.0,
+          energyCost: (s['energy_cost'] as num?)?.toDouble() ?? 0.0,
+          materialCost: (s['material_cost'] as num?)?.toDouble() ?? 0.0,
+          otherCost: (s['other_cost'] as num?)?.toDouble() ?? 0.0,
+          position: Offset(
+            (s['pos_x'] as num?)?.toDouble() ?? 0.0,
+            (s['pos_y'] as num?)?.toDouble() ?? 0.0,
+          ),
+          prevStationIds: prevs,
+          nextStationIds: nexts,
+        );
+      }).toList();
+
+      state = LineBalancingState(
+        lineId: lineId,
+        lineName: lineRes['line_name'] ?? 'สายการผลิต',
+        department: lineRes['department']?.toString(),
+        availableTimeMin:
+            (lineRes['available_time_min'] as num?)?.toDouble() ?? 480.0,
+        demandQuantity:
+            (lineRes['demand_quantity'] as num?)?.toDouble() ?? 1000.0,
+        electricityRate:
+            (lineRes['electricity_rate'] as num?)?.toDouble() ?? 4.0,
+        fuelRate: (lineRes['fuel_rate'] as num?)?.toDouble() ?? 30.0,
+        stations: loadedStations,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> saveCurrentLine({String? newName}) async {
+    try {
+      await ensureTables();
+      final lineId = state.lineId.isNotEmpty ? state.lineId : const Uuid().v4();
+      final name = newName ?? state.lineName;
+
+      await DbHelper.execute('''
+        INSERT INTO production_lines (line_id, line_name, department, available_time_min, demand_quantity, electricity_rate, fuel_rate, updated_at)
+        VALUES (@id, @name, @dept, @avail, @demand, @elec, @fuel, CURRENT_TIMESTAMP)
+        ON CONFLICT(line_id) DO UPDATE SET
+          line_name = excluded.line_name,
+          department = excluded.department,
+          available_time_min = excluded.available_time_min,
+          demand_quantity = excluded.demand_quantity,
+          electricity_rate = excluded.electricity_rate,
+          fuel_rate = excluded.fuel_rate,
+          updated_at = CURRENT_TIMESTAMP
+      ''', params: {
+        'id': lineId,
+        'name': name,
+        'dept': state.department,
+        'avail': state.availableTimeMin,
+        'demand': state.demandQuantity,
+        'elec': state.electricityRate,
+        'fuel': state.fuelRate,
+      });
+
+      // Delete old stations and re-insert
+      await DbHelper.execute(
+        'DELETE FROM production_line_stations WHERE line_id = @id',
+        params: {'id': lineId},
+      );
+
+      for (int i = 0; i < state.stations.length; i++) {
+        final s = state.stations[i];
+        await DbHelper.execute('''
+          INSERT INTO production_line_stations (
+            station_id, line_id, station_no, station_name, machine_id, machine_name,
+            cycle_time_sec, workers, labor_cost, energy_cost, material_cost, other_cost,
+            event_type, value_type, waiting_time_sec, buffer_quantity,
+            pos_x, pos_y, prev_station_ids, next_station_ids
+          ) VALUES (
+            @id, @lineId, @no, @name, @mcId, @mcName,
+            @ct, @wk, @labor, @energy, @mat, @other,
+            @evt, @val, @wait, @buf,
+            @x, @y, @prev, @next
+          )
+        ''', params: {
+          'id': s.id,
+          'lineId': lineId,
+          'no': i + 1,
+          'name': s.name,
+          'mcId': s.machineId,
+          'mcName': s.machineName,
+          'ct': s.cycleTime,
+          'wk': s.workers,
+          'labor': s.laborCost,
+          'energy': s.energyCost,
+          'mat': s.materialCost,
+          'other': s.otherCost,
+          'evt': s.eventType,
+          'val': s.valueType,
+          'wait': s.waitingTimeSec,
+          'buf': s.bufferQuantity,
+          'x': s.position.dx,
+          'y': s.position.dy,
+          'prev': jsonEncode(s.prevStationIds),
+          'next': jsonEncode(s.nextStationIds),
+        });
+      }
+
+      state = state.copyWith(lineId: lineId, lineName: name);
+
+      // Auto sync to Vector DB
+      await VectorDbService.syncLineBalancing(lineId);
+    } catch (_) {}
+  }
 
   void updateDemand(double demand) {
     state = state.copyWith(demandQuantity: demand);
+    saveCurrentLine();
   }
 
   void updateAvailableTime(double minutes) {
     state = state.copyWith(availableTimeMin: minutes);
+    saveCurrentLine();
   }
 
   void updateRates(double elecRate, double fRate) {
     state = state.copyWith(electricityRate: elecRate, fuelRate: fRate);
-    // Note: To be fully reactive, updating rates should recalculate existing stations' energy costs if linked. 
-    // For simplicity, we just apply to new fetches.
+    saveCurrentLine();
   }
 
-    void addStation(String name, double cycleTime, {
-    String? machineId, 
-    String? machineName, 
+  void addStation(
+    String name,
+    double cycleTime, {
+    String? machineId,
+    String? machineName,
     int workers = 1,
+    String eventType = 'operation',
+    String valueType = 'va',
+    double waitingTimeSec = 0.0,
+    int bufferQuantity = 0,
     double laborCost = 300.0,
     double energyCost = 0.0,
     double materialCost = 0.0,
@@ -214,6 +503,10 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       machineId: machineId,
       machineName: machineName,
       workers: workers,
+      eventType: eventType,
+      valueType: valueType,
+      waitingTimeSec: waitingTimeSec,
+      bufferQuantity: bufferQuantity,
       laborCost: laborCost,
       energyCost: energyCost,
       materialCost: materialCost,
@@ -221,7 +514,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       prevStationIds: prevStationIds,
       position: position,
     );
-    
+
     // Also update parent stations' nextStationIds
     final updatedStations = state.stations.map((s) {
       if (prevStationIds.contains(s.id)) {
@@ -229,14 +522,22 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       }
       return s;
     }).toList();
-    
-    state = state.copyWith(stations: []);
+
+    state = state.copyWith(stations: [...updatedStations, newStation]);
+    saveCurrentLine();
   }
 
-  void updateStation(String id, String name, double cycleTime, {
-    String? machineId, 
-    String? machineName, 
+  void updateStation(
+    String id,
+    String name,
+    double cycleTime, {
+    String? machineId,
+    String? machineName,
     int? workers,
+    String? eventType,
+    String? valueType,
+    double? waitingTimeSec,
+    int? bufferQuantity,
     double? laborCost,
     double? energyCost,
     double? materialCost,
@@ -245,11 +546,15 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
     final updated = state.stations.map((s) {
       if (s.id == id) {
         return s.copyWith(
-          name: name, 
-          cycleTime: cycleTime, 
-          machineId: machineId, 
-          machineName: machineName, 
+          name: name,
+          cycleTime: cycleTime,
+          machineId: machineId,
+          machineName: machineName,
           workers: workers,
+          eventType: eventType,
+          valueType: valueType,
+          waitingTimeSec: waitingTimeSec,
+          bufferQuantity: bufferQuantity,
           laborCost: laborCost,
           energyCost: energyCost,
           materialCost: materialCost,
@@ -259,41 +564,66 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       return s;
     }).toList();
     state = state.copyWith(stations: updated);
+    saveCurrentLine();
   }
 
-    void removeStation(String id) {
+  void updateStationLeanType(
+    String id, {
+    String? eventType,
+    String? valueType,
+    double? waitingTimeSec,
+  }) {
+    final updated = state.stations.map((s) {
+      if (s.id == id) {
+        return s.copyWith(
+          eventType: eventType,
+          valueType: valueType,
+          waitingTimeSec: waitingTimeSec,
+        );
+      }
+      return s;
+    }).toList();
+    state = state.copyWith(stations: updated);
+    saveCurrentLine();
+  }
+
+  void removeStation(String id) {
     final updated = state.stations.where((s) => s.id != id).map((s) {
-      // Remove references to this deleted station
       final newPrev = s.prevStationIds.where((p) => p != id).toList();
       final newNext = s.nextStationIds.where((n) => n != id).toList();
       return s.copyWith(prevStationIds: newPrev, nextStationIds: newNext);
     }).toList();
     state = state.copyWith(stations: updated);
+    saveCurrentLine();
   }
 
-  
   void linkStations(String fromId, String toId) {
     state = state.copyWith(
       stations: state.stations.map((s) {
         if (s.id == fromId) {
           if (s.nextStationIds.contains(toId)) {
-            // Unlink
-            return s.copyWith(nextStationIds: s.nextStationIds.where((id) => id != toId).toList());
+            return s.copyWith(
+              nextStationIds:
+                  s.nextStationIds.where((id) => id != toId).toList(),
+            );
           } else {
             return s.copyWith(nextStationIds: [...s.nextStationIds, toId]);
           }
         }
         if (s.id == toId) {
           if (s.prevStationIds.contains(fromId)) {
-            // Unlink
-            return s.copyWith(prevStationIds: s.prevStationIds.where((id) => id != fromId).toList());
+            return s.copyWith(
+              prevStationIds:
+                  s.prevStationIds.where((id) => id != fromId).toList(),
+            );
           } else {
             return s.copyWith(prevStationIds: [...s.prevStationIds, fromId]);
           }
         }
         return s;
-      }).toList()
+      }).toList(),
     );
+    saveCurrentLine();
   }
 
   void updateStationPosition(String id, Offset newPos) {
@@ -301,54 +631,54 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       stations: state.stations.map((s) {
         if (s.id == id) return s.copyWith(position: newPos);
         return s;
-      }).toList()
+      }).toList(),
     );
   }
 
-  Future<MachineBalancingData?> fetchMachineDataForBalancing(String machineId) async {
+  Future<MachineBalancingData?> fetchMachineDataForBalancing(
+      String machineId) async {
     try {
-      double calculatedCycleTime = 20.0; // fallback
+      double calculatedCycleTime = 20.0;
       double calculatedEnergyCost = 0.0;
 
-      // Fetch specs for capacity and operational cost calculation
       final specRes = await DbHelper.queryOne(
         'SELECT power_kw, capacity, capacity_unit, fuel_consumption_rate, fuel_type FROM machine_specs WHERE machine_id = @id',
-        params: {'id': machineId}
+        params: {'id': machineId},
       );
-      
+
       bool capacityFound = false;
       if (specRes != null) {
-        // Energy cost calculation
         final powerKw = (specRes['power_kw'] as num?)?.toDouble() ?? 0.0;
-        final elecCost = powerKw * state.electricityRate; 
-        
-        final fuelRate = (specRes['fuel_consumption_rate'] as num?)?.toDouble() ?? 0.0;
+        final elecCost = powerKw * state.electricityRate;
+
+        final fuelRate =
+            (specRes['fuel_consumption_rate'] as num?)?.toDouble() ?? 0.0;
         final fuelCost = fuelRate * state.fuelRate;
 
         calculatedEnergyCost = elecCost + fuelCost;
-        
-        // Capacity for cycle time
+
         final capacity = (specRes['capacity'] as num?)?.toDouble();
-        final unit = specRes['capacity_unit']?.toString().toLowerCase() ?? '';
-        
+        final unit =
+            specRes['capacity_unit']?.toString().toLowerCase() ?? '';
+
         if (capacity != null && capacity > 0) {
           capacityFound = true;
-          if (unit.contains('hr') || unit.contains('ชั่วโมง') || unit.contains('ชม.')) {
+          if (unit.contains('hr') ||
+              unit.contains('ชั่วโมง') ||
+              unit.contains('ชม.')) {
             calculatedCycleTime = 3600.0 / capacity;
           } else if (unit.contains('min') || unit.contains('นาที')) {
             calculatedCycleTime = 60.0 / capacity;
           } else if (unit.contains('sec') || unit.contains('วินาที')) {
             calculatedCycleTime = 1.0 / capacity;
           } else if (unit.contains('day') || unit.contains('วัน')) {
-            calculatedCycleTime = (8.0 * 3600.0) / capacity; // assume 8 hr day
+            calculatedCycleTime = (8.0 * 3600.0) / capacity;
           } else {
-            // Default assume per hour
             calculatedCycleTime = 3600.0 / capacity;
           }
         }
       }
 
-      // If no capacity in specs, fallback to running hours history
       if (!capacityFound) {
         final runRes = await DbHelper.queryOne(
           '''SELECT 
@@ -356,25 +686,37 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
               COALESCE(SUM(actual_production), 0) as total_actual
              FROM machine_running_hours
              WHERE machine_id = @id''',
-          params: {'id': machineId}
+          params: {'id': machineId},
         );
         if (runRes != null) {
           final totalHrs = (runRes['total_hrs'] as num?)?.toDouble() ?? 0.0;
-          final totalActual = (runRes['total_actual'] as num?)?.toDouble() ?? 0.0;
+          final totalActual =
+              (runRes['total_actual'] as num?)?.toDouble() ?? 0.0;
           if (totalActual > 0) {
-             calculatedCycleTime = (totalHrs * 3600) / totalActual; 
+            calculatedCycleTime = (totalHrs * 3600) / totalActual;
           }
         }
       }
 
-      return MachineBalancingData(cycleTime: calculatedCycleTime, energyCost: calculatedEnergyCost);
-    } catch (e) {
-      print('Error calculating machine data: $e');
-    }
+      return MachineBalancingData(
+        cycleTime: calculatedCycleTime,
+        energyCost: calculatedEnergyCost,
+      );
+    } catch (_) {}
     return null;
   }
 }
 
-final lineBalancingProvider = StateNotifierProvider<LineBalancingNotifier, LineBalancingState>((ref) {
+final lineBalancingProvider =
+    StateNotifierProvider<LineBalancingNotifier, LineBalancingState>((ref) {
   return LineBalancingNotifier();
+});
+
+final allProductionLinesProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  await LineBalancingNotifier.ensureTables();
+  final rows = await DbHelper.query(
+    'SELECT * FROM production_lines ORDER BY created_at DESC',
+  );
+  return rows;
 });

@@ -29,13 +29,45 @@ class DbHelper {
     return (finalSql, args);
   }
 
+  /// Run an action with automatic retry & reconnect on transient LAN/SMB I/O errors
+  static Future<T> _runWithRetry<T>(Future<T> Function() action) async {
+    int attempts = 0;
+    while (true) {
+      try {
+        attempts++;
+        return await action();
+      } catch (e) {
+        final errStr = e.toString();
+        final isDiskOrLockError = errStr.contains('3338') ||
+            errStr.contains('266') ||
+            errStr.contains('disk I/O error') ||
+            errStr.contains('database is locked') ||
+            errStr.contains('busy') ||
+            errStr.contains('Device not ready');
+
+        if (isDiskOrLockError && attempts <= 3) {
+          await Future.delayed(Duration(milliseconds: 200 * attempts));
+          if (errStr.contains('3338') ||
+              errStr.contains('266') ||
+              errStr.contains('disk I/O error')) {
+            try {
+              await DbConnection.instance.reconnect();
+            } catch (_) {}
+          }
+          continue;
+        }
+        rethrow;
+      }
+    }
+  }
+
   /// Run a query and return rows.
   static Future<List<Map<String, dynamic>>> query(
     String sql, {
     Map<String, dynamic>? params,
   }) async {
     final (sqliteSql, args) = _prepare(sql, params);
-    return await _db.rawQuery(sqliteSql, args);
+    return await _runWithRetry(() async => await _db.rawQuery(sqliteSql, args));
   }
 
   /// Query one or null.
@@ -53,11 +85,13 @@ class DbHelper {
     Map<String, dynamic>? params,
   }) async {
     final (sqliteSql, args) = _prepare(sql, params);
-    if (sqliteSql.trim().toUpperCase().startsWith('INSERT')) {
-      await _db.rawInsert(sqliteSql, args);
-      return 1; // Simplification for affected rows
-    }
-    return await _db.rawUpdate(sqliteSql, args);
+    return await _runWithRetry(() async {
+      if (sqliteSql.trim().toUpperCase().startsWith('INSERT')) {
+        await _db.rawInsert(sqliteSql, args);
+        return 1; // Simplification for affected rows
+      }
+      return await _db.rawUpdate(sqliteSql, args);
+    });
   }
 
   /// Transaction wrapper.

@@ -46,6 +46,10 @@ class AppSettingKeys {
   static const orgAddress = 'org_address';
   static const orgPhone = 'org_phone';
   static const orgTaxId = 'org_tax_id';
+  static const orgPlant = 'org_plant';
+  static const orgDepartment = 'org_department';
+  static const orgBusinessType = 'org_business_type';
+  static const orgAiContext = 'org_ai_context';
   static const docIntakeRef = 'doc_intake_ref';
   static const docPmAmRef = 'doc_pm_am_ref';
   static const docAreaRegistryRef = 'doc_area_registry_ref';

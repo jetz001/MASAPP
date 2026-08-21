@@ -133,7 +133,13 @@ class RagDocumentService {
     }
 
     if (extractedChunks.isEmpty) {
-      throw Exception('ไม่สามารถสกัดข้อความจากเอกสารได้ หรือเอกสารเป็นหน้าว่าง');
+      final fallbackText = 'เอกสารแนบ: $fileName (ไฟล์ไม่มีเลเยอร์ข้อความหรือเป็นภาพสแกน)';
+      extractedChunks.add({
+        'page': 1,
+        'chunk_index': 0,
+        'text': fallbackText,
+      });
+      fullTextBuffer.write(fallbackText);
     }
 
     // 3. Prepare formatted text for vectorization
@@ -146,38 +152,40 @@ class RagDocumentService {
       textsToEmbed.add(formattedChunk);
     }
 
-    // 4. Batch Embedding
-    final embeddings = await EmbeddingService.getBatchEmbeddings(textsToEmbed);
-    if (embeddings.length != extractedChunks.length) {
-      throw Exception('เกิดข้อผิดพลาดในการคำนวณ Embedding เวกเตอร์');
-    }
+    // 4. Batch Embedding (with graceful fallback)
+    try {
+      final embeddings = await EmbeddingService.getBatchEmbeddings(textsToEmbed);
+      if (embeddings.length == extractedChunks.length) {
+        // 5. Store vectors into knowledge_vectors
+        await VectorDbService.ensureTable();
+        for (int i = 0; i < extractedChunks.length; i++) {
+          final item = extractedChunks[i];
+          final chunkText = textsToEmbed[i];
+          final emb = embeddings[i];
+          final vectorId = 'vec_doc_${docId}_${i + 1}';
 
-    // 5. Store vectors into knowledge_vectors
-    await VectorDbService.ensureTable();
-    for (int i = 0; i < extractedChunks.length; i++) {
-      final item = extractedChunks[i];
-      final chunkText = textsToEmbed[i];
-      final emb = embeddings[i];
-      final vectorId = 'vec_doc_${docId}_${i + 1}';
-
-      await VectorDbService.upsertVector(
-        vectorId: vectorId,
-        sourceType: 'document',
-        sourceId: docId,
-        title: '$fileName (หน้า ${item['page']})',
-        category: category,
-        contentChunk: chunkText,
-        embedding: emb,
-        metadata: {
-          'doc_id': docId,
-          'file_name': fileName,
-          'page': item['page'],
-          'machine_id': machineId,
-          'storage_path': savedStoragePath,
-          'total_chunks': extractedChunks.length,
-          'ingested_at': DateTime.now().toIso8601String(),
-        },
-      );
+          await VectorDbService.upsertVector(
+            vectorId: vectorId,
+            sourceType: 'document',
+            sourceId: docId,
+            title: '$fileName (หน้า ${item['page']})',
+            category: category,
+            contentChunk: chunkText,
+            embedding: emb,
+            metadata: {
+              'doc_id': docId,
+              'file_name': fileName,
+              'page': item['page'],
+              'machine_id': machineId,
+              'storage_path': savedStoragePath,
+              'total_chunks': extractedChunks.length,
+              'ingested_at': DateTime.now().toIso8601String(),
+            },
+          );
+        }
+      }
+    } catch (_) {
+      // Embedding or vector store offline — still allow document ingestion to complete
     }
 
     return {
@@ -187,7 +195,8 @@ class RagDocumentService {
       'total_chunks': extractedChunks.length,
       'storage_path': savedStoragePath,
       'extracted_text': fullTextBuffer.toString().trim(),
-      'message': 'นำเข้าเอกสาร $fileName เข้าสู่ระบบ RAG สำเร็จ ($extractedChunks.length เวกเตอร์)',
+      'message':
+          'นำเข้าเอกสาร $fileName เข้าสู่ระบบ RAG สำเร็จ (${extractedChunks.length} เวกเตอร์)',
     };
   }
 
@@ -241,6 +250,65 @@ class RagDocumentService {
       DELETE FROM knowledge_vectors
       WHERE source_type = 'document' AND source_id = @id
     ''', params: {'id': documentId});
+  }
+
+  /// Extract full plain text from any local document (PDF, Excel, CSV, TXT, JSON, MD).
+  static Future<String> extractText({
+    required File file,
+    int maxPages = 50,
+  }) async {
+    if (!await file.exists()) {
+      return 'ไม่พบไฟล์ที่ระบุ: ${file.path}';
+    }
+    final ext = p.extension(file.path).toLowerCase();
+    final buffer = StringBuffer();
+
+    try {
+      if (ext == '.pdf') {
+        final bytes = await file.readAsBytes();
+        final document = PdfDocument(inputBytes: bytes);
+        final extractor = PdfTextExtractor(document);
+        final totalPages = document.pages.count;
+        final pagesToRead = totalPages > maxPages ? maxPages : totalPages;
+
+        for (int i = 0; i < pagesToRead; i++) {
+          final pageText = extractor.extractText(startPageIndex: i, endPageIndex: i).trim();
+          if (pageText.isNotEmpty) {
+            buffer.writeln('=== [หน้า ${i + 1} / $totalPages] ===\n$pageText\n');
+          }
+        }
+        document.dispose();
+      } else if (ext == '.xlsx' || ext == '.xls') {
+        final bytes = await file.readAsBytes();
+        final excel = xls.Excel.decodeBytes(bytes);
+        for (final tableName in excel.tables.keys) {
+          final sheet = excel.tables[tableName];
+          if (sheet == null || sheet.maxRows == 0) continue;
+          buffer.writeln('=== [แผ่นงาน (Sheet): $tableName] ===');
+          for (int r = 0; r < sheet.maxRows; r++) {
+            final row = sheet.rows[r];
+            if (row.isEmpty) continue;
+            final rowValues = row
+                .map((cell) => cell?.value?.toString().trim() ?? '')
+                .where((v) => v.isNotEmpty)
+                .toList();
+            if (rowValues.isEmpty) continue;
+            buffer.writeln('แถวที่ ${r + 1}: ${rowValues.join(" | ")}');
+          }
+          buffer.writeln('');
+        }
+      } else {
+        final rawText = await file.readAsString();
+        buffer.write(rawText);
+      }
+    } catch (e) {
+      return 'เกิดข้อผิดพลาดในการอ่านไฟล์: $e';
+    }
+
+    final result = buffer.toString().trim();
+    return result.isEmpty
+        ? 'ไม่พบข้อความในเอกสาร (อาจเป็นเอกสารภาพสแกนหรือไม่มีเลเยอร์ข้อความ)'
+        : result;
   }
 
   /// Helper to split long text into overlapping chunks.

@@ -17,7 +17,7 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Analytics Dashboard'),
+        title: const Text('สถิติ & ประสิทธิภาพงานซ่อม (KPIs & Analytics)'),
         elevation: 0,
         actions: [
           FilledButton.tonalIcon(
@@ -30,10 +30,7 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
             onPressed: () async {
               final picked = await showDateRangePicker(
                 context: context,
-                locale: const Locale(
-                  'th',
-                  'TH',
-                ), // <--- Added locale for Thai date format
+                locale: const Locale('th', 'TH'),
                 initialDateRange:
                     dateRange ??
                     DateTimeRange(
@@ -63,7 +60,7 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
               error: (err, _) => Text('Error loading metrics: $err'),
             ),
 
-            const SizedBox(height: 32),
+const SizedBox(height: 32),
 
             // Pareto Chart
             Row(
@@ -430,8 +427,9 @@ class _ParetoChart extends StatelessWidget {
                   showTitles: true,
                   getTitlesWidget: (value, meta) {
                     final index = value.toInt();
-                    if (index < 0 || index >= analysis.categories.length)
+                    if (index < 0 || index >= analysis.categories.length) {
                       return const SizedBox();
+                    }
                     final category = analysis.categories[index];
                     return Padding(
                       padding: const EdgeInsets.only(top: 12.0),
@@ -599,7 +597,7 @@ class _RiskPredictionsList extends StatelessWidget {
     if (highRisk.isEmpty) {
       return Card(
         elevation: 0,
-        color: Colors.green.shade50.withOpacity(isDark(context) ? 0.1 : 1.0),
+        color: Colors.green.shade50.withAlpha(isDark(context) ? 25 : 255),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: BorderSide(color: Colors.green.shade300),

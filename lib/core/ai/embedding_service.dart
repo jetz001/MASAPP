@@ -10,7 +10,7 @@ final _log = Logger();
 
 class EmbeddingService {
   static const _activeEmbeddingProviderKey = 'embedding_provider';
-  static const _requestTimeout = Duration(seconds: 25);
+  static const _requestTimeout = Duration(seconds: 60);
 
   /// Load current embedding provider configuration from database settings.
   static Future<EmbeddingProviderConfig> loadConfig() async {

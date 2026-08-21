@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get _base => GoogleFonts.prompt();
+  static TextStyle get _base => const TextStyle(fontFamily: 'Prompt');
 
   // Display
   static TextStyle get displayLarge => _base.copyWith(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5);
@@ -32,8 +31,11 @@ class AppTextStyles {
   static TextStyle get labelSmall => _base.copyWith(fontSize: 11, fontWeight: FontWeight.w500, letterSpacing: 0.6);
 
   // Mono
-  static TextStyle get mono => GoogleFonts.jetBrainsMono(
-      fontSize: 13, fontWeight: FontWeight.w400);
+  static TextStyle get mono => const TextStyle(
+        fontFamily: 'Consolas',
+        fontSize: 13,
+        fontWeight: FontWeight.w400,
+      );
 
   // Secondary text helpers (requires context or custom color in widget)
   static TextStyle get secondary => bodySmall;
