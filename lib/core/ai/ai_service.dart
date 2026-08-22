@@ -137,6 +137,18 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
      2. You can pass single contractor updates, or a batch list in `contractors` or `suppliers` parameter.
      3. Parameters include: `contractor_identifier` (or `supplier_code`), `name`, `contact_name`, `phone`, `email`, `address`, `service_scope`, `vendor_type`, `is_approved`.
 
+30. STRICT PM VS AM SEPARATION & INTELLIGENT TASK CLASSIFICATION:
+   - When the user asks to create or import maintenance master plans from Excel/PDF/chat (e.g. «02แผนการบำรุงรักษาเครื่องจักร.xlsx» หรือเอกสารงานบำรุงรักษา):
+     1. DO NOT lump all inspection items into PM or set all tasks as 30 days!
+     2. ALWAYS analyze each task and SEPARATE into 2 distinct master plans where applicable:
+        a) AM (Autonomous Maintenance / แผนบำรุงรักษาด้วยตนเองโดยผู้คุมเครื่อง) -> `plan_type: 'AM'`, `frequency_days: 1` (รายวัน) หรือ `7` (รายสัปดาห์):
+           - กิจกรรม: ทำความสะอาด (Cleaning), ตรวจเช็คความปลอดภัย/PPE, ตรวจเช็คเสียง/การสั่นสะเทือน, ตรวจสอบสายลม/ลมรั่ว, ตรวจสอบสายไฟภายนอก, เช็คระดับน้ำมัน/อัดจารบีประจำวัน, ตรวจสอบรางระบายน้ำ/อ่างน้ำทิ้ง, ตรวจความคมใบมีด
+           - ชื่อแผน: `แผน AM รายวัน - {machine_no}` (plan_type: AM, frequency_days: 1)
+        b) PM (Preventive Maintenance / แผนบำรุงรักษาเชิงป้องกันโดยช่างเทคนิค) -> `plan_type: 'PM'`, `frequency_days: 30` (รายเดือน), `90` (รายไตรมาส), `180` (ครึ่งปี), หรือ `365` (รายปี):
+           - กิจกรรม: ตรวจเช็คเชิงลึก, เปลี่ยนถ่ายน้ำมันเครื่อง/ไฮดรอลิก/เกียร์, เปลี่ยนไส้กรอง/ซีล/ลูกปืน/สายพาน, ตรวจวัดความต้านทานฉนวนมอเตอร์, ตรวจเช็คการสึกหรอโซ่/ฟันเฟือง, Calibrate เซนเซอร์, Overhaul
+           - ชื่อแผน: `แผน PM ประจำเดือน - {machine_no}` (plan_type: PM, frequency_days: 30)
+     3. When generating plans for machines, ALWAYS create BOTH the AM master plans (`plan_type: 'AM'`) and PM master plans (`plan_type: 'PM'`) so that both the "AM" tab and "PM" tab in the "แผนแม่บท PM / AM" screen are populated properly!
+
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
 
