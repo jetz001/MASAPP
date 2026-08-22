@@ -336,13 +336,13 @@ class WorkOrderLabor {
 
   factory WorkOrderLabor.fromMap(Map<String, dynamic> map) {
     return WorkOrderLabor(
-      laborId: map['labor_id'] as String,
-      woId: map['wo_id'] as String,
-      technicianId: map['technician_id'] as String,
-      technicianName: map['technician_name'] as String,
-      startTime: DateTime.parse(map['start_time'] as String),
-      endTime: DateTime.parse(map['end_time'] as String),
-      hours: (map['hours'] as num).toDouble(),
+      laborId: map['labor_id']?.toString() ?? '',
+      woId: map['wo_id']?.toString() ?? '',
+      technicianId: map['technician_id']?.toString() ?? '',
+      technicianName: map['technician_name']?.toString() ?? map['technician_id']?.toString() ?? 'ช่างผู้รับผิดชอบ',
+      startTime: map['start_time'] != null ? DateTime.tryParse(map['start_time'].toString()) ?? DateTime.now() : DateTime.now(),
+      endTime: map['end_time'] != null ? DateTime.tryParse(map['end_time'].toString()) ?? DateTime.now() : DateTime.now(),
+      hours: (map['hours'] as num?)?.toDouble() ?? 0.0,
       taskDescription: map['task_description'] as String?,
       notes: map['notes'] as String?,
     );
@@ -385,22 +385,22 @@ class RootCauseAnalysis {
 
   factory RootCauseAnalysis.fromMap(Map<String, dynamic> map) {
     return RootCauseAnalysis(
-      rcaId: map['rca_id'] as String,
-      woId: map['wo_id'] as String,
-      why1: map['why_1'] as String,
-      why2: map['why_2'] as String,
-      why3: map['why_3'] as String,
-      why4: map['why_4'] as String,
-      why5: map['why_5'] as String,
-      rootCause: map['root_cause'] as String?,
-      correctionAction: map['correction_action'] as String?,
-      preventiveAction: map['preventive_action'] as String?,
-      failureType: map['failure_type'] as String?,
-      causeCategory: map['cause_category'] as String?,
+      rcaId: map['rca_id']?.toString() ?? '',
+      woId: map['wo_id']?.toString() ?? '',
+      why1: map['why_1']?.toString() ?? '',
+      why2: map['why_2']?.toString() ?? '',
+      why3: map['why_3']?.toString() ?? '',
+      why4: map['why_4']?.toString() ?? '',
+      why5: map['why_5']?.toString() ?? '',
+      rootCause: map['root_cause']?.toString(),
+      correctionAction: map['correction_action']?.toString(),
+      preventiveAction: map['preventive_action']?.toString(),
+      failureType: map['failure_type']?.toString(),
+      causeCategory: map['cause_category']?.toString(),
       completedAt: map['completed_at'] != null
-          ? DateTime.parse(map['completed_at'] as String)
+          ? DateTime.tryParse(map['completed_at'].toString())
           : null,
-      completedBy: map['completed_by'] as String?,
+      completedBy: map['completed_by']?.toString(),
     );
   }
 }
@@ -437,24 +437,24 @@ class WorkOrderOutsource {
 
   factory WorkOrderOutsource.fromMap(Map<String, dynamic> map) {
     return WorkOrderOutsource(
-      outsourceId: map['outsource_id'] as String,
-      woId: map['wo_id'] as String,
-      vendorName: map['vendor_name'] as String,
-      repairDetails: map['repair_details'] as String?,
-      replacedParts: map['replaced_parts'] as String?,
-      gatePassNo: map['gate_pass_no'] as String?,
+      outsourceId: map['outsource_id']?.toString() ?? '',
+      woId: map['wo_id']?.toString() ?? '',
+      vendorName: map['vendor_name']?.toString() ?? 'ไม่ระบุผู้รับเหมา',
+      repairDetails: map['repair_details']?.toString(),
+      replacedParts: map['replaced_parts']?.toString(),
+      gatePassNo: map['gate_pass_no']?.toString(),
       expectedReturnDate: map['expected_return_date'] != null
-          ? DateTime.tryParse(map['expected_return_date'] as String)
+          ? DateTime.tryParse(map['expected_return_date'].toString())
           : null,
       actualReturnDate: map['actual_return_date'] != null
-          ? DateTime.tryParse(map['actual_return_date'] as String)
+          ? DateTime.tryParse(map['actual_return_date'].toString())
           : null,
-      inspectorId: map['inspector_id'] as String?,
-      notes: map['notes'] as String?,
+      inspectorId: map['inspector_id']?.toString(),
+      notes: map['notes']?.toString(),
       createdAt: map['created_at'] != null
-          ? DateTime.tryParse(map['created_at'] as String)
+          ? DateTime.tryParse(map['created_at'].toString())
           : null,
-      isPassedInspection: map['is_passed_inspection'] == 1,
+      isPassedInspection: map['is_passed_inspection'] == 1 || map['is_passed_inspection'] == true || map['is_passed_inspection'] == '1',
     );
   }
 }
@@ -480,13 +480,13 @@ class WorkOrderPart {
 
   factory WorkOrderPart.fromMap(Map<String, dynamic> map) {
     return WorkOrderPart(
-      woPartId: map['wo_part_id'] as String,
-      woId: map['wo_id'] as String,
-      partId: map['part_id'] as String,
-      partName: map['part_name'] as String?,
-      partCode: map['part_code'] as String?,
-      quantity: (map['quantity'] as num).toDouble(),
-      createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'] as String) : null,
+      woPartId: map['wo_part_id']?.toString() ?? '',
+      woId: map['wo_id']?.toString() ?? '',
+      partId: map['part_id']?.toString() ?? '',
+      partName: map['part_name']?.toString(),
+      partCode: map['part_code']?.toString(),
+      quantity: (map['quantity'] as num?)?.toDouble() ?? 0.0,
+      createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
     );
   }
 }

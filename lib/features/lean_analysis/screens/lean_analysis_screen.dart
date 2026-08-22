@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:collection/collection.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/database/db_helper.dart';
 import '../../work_processes/models/work_process_model.dart';
 import '../../work_processes/models/work_process_step_model.dart';
 import '../../work_processes/providers/work_process_provider.dart';
@@ -9,7 +11,6 @@ import '../../line_balancing/line_balancing_provider.dart';
 import '../models/lean_metrics_model.dart';
 import '../providers/lean_analysis_provider.dart';
 import '../widgets/vsm_visualizer_card.dart';
-import '../widgets/vsm_rca_card.dart';
 
 class LeanAnalysisScreen extends ConsumerStatefulWidget {
   final String? initialProcessId;
@@ -21,8 +22,7 @@ class LeanAnalysisScreen extends ConsumerStatefulWidget {
 
 class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
   int _sourceMode = 0; // 0: Line Balancing, 1: Machine SOPs
-  int _selectedTab = 0; // 0: Dashboard, 1: VSM, 2: RCA
-  WorkProcessStep? _rcaTargetStep;
+  int _selectedTab = 0; // 0: Dashboard, 1: VSM, 2: Classifier
 
   @override
   void initState() {
@@ -36,12 +36,16 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
     }
   }
 
-  WorkProcess _convertLineToWorkProcess(LineBalancingState lineState) {
+  WorkProcess _convertLineToWorkProcess(
+    LineBalancingState lineState,
+    List<WorkProcess> allProcesses,
+  ) {
     final steps = <WorkProcessStep>[];
+
     for (int i = 0; i < lineState.stations.length; i++) {
       final s = lineState.stations[i];
 
-      // If station has buffer/waiting time, prepend a delay step
+      // 1. If station has buffer/waiting time, prepend a delay step
       if (s.waitingTimeSec > 0) {
         steps.add(
           WorkProcessStep(
@@ -60,57 +64,63 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
         );
       }
 
-      ProcessEventType evt;
-      switch (s.eventType) {
-        case 'transportation':
-          evt = ProcessEventType.transportation;
-          break;
-        case 'inspection':
-          evt = ProcessEventType.inspection;
-          break;
-        case 'delay':
-          evt = ProcessEventType.delay;
-          break;
-        case 'storage':
-          evt = ProcessEventType.storage;
-          break;
-        default:
-          evt = ProcessEventType.operation;
+      // 2. Find matching WorkProcess with actual sub-steps for this station's machine
+      WorkProcess? matchingProcess;
+      if (s.machineId != null && s.machineId!.isNotEmpty) {
+        matchingProcess = allProcesses.firstWhereOrNull((p) => p.machineId == s.machineId);
+      }
+      if (matchingProcess == null && s.machineName != null && s.machineName!.isNotEmpty) {
+        matchingProcess = allProcesses.firstWhereOrNull((p) =>
+            p.title.contains(s.machineName!) ||
+            (p.processNo.isNotEmpty && s.name.contains(p.processNo)));
       }
 
-      LeanValueType val;
-      switch (s.valueType) {
-        case 'nva':
-          val = LeanValueType.nva;
-          break;
-        case 'nnva':
-          val = LeanValueType.nnva;
-          break;
-        default:
-          val = LeanValueType.va;
+      if (matchingProcess != null && matchingProcess.steps.isNotEmpty) {
+        // Expand each actual sub-step of the machine!
+        for (final st in matchingProcess.steps) {
+          steps.add(
+            WorkProcessStep(
+              stepId: st.stepId,
+              processId: matchingProcess.processId,
+              stepNo: steps.length + 1,
+              description: '[${s.name}] ${st.description}',
+              eventType: st.eventType,
+              distanceMeters: st.distanceMeters,
+              partsQuantity: st.partsQuantity ?? '${s.workers} คน',
+              toolsUsed: st.toolsUsed ?? s.machineName,
+              durationMinutes: st.durationMinutes > 0
+                  ? st.durationMinutes
+                  : (s.cycleTime / matchingProcess.steps.length / 60.0),
+              valueType: st.valueType,
+              problemCause: st.problemCause,
+              improvementIdea: st.improvementIdea,
+              createdAt: st.createdAt,
+            ),
+          );
+        }
+      } else {
+        // Fallback: If no SOP sub-steps created yet, show station single step
+        steps.add(
+          WorkProcessStep(
+            stepId: s.id,
+            processId: lineState.lineId,
+            stepNo: steps.length + 1,
+            description: 'สถานีที่ ${i + 1}: ${s.name}${s.machineName != null ? " [${s.machineName}]" : ""} (ยังไม่มีขั้นตอนย่อย SOP)',
+            eventType: ProcessEventType.fromCode(s.eventType),
+            durationMinutes: s.cycleTime / 60.0,
+            valueType: LeanValueType.fromCode(s.valueType),
+            toolsUsed: s.machineName,
+            partsQuantity: '${s.workers} คน',
+            createdAt: DateTime.now(),
+          ),
+        );
       }
-
-      steps.add(
-        WorkProcessStep(
-          stepId: s.id,
-          processId: lineState.lineId,
-          stepNo: steps.length + 1,
-          description:
-              'สถานีที่ ${i + 1}: ${s.name}${s.machineName != null && s.machineName!.isNotEmpty ? " [${s.machineName}]" : ""}',
-          eventType: evt,
-          durationMinutes: s.cycleTime / 60.0,
-          valueType: val,
-          toolsUsed: s.machineName,
-          partsQuantity: '${s.workers} คน',
-          createdAt: DateTime.now(),
-        ),
-      );
     }
 
     final now = DateTime.now();
     return WorkProcess(
       processId: lineState.lineId,
-      processNo: 'LINE-${lineState.lineName.replaceAll(' ', '')}',
+      processNo: 'LINE-${lineState.lineName.replaceAll(RegExp(r'[\s\-_]+'), '')}',
       title: 'สายการผลิต: ${lineState.lineName}',
       methodType: WorkProcessMethodType.current,
       workType: WorkTypeCategory.product,
@@ -127,7 +137,6 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
     final theme = Theme.of(context);
     final processListAsync = ref.watch(workProcessListProvider);
     final metricsAsync = ref.watch(leanMetricsProvider);
-    final aiConsultantState = ref.watch(aiLeanConsultantProvider);
     final lineState = ref.watch(lineBalancingProvider);
     final allLinesAsync = ref.watch(allProductionLinesProvider);
 
@@ -138,7 +147,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
     WorkProcess? activeProcess;
     if (_sourceMode == 0) {
       if (lineState.stations.isNotEmpty) {
-        activeProcess = _convertLineToWorkProcess(lineState);
+        activeProcess = _convertLineToWorkProcess(lineState, processes);
       }
     } else {
       if (processes.isNotEmpty) {
@@ -168,14 +177,26 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            const Text('การวิเคราะห์ Lean & Value Stream Mapping (VSM) & RCA'),
+            const Text('การวิเคราะห์ Lean & Value Stream Mapping (VSM)'),
           ],
         ),
         actions: [
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.withValues(alpha: 0.12),
+              foregroundColor: Colors.redAccent,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.troubleshoot_rounded, size: 16),
+            label: const Text('Problem Solving (RCA)', style: TextStyle(fontSize: 12)),
+            onPressed: () => context.push('/problem-solving'),
+          ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.account_tree_rounded),
             tooltip: 'ไปที่หน้า Line Balancing',
-            onPressed: () => context.push('/line-balancing'),
+            onPressed: () => context.push('/line_balancing'),
           ),
           IconButton(
             icon: const Icon(Icons.format_list_bulleted_rounded),
@@ -200,13 +221,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
 
           const SizedBox(height: AppSpacing.md),
 
-          // 3. If in Line Balancing mode: Show Station Lean Classifier Table
-          if (_sourceMode == 0 && lineState.stations.isNotEmpty) ...[
-            _buildStationLeanClassifierCard(theme, lineState),
-            const SizedBox(height: AppSpacing.md),
-          ],
-
-          // 4. Tab Navigation (Dashboard, VSM, RCA)
+          // 3. Tab Navigation (Dashboard, VSM, Classifier)
           Center(
             child: SegmentedButton<int>(
               segments: const [
@@ -222,8 +237,8 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                 ),
                 ButtonSegment(
                   value: 2,
-                  icon: Icon(Icons.troubleshoot_rounded, size: 16),
-                  label: Text('🔍 วิเคราะห์คอขวด (RCA 5-Why)'),
+                  icon: Icon(Icons.tune_rounded, size: 16),
+                  label: Text('⚙️ จำแนกคุณค่า (VA/NVA Classifier)'),
                 ),
               ],
               selected: {_selectedTab},
@@ -234,24 +249,21 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
           ),
           const SizedBox(height: AppSpacing.lg),
 
-          // 5. Active Tab Content
+          // 4. Active Tab Content
           if (activeProcess == null || activeProcess.steps.isEmpty) ...[
             _buildEmptyState(theme)
           ] else if (_selectedTab == 1) ...[
             VsmVisualizerCard(
               process: activeProcess,
               onSelectStepForRca: (step) {
-                setState(() {
-                  _rcaTargetStep = step;
-                  _selectedTab = 2;
-                });
+                context.push(
+                  '/problem-solving?processId=${activeProcess!.processId}&stepId=${step.stepId}&problem=${Uri.encodeComponent(step.problemCause ?? step.description)}',
+                );
               },
             ),
           ] else if (_selectedTab == 2) ...[
-            VsmRcaCard(
-              process: activeProcess,
-              initialStep: _rcaTargetStep,
-            ),
+            // Tab 2: Dedicated Lean Sub-step Classifier
+            _buildMachineSubStepsLeanClassifierCard(theme, lineState, processes),
           ] else ...[
             // Tab 0: Dashboard Metrics
             if (_sourceMode == 0) ...[
@@ -259,12 +271,6 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
               const SizedBox(height: AppSpacing.lg),
               _buildWasteStepsMatrix(
                 LeanProcessMetrics(process: activeProcess),
-                theme,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _buildAiConsultantSection(
-                LeanProcessMetrics(process: activeProcess),
-                aiConsultantState,
                 theme,
               ),
             ] else ...[
@@ -300,12 +306,6 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                       ),
                       const SizedBox(height: AppSpacing.lg),
                       _buildWasteStepsMatrix(metrics, theme),
-                      const SizedBox(height: AppSpacing.lg),
-                      _buildAiConsultantSection(
-                        metrics,
-                        aiConsultantState,
-                        theme,
-                      ),
                     ],
                   );
                 },
@@ -432,7 +432,10 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                     if (savedLines.isEmpty)
                       DropdownMenuItem(
                         value: lineState.lineId,
-                        child: Text('${lineState.lineName} (${lineState.stations.length} สถานี)'),
+                        child: Text(
+                          '${lineState.lineName} (${lineState.stations.length} สถานี)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ...savedLines.map((l) {
                       return DropdownMenuItem(
@@ -440,6 +443,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                         child: Text(
                           '${l['line_name']} — Takt: ${((((l['available_time_min'] as num?)?.toDouble() ?? 480) * 60) / (((l['demand_quantity'] as num?)?.toDouble() ?? 1000))).toStringAsFixed(1)}s',
                           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       );
                     }),
@@ -456,7 +460,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
             FilledButton.tonalIcon(
               icon: const Icon(Icons.tune_rounded, size: 16),
               label: const Text('จัดการ Line Balancing'),
-              onPressed: () => context.push('/line-balancing'),
+              onPressed: () => context.push('/line_balancing'),
             ),
           ],
         ),
@@ -535,11 +539,14 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            '${p.processNo} — ${p.title}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
+                          Expanded(
+                            child: Text(
+                              '${p.processNo} — ${p.title}',
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
                             ),
                           ),
                         ],
@@ -568,9 +575,10 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
     );
   }
 
-  Widget _buildStationLeanClassifierCard(
+  Widget _buildMachineSubStepsLeanClassifierCard(
     ThemeData theme,
     LineBalancingState lineState,
+    List<WorkProcess> allProcesses,
   ) {
     final notifier = ref.read(lineBalancingProvider.notifier);
 
@@ -587,128 +595,320 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.checklist_rounded, size: 20, color: Colors.indigo),
+                const Icon(Icons.account_tree_rounded, size: 20, color: Colors.indigo),
                 const SizedBox(width: 8),
-                Text(
-                  'กำหนดประเภทกิจกรรม Lean & สต็อกคั่น (WIP / Buffer) ประจำสถานี',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'กำหนดประเภทกิจกรรม Lean (VA / NNVA / NVA) ตามขั้นตอนย่อยของแต่ละเครื่องจักร',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'การวิเคราะห์ Lean และ VSM จำแนกคุณค่าตาม "ขั้นตอนย่อยจริง" (Sub-steps) ของแต่ละเครื่องจักร',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const Spacer(),
-                Text(
-                  'ปรับเปลี่ยนประเภทเพื่อดูผล VSM และ PCE % ทันที',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
+                TextButton.icon(
+                  icon: const Icon(Icons.playlist_add_rounded, size: 18),
+                  label: const Text('จัดการ SOP ทั้งหมด'),
+                  onPressed: () => context.push('/work-processes'),
                 ),
               ],
             ),
             const Divider(height: 20),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columnSpacing: 16,
-                headingRowHeight: 38,
-                dataRowMinHeight: 48,
-                dataRowMaxHeight: 56,
-                columns: const [
-                  DataColumn(label: Text('ลำดับ', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('ชื่อสถานี / เครื่องจักร', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('Cycle Time', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('สัญลักษณ์ ASME', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('ประเภทคุณค่า (Lean Value)', style: TextStyle(fontWeight: FontWeight.bold))),
-                  DataColumn(label: Text('เวลารอคอย/Buffer (วิ.)', style: TextStyle(fontWeight: FontWeight.bold))),
-                ],
-                rows: lineState.stations.map((s) {
-                  final idx = lineState.stations.indexOf(s) + 1;
 
-                  return DataRow(
-                    cells: [
-                      DataCell(Text('#$idx', style: const TextStyle(fontWeight: FontWeight.bold))),
-                      DataCell(
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
+            // Station & Sub-steps Accordion List
+            for (int i = 0; i < lineState.stations.length; i++) ...[
+              () {
+                final s = lineState.stations[i];
+                final idx = i + 1;
+
+                // Find process for this station
+                WorkProcess? matchingProcess;
+                if (s.machineId != null && s.machineId!.isNotEmpty) {
+                  matchingProcess = allProcesses.firstWhereOrNull((p) => p.machineId == s.machineId);
+                }
+                if (matchingProcess == null && s.machineName != null && s.machineName!.isNotEmpty) {
+                  matchingProcess = allProcesses.firstWhereOrNull((p) =>
+                      p.title.contains(s.machineName!) ||
+                      (p.processNo.isNotEmpty && s.name.contains(p.processNo)));
+                }
+
+                final steps = matchingProcess?.steps ?? [];
+                final hasSteps = steps.isNotEmpty;
+
+                final totalMin = steps.fold(0.0, (sum, st) => sum + st.durationMinutes);
+                final vaMin = steps.where((st) => st.valueType == LeanValueType.va).fold(0.0, (sum, st) => sum + st.durationMinutes);
+                final nnvaMin = steps.where((st) => st.valueType == LeanValueType.nnva).fold(0.0, (sum, st) => sum + st.durationMinutes);
+                final nvaMin = steps.where((st) => st.valueType == LeanValueType.nva).fold(0.0, (sum, st) => sum + st.durationMinutes);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: hasSteps ? Colors.teal.withValues(alpha: 0.3) : theme.colorScheme.outlineVariant,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Station Header Banner
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: hasSteps
+                              ? Colors.teal.withValues(alpha: 0.08)
+                              : Colors.amber.withValues(alpha: 0.08),
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(9)),
+                        ),
+                        child: Row(
                           children: [
-                            Text(s.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            if (s.machineName != null && s.machineName!.isNotEmpty)
-                              Text(s.machineName!, style: TextStyle(fontSize: 11, color: theme.colorScheme.outline)),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.blueAccent,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '#$idx',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    s.name,
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  ),
+                                  if (s.machineName != null && s.machineName!.isNotEmpty)
+                                    Text(
+                                      'เครื่องจักร: ${s.machineName}',
+                                      style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            // Buffer WIP input for this station
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('สต็อกคั่น/WIP (วิ.):', style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                                const SizedBox(width: 6),
+                                SizedBox(
+                                  width: 65,
+                                  height: 32,
+                                  child: TextFormField(
+                                    initialValue: s.waitingTimeSec.toStringAsFixed(0),
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    onChanged: (v) {
+                                      final numVal = double.tryParse(v) ?? 0.0;
+                                      notifier.updateStationLeanType(s.id, waitingTimeSec: numVal);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 12),
+                            // Quick breakdown chips
+                            if (hasSteps) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text('🟢 VA ${(vaMin / (totalMin > 0 ? totalMin : 1) * 100).toStringAsFixed(0)}%', style: TextStyle(fontSize: 10.5, color: Colors.green.shade800, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text('🟡 NNVA ${(nnvaMin / (totalMin > 0 ? totalMin : 1) * 100).toStringAsFixed(0)}%', style: TextStyle(fontSize: 10.5, color: Colors.amber.shade900, fontWeight: FontWeight.bold)),
+                              ),
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text('🔴 NVA ${(nvaMin / (totalMin > 0 ? totalMin : 1) * 100).toStringAsFixed(0)}%', style: TextStyle(fontSize: 10.5, color: Colors.red.shade800, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
                           ],
                         ),
                       ),
-                      DataCell(
-                        Text('${s.cycleTime.toStringAsFixed(1)} วิ. (${(s.cycleTime / 60).toStringAsFixed(1)} นาที)'),
-                      ),
-                      DataCell(
-                        DropdownButton<String>(
-                          value: s.eventType,
-                          isDense: true,
-                          underline: const SizedBox.shrink(),
-                          items: const [
-                            DropdownMenuItem(value: 'operation', child: Text('⭕ ทำงาน (Operation)')),
-                            DropdownMenuItem(value: 'transportation', child: Text('⇨ ขนส่ง (Transport)')),
-                            DropdownMenuItem(value: 'inspection', child: Text('◻ ตรวจสอบ (Inspection)')),
-                            DropdownMenuItem(value: 'delay', child: Text('D รอคอย (Delay)')),
-                            DropdownMenuItem(value: 'storage', child: Text('▽ จัดเก็บ (Storage)')),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) {
-                              notifier.updateStationLeanType(s.id, eventType: val);
-                            }
-                          },
-                        ),
-                      ),
-                      DataCell(
-                        DropdownButton<String>(
-                          value: s.valueType,
-                          isDense: true,
-                          underline: const SizedBox.shrink(),
-                          items: [
-                            DropdownMenuItem(
-                              value: 'va',
-                              child: Text('🟢 มีมูลค่า (VA)', style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold)),
-                            ),
-                            DropdownMenuItem(
-                              value: 'nnva',
-                              child: Text('🟡 จำเป็นแต่ไม่เพิ่มค่า (NNVA)', style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold)),
-                            ),
-                            DropdownMenuItem(
-                              value: 'nva',
-                              child: Text('🔴 สูญเปล่า (NVA)', style: TextStyle(color: Colors.red.shade800, fontWeight: FontWeight.bold)),
-                            ),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) {
-                              notifier.updateStationLeanType(s.id, valueType: val);
-                            }
-                          },
-                        ),
-                      ),
-                      DataCell(
-                        SizedBox(
-                          width: 80,
-                          child: TextFormField(
-                            initialValue: s.waitingTimeSec.toStringAsFixed(0),
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                              border: OutlineInputBorder(),
-                            ),
-                            onChanged: (v) {
-                              final numVal = double.tryParse(v) ?? 0.0;
-                              notifier.updateStationLeanType(s.id, waitingTimeSec: numVal);
-                            },
+
+                      // Sub-steps Table or Empty Prompt
+                      if (hasSteps) ...[
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columnSpacing: 14,
+                            headingRowHeight: 34,
+                            dataRowMinHeight: 44,
+                            dataRowMaxHeight: 52,
+                            columns: const [
+                              DataColumn(label: Text('ขั้นตอน', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                              DataColumn(label: Text('รายละเอียดขั้นตอนย่อย', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                              DataColumn(label: Text('เวลา (นาที)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                              DataColumn(label: Text('สัญลักษณ์ ASME', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                              DataColumn(label: Text('ประเภทคุณค่า (Lean Value)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                              DataColumn(label: Text('ปัญหา/ข้อเสนอแนะ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5))),
+                            ],
+                            rows: steps.map((st) {
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        '#${st.stepNo}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: 200,
+                                      child: Text(
+                                        st.description,
+                                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(
+                                      '${st.durationMinutes.toStringAsFixed(1)} นาที',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    DropdownButton<String>(
+                                      value: st.eventType.code,
+                                      isDense: true,
+                                      underline: const SizedBox.shrink(),
+                                      items: const [
+                                        DropdownMenuItem(value: 'operation', child: Text('⭕ ทำงาน (Operation)', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'transportation', child: Text('⇨ ขนส่ง (Transport)', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'inspection', child: Text('◻ ตรวจสอบ (Inspection)', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'delay', child: Text('D รอคอย (Delay)', style: TextStyle(fontSize: 12))),
+                                        DropdownMenuItem(value: 'storage', child: Text('▽ จัดเก็บ (Storage)', style: TextStyle(fontSize: 12))),
+                                      ],
+                                      onChanged: (val) async {
+                                        if (val != null && val != st.eventType.code) {
+                                          await DbHelper.execute(
+                                            'UPDATE work_process_steps SET event_type = @evt WHERE step_id = @sid',
+                                            params: {'evt': val, 'sid': st.stepId},
+                                          );
+                                          ref.read(workProcessListProvider.notifier).refresh();
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  DataCell(
+                                    DropdownButton<String>(
+                                      value: st.valueType.code,
+                                      isDense: true,
+                                      underline: const SizedBox.shrink(),
+                                      items: [
+                                        DropdownMenuItem(
+                                          value: 'va',
+                                          child: Text('🟢 มีมูลค่า (VA)', style: TextStyle(color: Colors.green.shade800, fontWeight: FontWeight.bold, fontSize: 12)),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'nnva',
+                                          child: Text('🟡 จำเป็นแต่ไม่เพิ่มค่า (NNVA)', style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 12)),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'nva',
+                                          child: Text('🔴 สูญเปล่า (NVA)', style: TextStyle(color: Colors.red.shade800, fontWeight: FontWeight.bold, fontSize: 12)),
+                                        ),
+                                      ],
+                                      onChanged: (val) async {
+                                        if (val != null && val != st.valueType.code) {
+                                          await DbHelper.execute(
+                                            'UPDATE work_process_steps SET value_type = @val WHERE step_id = @sid',
+                                            params: {'val': val, 'sid': st.stepId},
+                                          );
+                                          ref.read(workProcessListProvider.notifier).refresh();
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  DataCell(
+                                    SizedBox(
+                                      width: 140,
+                                      child: Text(
+                                        st.problemCause?.isNotEmpty == true ? st.problemCause! : '-',
+                                        style: TextStyle(fontSize: 11, color: st.problemCause?.isNotEmpty == true ? Colors.red.shade700 : Colors.grey),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
-                      ),
+                      ] else ...[
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.info_outline, color: Colors.amber, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'เครื่องจักรนี้ยังไม่มีขั้นตอนย่อย (SOP) ในฐานข้อมูล — ระบบใช้เวลารอบการทำงานรวม ${(s.cycleTime / 60).toStringAsFixed(1)} นาที',
+                                  style: TextStyle(fontSize: 12, color: Colors.amber.shade900),
+                                ),
+                              ),
+                              FilledButton.tonalIcon(
+                                icon: const Icon(Icons.add, size: 16),
+                                label: const Text('เพิ่มขั้นตอนย่อย SOP'),
+                                onPressed: () {
+                                  context.push('/work-processes/new');
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
-                  );
-                }).toList(),
-              ),
-            ),
+                  ),
+                );
+              }(),
+            ],
           ],
         ),
       ),
@@ -1212,118 +1412,17 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
                       ),
                       IconButton(
                         icon: const Icon(Icons.troubleshoot_rounded, color: Colors.deepOrange, size: 22),
-                        tooltip: 'ทำ RCA 5-Why & ผังก้างปลา บนขั้นตอนนี้',
+                        tooltip: 'ส่งไปวิเคราะห์ใน Problem Solving (RCA)',
                         onPressed: () {
-                          setState(() {
-                            _rcaTargetStep = step;
-                            _selectedTab = 2;
-                          });
+                          context.push(
+                            '/problem-solving?processId=${metrics.process.processId}&stepId=${step.stepId}&problem=${Uri.encodeComponent(step.problemCause ?? step.description)}',
+                          );
                         },
                       ),
                     ],
                   ),
                 );
               }),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAiConsultantSection(
-    LeanProcessMetrics metrics,
-    AsyncValue<String?> aiState,
-    ThemeData theme,
-  ) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.auto_awesome, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'ผู้ช่วยวิเคราะห์และปรับปรุง Lean ด้วย AI (AI Lean Consultant)',
-                  style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                FilledButton.icon(
-                  onPressed: aiState.isLoading
-                      ? null
-                      : () => ref
-                          .read(aiLeanConsultantProvider.notifier)
-                          .analyzeProcess(metrics.process),
-                  icon: aiState.isLoading
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.psychology_rounded, size: 18),
-                  label: const Text('วิเคราะห์ ECRS ด้วย AI'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            aiState.when(
-              loading: () => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 12),
-                      Text('กำลังวิเคราะห์ขั้นตอนงานและคำนวณข้อเสนอแนะ ECRS ตามหลัก Lean...'),
-                    ],
-                  ),
-                ),
-              ),
-              error: (e, _) => Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('เกิดข้อผิดพลาดในการวิเคราะห์ AI: $e', style: const TextStyle(color: Colors.red)),
-              ),
-              data: (markdown) {
-                if (markdown == null || markdown.isEmpty) {
-                  return Text(
-                    'กดปุ่ม "วิเคราะห์ ECRS ด้วย AI" ด้านบน เพื่อให้ระบบ AI จำลองบทบาทเป็นวิศวกร Lean Consultant วิเคราะห์และเสนอแนะแนวทางลดเวลา ลดระยะทาง และกำจัดความสูญเปล่าให้อัตโนมัติ',
-                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13),
-                  );
-                }
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: theme.colorScheme.outlineVariant),
-                  ),
-                  child: SelectableText(
-                    markdown,
-                    style: const TextStyle(fontSize: 13, height: 1.5),
-                  ),
-                );
-              },
-            ),
           ],
         ),
       ),

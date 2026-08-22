@@ -55,7 +55,7 @@ class AnalyticsDashboardScreen extends ConsumerWidget {
           children: [
             // KPI Cards
             metricsAsync.when(
-              data: (metrics) => _KPICards(metrics: metrics),
+              data: (metrics) => KPICards(metrics: metrics),
               loading: () => const _SkeletonLoader(),
               error: (err, _) => Text('Error loading metrics: $err'),
             ),
@@ -89,7 +89,7 @@ const SizedBox(height: 32),
             ),
             const SizedBox(height: 16),
             paretoAsync.when(
-              data: (pareto) => _ParetoChart(analysis: pareto),
+              data: (pareto) => ParetoChart(analysis: pareto),
               loading: () => const _SkeletonLoader(),
               error: (err, _) => Text('Error loading Pareto: $err'),
             ),
@@ -134,10 +134,10 @@ const SizedBox(height: 32),
 }
 
 /// KPI Cards
-class _KPICards extends ConsumerWidget {
+class KPICards extends ConsumerWidget {
   final MaintenanceMetrics metrics;
 
-  const _KPICards({required this.metrics});
+  const KPICards({super.key, required this.metrics});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -172,7 +172,7 @@ class _KPICards extends ConsumerWidget {
       crossAxisSpacing: 16,
       childAspectRatio: 1.8,
       children: [
-        _KPICard(
+        KPICard(
           label: 'MTBF',
           value: '${metrics.mtbf.toStringAsFixed(0)}h',
           subtitle: 'Mean Time Between Failures',
@@ -181,7 +181,7 @@ class _KPICards extends ConsumerWidget {
           icon: Icons.timer_outlined,
           trendData: dummyMtbfData,
         ),
-        _KPICard(
+        KPICard(
           label: 'MTTR',
           value: '${metrics.mttr.toStringAsFixed(1)}h',
           subtitle: 'Mean Time To Repair',
@@ -190,7 +190,7 @@ class _KPICards extends ConsumerWidget {
           icon: Icons.build_circle_outlined,
           trendData: dummyMttrData,
         ),
-        _KPICard(
+        KPICard(
           label: 'OEE',
           value: '${metrics.oee.toStringAsFixed(1)}%',
           subtitle: 'Overall Equipment Effectiveness',
@@ -199,7 +199,7 @@ class _KPICards extends ConsumerWidget {
           icon: Icons.trending_up,
           trendData: oeeData,
         ),
-        _KPICard(
+        KPICard(
           label: 'Availability',
           value: '${(metrics.availability * 100).toStringAsFixed(1)}%',
           subtitle: 'Equipment Availability',
@@ -208,7 +208,7 @@ class _KPICards extends ConsumerWidget {
           icon: Icons.check_circle_outline,
           trendData: dummyAvailData,
         ),
-        _KPICard(
+        KPICard(
           label: 'Performance',
           value: '${(metrics.performance * 100).toStringAsFixed(1)}%',
           subtitle: 'Production Performance',
@@ -217,7 +217,7 @@ class _KPICards extends ConsumerWidget {
           icon: Icons.speed,
           trendData: dummyPerfData,
         ),
-        _KPICard(
+        KPICard(
           label: 'Quality',
           value: '${(metrics.quality * 100).toStringAsFixed(1)}%',
           subtitle: 'Production Quality',
@@ -231,7 +231,7 @@ class _KPICards extends ConsumerWidget {
   }
 }
 
-class _KPICard extends StatelessWidget {
+class KPICard extends StatelessWidget {
   final String label;
   final String value;
   final String subtitle;
@@ -240,7 +240,8 @@ class _KPICard extends StatelessWidget {
   final IconData icon;
   final List<double>? trendData;
 
-  const _KPICard({
+  const KPICard({
+    super.key,
     required this.label,
     required this.value,
     required this.subtitle,
@@ -307,10 +308,10 @@ class _KPICard extends StatelessWidget {
   }
 }
 
-class _ParetoChart extends StatelessWidget {
+class ParetoChart extends StatelessWidget {
   final ParetoAnalysis analysis;
 
-  const _ParetoChart({required this.analysis});
+  const ParetoChart({super.key, required this.analysis});
 
   @override
   Widget build(BuildContext context) {

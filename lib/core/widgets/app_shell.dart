@@ -175,6 +175,12 @@ const _navItems = [
     route: '/dashboard',
   ),
   _NavItem(
+    label: 'AI Assistant',
+    icon: HugeIcons.strokeRoundedAiMagic,
+    iconSelected: HugeIcons.strokeRoundedAiMagic,
+    route: '/ai-chat',
+  ),
+  _NavItem(
     label: 'ทะเบียนเครื่องจักร',
     icon: HugeIcons.strokeRoundedLibrary,
     iconSelected: HugeIcons.strokeRoundedLibrary,
@@ -232,26 +238,6 @@ const _navItems = [
     route: '/tools',
   ),
   _NavItem(
-    label: 'สถิติ & ประสิทธิภาพ (KPIs)',
-    icon: HugeIcons.strokeRoundedAnalytics01,
-    iconSelected: HugeIcons.strokeRoundedAnalytics01,
-    route: '/analytics',
-    roles: ['engineer', 'executive', 'admin'],
-  ),
-  _NavItem(
-    label: 'AI Assistant',
-    icon: HugeIcons.strokeRoundedAiMagic,
-    iconSelected: HugeIcons.strokeRoundedAiMagic,
-    route: '/ai-chat',
-  ),
-  _NavItem(
-    label: 'บันทึก OEE',
-    icon: HugeIcons.strokeRoundedActivity01,
-    iconSelected: HugeIcons.strokeRoundedActivity01,
-    route: '/oee_logs',
-    roles: ['engineer', 'executive', 'admin'],
-  ),
-  _NavItem(
     label: 'Line Balancing',
     icon: HugeIcons.strokeRoundedFlowSquare,
     iconSelected: HugeIcons.strokeRoundedFlowSquare,
@@ -259,17 +245,24 @@ const _navItems = [
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
-    label: 'ขั้นตอนการทำงาน',
-    icon: HugeIcons.strokeRoundedTask02,
-    iconSelected: HugeIcons.strokeRoundedTask02,
-    route: '/work-processes',
-    roles: ['engineer', 'executive', 'admin'],
-  ),
-  _NavItem(
     label: 'Lean Analysis',
     icon: HugeIcons.strokeRoundedChartLineData02,
     iconSelected: HugeIcons.strokeRoundedChartLineData02,
     route: '/lean-analysis',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
+    label: 'Problem Solving (RCA)',
+    icon: HugeIcons.strokeRoundedTarget02,
+    iconSelected: HugeIcons.strokeRoundedTarget02,
+    route: '/problem-solving',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
+    label: 'ขั้นตอนการทำงาน',
+    icon: HugeIcons.strokeRoundedTask02,
+    iconSelected: HugeIcons.strokeRoundedTask02,
+    route: '/work-processes',
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:http/http.dart' as http;
 
@@ -88,6 +89,10 @@ class AiToolHandler {
           return await _manageOeeLogs(args);
         case 'manage_technicians':
           return await _manageTechnicians(args);
+        case 'manage_work_processes':
+        case 'import_work_processes':
+        case 'manage_sop_steps':
+          return await _manageWorkProcesses(args);
         default:
           return '{"error": "Unknown tool: $toolName"}';
       }
@@ -3249,4 +3254,289 @@ class AiToolHandler {
       .replaceAll('"', '\\"')
       .replaceAll('\n', '\\n')
       .replaceAll('\r', '\\r');
+
+  // ── WORK PROCESSES & SOP / JSA CRUD (manage_work_processes) ────────────────
+  static Future<String> _manageWorkProcesses(Map<String, dynamic> args) async {
+    final action = args['action']?.toString().toLowerCase().trim() ?? 'create_process';
+
+    // 1. Bulk import SOP / JSA for multiple machines
+    if (action == 'import_sop_bulk' || (args['processes'] is List && (args['processes'] as List).isNotEmpty)) {
+      final list = args['processes'] as List;
+      int imported = 0;
+      final results = <Map<String, dynamic>>[];
+
+      for (final raw in list) {
+        if (raw is! Map) continue;
+        final p = Map<String, dynamic>.from(raw);
+        final mcId = p['machine_identifier']?.toString() ?? '';
+        final mc = await _findMachine(mcId);
+        final machineId = mc?['machine_id']?.toString();
+        final machineNo = mc?['machine_no']?.toString() ?? mcId;
+
+        final processId = const Uuid().v4();
+        final now = DateTime.now();
+        final processNo = p['process_no']?.toString().trim().isNotEmpty == true
+            ? p['process_no']!.toString().trim()
+            : (machineNo.isNotEmpty ? 'SOP-${machineNo.replaceAll(RegExp(r'[\s\-_]+'), '')}' : 'SOP-${DateFormat('yyMMdd-HHmm').format(now)}');
+        final title = p['title']?.toString().trim().isNotEmpty == true
+            ? p['title']!.toString().trim()
+            : 'ขั้นตอนการปฏิบัติงานและความปลอดภัย (SOP/JSA) $machineNo';
+
+        await DbHelper.execute('''
+          INSERT OR REPLACE INTO work_processes (
+            process_id, process_no, title, company, factory, department,
+            method_type, work_type, machine_id, prepared_by, prepared_date,
+            approved_by, approved_date, notes, status, created_at, updated_at
+          ) VALUES (
+            @id, @no, @title, @co, @fac, @dept,
+            @method, @work_type, @mid, @prep_by, @prep_date,
+            @appr_by, @appr_date, @notes, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': processId,
+          'no': processNo,
+          'title': title,
+          'co': p['company']?.toString() ?? '',
+          'fac': p['factory']?.toString() ?? '',
+          'dept': p['department']?.toString() ?? '',
+          'method': p['method_type']?.toString() ?? 'current',
+          'work_type': p['work_type']?.toString() ?? 'standard',
+          'mid': machineId,
+          'prep_by': p['prepared_by']?.toString() ?? 'AI Assistant',
+          'prep_date': DateFormat('yyyy-MM-dd').format(now),
+          'appr_by': p['approved_by']?.toString(),
+          'appr_date': p['approved_date']?.toString(),
+          'notes': p['notes']?.toString(),
+        });
+
+        // Insert steps
+        final rawSteps = p['steps'];
+        int stepCount = 0;
+        if (rawSteps is List) {
+          for (int sIdx = 0; sIdx < rawSteps.length; sIdx++) {
+            final st = rawSteps[sIdx];
+            if (st is! Map) continue;
+            final stMap = Map<String, dynamic>.from(st);
+            final stepId = const Uuid().v4();
+            final stepNo = (stMap['step_no'] as num?)?.toInt() ?? (sIdx + 1);
+            final desc = stMap['description']?.toString().trim() ?? '';
+            if (desc.isEmpty) continue;
+
+            final duration = (stMap['duration_minutes'] as num?)?.toDouble() ?? 5.0;
+            final valType = stMap['value_type']?.toString() ?? 'va';
+            final problemCause = stMap['problem_cause']?.toString() ?? stMap['hazard_risk']?.toString();
+            final improvementIdea = stMap['improvement_idea']?.toString() ?? stMap['safety_control']?.toString();
+
+            await DbHelper.execute('''
+              INSERT INTO work_process_steps (
+                step_id, process_id, step_no, description, event_type,
+                duration_minutes, distance_meters, tools_used,
+                value_type, problem_cause, improvement_idea, created_at
+              ) VALUES (
+                @sid, @pid, @sno, @desc, 'operation',
+                @dur, 0.0, @tools,
+                @val_type, @prob, @imp, CURRENT_TIMESTAMP
+              )
+            ''', params: {
+              'sid': stepId,
+              'pid': processId,
+              'sno': stepNo,
+              'desc': desc,
+              'dur': duration,
+              'tools': stMap['tools_used']?.toString(),
+              'val_type': valType,
+              'prob': problemCause,
+              'imp': improvementIdea,
+            });
+            stepCount++;
+          }
+        }
+
+        VectorDbService.syncWorkProcess(processId);
+        imported++;
+        results.add({
+          'machine_no': machineNo,
+          'process_no': processNo,
+          'title': title,
+          'steps_count': stepCount,
+        });
+      }
+
+      return jsonEncode({
+        'status': 'success',
+        'imported_count': imported,
+        'processes': results,
+        'message': 'บันทึกขั้นตอนการทำงาน SOP/JSA สำเร็จทั้งหมด $imported เครื่อง',
+      });
+    }
+
+    // 2. Single Process create or update
+    final mcId = args['machine_identifier']?.toString() ?? '';
+    final mc = await _findMachine(mcId);
+    final machineId = mc?['machine_id']?.toString();
+    final machineNo = mc?['machine_no']?.toString() ?? mcId;
+
+    if (action == 'create_process' || action == 'import_sop') {
+      final processId = const Uuid().v4();
+      final now = DateTime.now();
+      final processNo = args['process_no']?.toString().trim().isNotEmpty == true
+          ? args['process_no']!.toString().trim()
+          : (machineNo.isNotEmpty ? 'SOP-${machineNo.replaceAll(RegExp(r'[\s\-_]+'), '')}' : 'SOP-${DateFormat('yyMMdd-HHmm').format(now)}');
+      final title = args['title']?.toString().trim().isNotEmpty == true
+          ? args['title']!.toString().trim()
+          : 'ขั้นตอนการปฏิบัติงานและความปลอดภัย (SOP/JSA) $machineNo';
+
+      await DbHelper.execute('''
+        INSERT OR REPLACE INTO work_processes (
+          process_id, process_no, title, company, factory, department,
+          method_type, work_type, machine_id, prepared_by, prepared_date,
+          approved_by, approved_date, notes, status, created_at, updated_at
+        ) VALUES (
+          @id, @no, @title, @co, @fac, @dept,
+          @method, @work_type, @mid, @prep_by, @prep_date,
+          @appr_by, @appr_date, @notes, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      ''', params: {
+        'id': processId,
+        'no': processNo,
+        'title': title,
+        'co': args['company']?.toString() ?? '',
+        'fac': args['factory']?.toString() ?? '',
+        'dept': args['department']?.toString() ?? '',
+        'method': args['method_type']?.toString() ?? 'current',
+        'work_type': args['work_type']?.toString() ?? 'standard',
+        'mid': machineId,
+        'prep_by': args['prepared_by']?.toString() ?? 'AI Assistant',
+        'prep_date': DateFormat('yyyy-MM-dd').format(now),
+        'appr_by': args['approved_by']?.toString(),
+        'appr_date': args['approved_date']?.toString(),
+        'notes': args['notes']?.toString(),
+      });
+
+      // Insert steps
+      final rawSteps = args['steps'];
+      int stepCount = 0;
+      if (rawSteps is List) {
+        for (int sIdx = 0; sIdx < rawSteps.length; sIdx++) {
+          final st = rawSteps[sIdx];
+          if (st is! Map) continue;
+          final stMap = Map<String, dynamic>.from(st);
+          final stepId = const Uuid().v4();
+          final stepNo = (stMap['step_no'] as num?)?.toInt() ?? (sIdx + 1);
+          final desc = stMap['description']?.toString().trim() ?? '';
+          if (desc.isEmpty) continue;
+
+          final duration = (stMap['duration_minutes'] as num?)?.toDouble() ?? 5.0;
+          final valType = stMap['value_type']?.toString() ?? 'va';
+          final problemCause = stMap['problem_cause']?.toString() ?? stMap['hazard_risk']?.toString();
+          final improvementIdea = stMap['improvement_idea']?.toString() ?? stMap['safety_control']?.toString();
+
+          await DbHelper.execute('''
+            INSERT INTO work_process_steps (
+              step_id, process_id, step_no, description, event_type,
+              duration_minutes, distance_meters, tools_used,
+              value_type, problem_cause, improvement_idea, created_at
+            ) VALUES (
+              @sid, @pid, @sno, @desc, 'operation',
+              @dur, 0.0, @tools,
+              @val_type, @prob, @imp, CURRENT_TIMESTAMP
+            )
+          ''', params: {
+            'sid': stepId,
+            'pid': processId,
+            'sno': stepNo,
+            'desc': desc,
+            'dur': duration,
+            'tools': stMap['tools_used']?.toString(),
+            'val_type': valType,
+            'prob': problemCause,
+            'imp': improvementIdea,
+          });
+          stepCount++;
+        }
+      }
+
+      VectorDbService.syncWorkProcess(processId);
+
+      return jsonEncode({
+        'status': 'success',
+        'process_id': processId,
+        'process_no': processNo,
+        'title': title,
+        'machine_no': machineNo,
+        'steps_count': stepCount,
+        'message': 'บันทึกขั้นตอนการปฏิบัติงาน $processNo สำหรับเครื่อง $machineNo สำเร็จ (รวม $stepCount ขั้นตอน)',
+      });
+    }
+
+    if (action == 'add_steps') {
+      final pIdentifier = args['process_identifier']?.toString() ?? '';
+      final pRow = await DbHelper.queryOne(
+        'SELECT process_id, process_no, title FROM work_processes WHERE process_id = @id OR process_no = @id OR machine_id = @mid LIMIT 1',
+        params: {'id': pIdentifier, 'mid': machineId ?? ''},
+      );
+      if (pRow == null) {
+        return jsonEncode({'status': 'error', 'message': 'ไม่พบกระบวนการขั้นตอนการทำงานที่ระบุ: $pIdentifier'});
+      }
+      final pid = pRow['process_id'] as String;
+
+      final countRow = await DbHelper.queryOne('SELECT COUNT(*) as cnt FROM work_process_steps WHERE process_id = @pid', params: {'pid': pid});
+      int currentCount = (countRow?['cnt'] as num?)?.toInt() ?? 0;
+
+      final rawSteps = args['steps'];
+      int added = 0;
+      if (rawSteps is List) {
+        for (final st in rawSteps) {
+          if (st is! Map) continue;
+          final stMap = Map<String, dynamic>.from(st);
+          final stepId = const Uuid().v4();
+          currentCount++;
+          final desc = stMap['description']?.toString().trim() ?? '';
+          if (desc.isEmpty) continue;
+
+          await DbHelper.execute('''
+            INSERT INTO work_process_steps (
+              step_id, process_id, step_no, description, event_type,
+              duration_minutes, distance_meters, tools_used,
+              value_type, problem_cause, improvement_idea, created_at
+            ) VALUES (
+              @sid, @pid, @sno, @desc, 'operation',
+              @dur, 0.0, @tools,
+              @val_type, @prob, @imp, CURRENT_TIMESTAMP
+            )
+          ''', params: {
+            'sid': stepId,
+            'pid': pid,
+            'sno': currentCount,
+            'desc': desc,
+            'dur': (stMap['duration_minutes'] as num?)?.toDouble() ?? 5.0,
+            'tools': stMap['tools_used']?.toString(),
+            'val_type': stMap['value_type']?.toString() ?? 'va',
+            'prob': stMap['problem_cause']?.toString(),
+            'imp': stMap['improvement_idea']?.toString(),
+          });
+          added++;
+        }
+      }
+
+      VectorDbService.syncWorkProcess(pid);
+      return jsonEncode({
+        'status': 'success',
+        'process_id': pid,
+        'added_steps': added,
+        'message': 'เพิ่มขั้นตอนใหม่ $added ขั้นตอนลงใน ${pRow['process_no']} สำเร็จ',
+      });
+    }
+
+    if (action == 'delete_process') {
+      final pIdentifier = args['process_identifier']?.toString() ?? '';
+      await DbHelper.execute(
+        'DELETE FROM work_processes WHERE process_id = @id OR process_no = @id',
+        params: {'id': pIdentifier},
+      );
+      return jsonEncode({'status': 'success', 'message': 'ลบกระบวนการทำงาน $pIdentifier สำเร็จ'});
+    }
+
+    return jsonEncode({'status': 'error', 'message': 'ไม่รู้จักคำสั่ง action: $action'});
+  }
 }

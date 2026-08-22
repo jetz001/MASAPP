@@ -98,7 +98,7 @@ class DbConnection {
               await db.execute('PRAGMA locking_mode = NORMAL');
             } catch (_) {}
           } else {
-            // Local disk: use WAL for best multi-client concurrency
+            // Local disk: use WAL for best multi-client concurrency & crash recovery
             try {
               await db.execute('PRAGMA journal_mode = WAL');
             } catch (e) {
@@ -110,6 +110,11 @@ class DbConnection {
 
             try {
               await db.execute('PRAGMA synchronous = NORMAL');
+            } catch (_) {}
+
+            // Auto-checkpoint frequently (every 100 pages ~400KB) to prevent data loss on sudden power off
+            try {
+              await db.execute('PRAGMA wal_autocheckpoint = 100');
             } catch (_) {}
           }
 
@@ -124,6 +129,17 @@ class DbConnection {
         },
         onOpen: (db) async {
           _log.i('Database connection opened successfully');
+          // Recover and merge WAL changes on startup after unexpected shutdown/force-kill
+          try {
+            await db.execute('PRAGMA wal_checkpoint(PASSIVE)');
+            final check = await db.rawQuery('PRAGMA quick_check(1)');
+            if (check.isNotEmpty && check.first.values.first == 'ok') {
+              _log.i('Database integrity check passed: OK');
+            }
+          } catch (e) {
+            _log.w('Startup WAL checkpoint/integrity check notice: $e');
+          }
+
           if (!skipInitialization) {
             await DbInitializer.initializeDatabase(db);
           }
@@ -132,9 +148,22 @@ class DbConnection {
     );
   }
 
+  /// Checkpoint WAL to main database file (useful before app close or backup)
+  Future<void> checkpoint() async {
+    try {
+      if (_db != null && _db!.isOpen) {
+        await _db!.execute('PRAGMA wal_checkpoint(TRUNCATE)');
+        _log.i('Database WAL checkpointed successfully');
+      }
+    } catch (e) {
+      _log.w('Database checkpoint error: $e');
+    }
+  }
+
   /// Close the connection.
   Future<void> disconnect() async {
     _log.i('Closing database connection');
+    await checkpoint();
     await _db?.close();
     _db = null;
   }

@@ -32,6 +32,7 @@ import '../../features/ai_chat/ai_chat_screen.dart';
 import '../../features/work_processes/screens/work_process_list_screen.dart';
 import '../../features/work_processes/screens/work_process_form_screen.dart';
 import '../../features/lean_analysis/screens/lean_analysis_screen.dart';
+import '../../features/problem_solving/screens/problem_solving_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -224,6 +225,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/lean-analysis',
             builder: (context, state) => LeanAnalysisScreen(
               initialProcessId: state.uri.queryParameters['processId'],
+            ),
+          ),
+          // Problem Solving & RCA
+          GoRoute(
+            path: '/problem-solving',
+            builder: (context, state) => ProblemSolvingScreen(
+              initialProcessId: state.uri.queryParameters['processId'],
+              initialStepId: state.uri.queryParameters['stepId'],
+              initialProblemTitle: state.uri.queryParameters['problem'],
             ),
           ),
           // Workforce

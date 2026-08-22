@@ -523,7 +523,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
           final item = attachments[idx];
           displayNames.add(item.name);
 
-          if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv'].contains(item.ext)) {
+          if (['pdf', 'xlsx', 'xls', 'txt', 'md', 'csv', 'doc', 'docx'].contains(item.ext)) {
             String docName = item.name;
             String extractedText = '';
             try {
@@ -543,12 +543,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               '   - ที่อยู่ไฟล์ (file_path): "${item.file.path}"\n'
               '   - เนื้อหา:\n'
               '${truncatedText.isNotEmpty ? truncatedText : "(ไม่มีเลเยอร์ข้อความหรือเป็นภาพสแกน)"}',
-            );
-          } else if (['doc', 'docx'].contains(item.ext)) {
-            promptSections.add(
-              '${idx + 1}. [เอกสาร Word] ชื่อ: "${item.name}"\n'
-              '   - ที่อยู่ไฟล์ (file_path): "${item.file.path}"\n'
-              '   - ประเภทไฟล์: ${item.ext}',
             );
           } else {
             // Image
@@ -1125,28 +1119,39 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
-              FilledButton(
-                onPressed: _sending ? null : _send,
-                style: FilledButton.styleFrom(
-                  shape: const CircleBorder(),
-                  padding: const EdgeInsets.all(14),
+              if (_sending)
+                FilledButton.icon(
+                  onPressed: _stopGenerating,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.red.shade600,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.stop_rounded, size: 20),
+                  label: const Text('หยุด (Stop)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                )
+              else
+                FilledButton(
+                  onPressed: _send,
+                  style: FilledButton.styleFrom(
+                    shape: const CircleBorder(),
+                    padding: const EdgeInsets.all(14),
+                  ),
+                  child: const Icon(Icons.send_rounded),
                 ),
-                child: _sending
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.send_rounded),
-              ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  void _stopGenerating() {
+    ref.read(aiChatProvider.notifier).stopGeneration();
+    setState(() {
+      _sending = false;
+    });
   }
 
   Future<void> _showApiKeyDialog() async {

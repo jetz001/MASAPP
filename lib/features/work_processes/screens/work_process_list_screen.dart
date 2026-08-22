@@ -52,16 +52,6 @@ class _WorkProcessListScreenState extends ConsumerState<WorkProcessListScreen> {
           ],
         ),
         actions: [
-          FilledButton.tonalIcon(
-            icon: const Icon(Icons.analytics_rounded, size: 18),
-            label: const Text('Lean Analysis & VSM'),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.amber.shade100,
-              foregroundColor: Colors.amber.shade900,
-            ),
-            onPressed: () => context.push('/lean-analysis'),
-          ),
-          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'รีเฟรช',
@@ -175,22 +165,6 @@ class _WorkProcessListScreenState extends ConsumerState<WorkProcessListScreen> {
                 onSelected: (_) => setState(() => _filterStatus = 'unconfigured'),
               ),
             ],
-            const SizedBox(width: 24),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '💡 บันทึก SOP ประจำเครื่อง แล้วส่งต่อวิเคราะห์ที่ Lean Analysis',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -410,20 +384,9 @@ class _WorkProcessListScreenState extends ConsumerState<WorkProcessListScreen> {
                       icon: const Icon(Icons.edit_note_rounded, size: 16),
                       label: const Text('แก้ไข SOP'),
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       ),
                       onPressed: () => context.push('/work-processes/${curProcess.processId}'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.tonalIcon(
-                      icon: const Icon(Icons.analytics_rounded, size: 16),
-                      label: const Text('Lean VSM'),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.amber.shade100,
-                        foregroundColor: Colors.amber.shade900,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
-                      onPressed: () => context.push('/lean-analysis?processId=${curProcess.processId}'),
                     ),
                   ] else ...[
                     FilledButton.icon(
@@ -531,13 +494,6 @@ class _WorkProcessListScreenState extends ConsumerState<WorkProcessListScreen> {
                         ),
                       ),
                       const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.analytics_rounded, size: 20),
-                        tooltip: 'วิเคราะห์ Lean & ความสูญเปล่า',
-                        onPressed: () => context.push(
-                          '/lean-analysis?processId=${process.processId}',
-                        ),
-                      ),
                       IconButton(
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         tooltip: 'ทำซ้ำเป็นฉบับปรับปรุง (Create Improved Version)',

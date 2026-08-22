@@ -139,7 +139,7 @@ class _SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F1117),
+      backgroundColor: const Color(0xFF0C0E14),
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -150,38 +150,59 @@ class _SplashScreen extends StatelessWidget {
             errorBuilder: (context, error, stackTrace) => const SizedBox(),
           ),
 
+          // Subtle gradient overlay
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0.25),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.7),
+                ],
+                stops: const [0.0, 0.4, 1.0],
+              ),
+            ),
+          ),
+
           // Loading Indicator overlay at the bottom
           Positioned(
-            bottom: 40,
+            bottom: 48,
             left: 0,
             right: 0,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const SizedBox(
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   child: CircularProgressIndicator(
                     strokeWidth: 3.0,
-                    color: Color(0xFF2563EB),
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF6366F1)),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: 20,
                     vertical: 8,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(20),
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1,
+                    ),
                   ),
                   child: const Text(
                     'กำลังเชื่อมต่อฐานข้อมูล...',
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
+                      fontSize: 13,
+                      color: Color(0xFFF1F5F9),
                       fontWeight: FontWeight.w500,
+                      letterSpacing: 0.3,
                     ),
                   ),
                 ),

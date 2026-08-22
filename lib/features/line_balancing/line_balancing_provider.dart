@@ -105,6 +105,65 @@ class WorkstationData {
   }
 }
 
+class LineConnection {
+  final String id; // unique connection id e.g. "fromId->toId"
+  final String fromStationId;
+  final String toStationId;
+  final int colorValue; // ARGB integer e.g. 0xFFFB8C00
+  final List<Offset> waypoints; // draggable bend points
+  final bool isCurved; // false = 90 deg orthogonal (Wokwi), true = curved
+
+  LineConnection({
+    required this.id,
+    required this.fromStationId,
+    required this.toStationId,
+    this.colorValue = 0xFFFB8C00, // Wokwi Orange default
+    this.waypoints = const [],
+    this.isCurved = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'from': fromStationId,
+    'to': toStationId,
+    'color': colorValue,
+    'isCurved': isCurved,
+    'waypoints': waypoints.map((w) => {'x': w.dx, 'y': w.dy}).toList(),
+  };
+
+  factory LineConnection.fromJson(Map<String, dynamic> json) {
+    return LineConnection(
+      id: json['id'] as String? ?? '${json['from']}->${json['to']}',
+      fromStationId: json['from'] as String,
+      toStationId: json['to'] as String,
+      colorValue: json['color'] as int? ?? 0xFFFB8C00,
+      isCurved: json['isCurved'] as bool? ?? false,
+      waypoints: (json['waypoints'] as List<dynamic>?)
+              ?.map((w) => Offset(
+                    (w['x'] as num).toDouble(),
+                    (w['y'] as num).toDouble(),
+                  ))
+              .toList() ??
+          const [],
+    );
+  }
+
+  LineConnection copyWith({
+    int? colorValue,
+    List<Offset>? waypoints,
+    bool? isCurved,
+  }) {
+    return LineConnection(
+      id: id,
+      fromStationId: fromStationId,
+      toStationId: toStationId,
+      colorValue: colorValue ?? this.colorValue,
+      waypoints: waypoints ?? this.waypoints,
+      isCurved: isCurved ?? this.isCurved,
+    );
+  }
+}
+
 class LineBalancingState {
   final String lineId;
   final String lineName;
@@ -114,6 +173,7 @@ class LineBalancingState {
   final double electricityRate;
   final double fuelRate;
   final List<WorkstationData> stations;
+  final List<LineConnection> connections;
 
   LineBalancingState({
     this.lineId = 'default_line',
@@ -124,7 +184,31 @@ class LineBalancingState {
     this.electricityRate = 4.0, // Default 4 THB/kWh
     this.fuelRate = 30.0, // Default 30 THB/L
     required this.stations,
+    this.connections = const [],
   });
+
+  List<LineConnection> get resolvedConnections {
+    final Map<String, LineConnection> existingMap = {
+      for (final c in connections) c.id: c
+    };
+    final List<LineConnection> result = [];
+    for (final s in stations) {
+      for (final nextId in s.nextStationIds) {
+        final id = '${s.id}->$nextId';
+        if (existingMap.containsKey(id)) {
+          result.add(existingMap[id]!);
+        } else {
+          result.add(LineConnection(
+            id: id,
+            fromStationId: s.id,
+            toStationId: nextId,
+            colorValue: 0xFFFB8C00,
+          ));
+        }
+      }
+    }
+    return result;
+  }
 
   double get taktTimeSec =>
       demandQuantity > 0 ? (availableTimeMin * 60) / demandQuantity : 0;
@@ -231,6 +315,7 @@ class LineBalancingState {
     double? electricityRate,
     double? fuelRate,
     List<WorkstationData>? stations,
+    List<LineConnection>? connections,
   }) {
     return LineBalancingState(
       lineId: lineId ?? this.lineId,
@@ -241,6 +326,7 @@ class LineBalancingState {
       electricityRate: electricityRate ?? this.electricityRate,
       fuelRate: fuelRate ?? this.fuelRate,
       stations: stations ?? this.stations,
+      connections: connections ?? this.connections,
     );
   }
 }
@@ -253,6 +339,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           availableTimeMin: 480, // 8 hours
           demandQuantity: 1000,
           stations: [],
+          connections: [],
         )) {
     _initAndLoad();
   }
@@ -268,10 +355,15 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           demand_quantity     REAL NOT NULL DEFAULT 1000,
           electricity_rate    REAL NOT NULL DEFAULT 4.0,
           fuel_rate           REAL NOT NULL DEFAULT 30.0,
+          connections_json    TEXT,
           created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       ''');
+
+      try {
+        await DbHelper.execute('ALTER TABLE production_lines ADD COLUMN connections_json TEXT;');
+      } catch (_) {}
 
       await DbHelper.execute('''
         CREATE TABLE IF NOT EXISTS production_line_stations (
@@ -369,6 +461,17 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
         );
       }).toList();
 
+      List<LineConnection> loadedConnections = [];
+      try {
+        if (lineRes['connections_json'] != null &&
+            lineRes['connections_json'].toString().isNotEmpty) {
+          final rawList = jsonDecode(lineRes['connections_json']) as List<dynamic>;
+          loadedConnections = rawList
+              .map((item) => LineConnection.fromJson(item as Map<String, dynamic>))
+              .toList();
+        }
+      } catch (_) {}
+
       state = LineBalancingState(
         lineId: lineId,
         lineName: lineRes['line_name'] ?? 'สายการผลิต',
@@ -381,6 +484,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
             (lineRes['electricity_rate'] as num?)?.toDouble() ?? 4.0,
         fuelRate: (lineRes['fuel_rate'] as num?)?.toDouble() ?? 30.0,
         stations: loadedStations,
+        connections: loadedConnections,
       );
     } catch (_) {}
   }
@@ -390,10 +494,13 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       await ensureTables();
       final lineId = state.lineId.isNotEmpty ? state.lineId : const Uuid().v4();
       final name = newName ?? state.lineName;
+      final connectionsJson = jsonEncode(
+        state.resolvedConnections.map((c) => c.toJson()).toList(),
+      );
 
       await DbHelper.execute('''
-        INSERT INTO production_lines (line_id, line_name, department, available_time_min, demand_quantity, electricity_rate, fuel_rate, updated_at)
-        VALUES (@id, @name, @dept, @avail, @demand, @elec, @fuel, CURRENT_TIMESTAMP)
+        INSERT INTO production_lines (line_id, line_name, department, available_time_min, demand_quantity, electricity_rate, fuel_rate, connections_json, updated_at)
+        VALUES (@id, @name, @dept, @avail, @demand, @elec, @fuel, @conn, CURRENT_TIMESTAMP)
         ON CONFLICT(line_id) DO UPDATE SET
           line_name = excluded.line_name,
           department = excluded.department,
@@ -401,6 +508,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           demand_quantity = excluded.demand_quantity,
           electricity_rate = excluded.electricity_rate,
           fuel_rate = excluded.fuel_rate,
+          connections_json = excluded.connections_json,
           updated_at = CURRENT_TIMESTAMP
       ''', params: {
         'id': lineId,
@@ -410,6 +518,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
         'demand': state.demandQuantity,
         'elec': state.electricityRate,
         'fuel': state.fuelRate,
+        'conn': connectionsJson,
       });
 
       // Delete old stations and re-insert
@@ -452,7 +561,6 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           'x': s.position.dx,
           'y': s.position.dy,
           'prev': jsonEncode(s.prevStationIds),
-          'next': jsonEncode(s.nextStationIds),
         });
       }
 
@@ -597,33 +705,105 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
     saveCurrentLine();
   }
 
-  void linkStations(String fromId, String toId) {
+  void linkStations(String fromId, String toId, {int? defaultColor}) {
+    final connectionId = '$fromId->$toId';
+    final existingConn = state.resolvedConnections.where((c) => c.id == connectionId).firstOrNull;
+
+    final updatedStations = state.stations.map((s) {
+      if (s.id == fromId) {
+        if (s.nextStationIds.contains(toId)) {
+          return s.copyWith(
+            nextStationIds: s.nextStationIds.where((id) => id != toId).toList(),
+          );
+        } else {
+          return s.copyWith(nextStationIds: [...s.nextStationIds, toId]);
+        }
+      }
+      if (s.id == toId) {
+        if (s.prevStationIds.contains(fromId)) {
+          return s.copyWith(
+            prevStationIds: s.prevStationIds.where((id) => id != fromId).toList(),
+          );
+        } else {
+          return s.copyWith(prevStationIds: [...s.prevStationIds, fromId]);
+        }
+      }
+      return s;
+    }).toList();
+
+    List<LineConnection> updatedConnections = List.from(state.resolvedConnections);
+    if (existingConn != null) {
+      updatedConnections.removeWhere((c) => c.id == connectionId);
+    } else {
+      updatedConnections.add(LineConnection(
+        id: connectionId,
+        fromStationId: fromId,
+        toStationId: toId,
+        colorValue: defaultColor ?? 0xFFFB8C00,
+      ));
+    }
+
     state = state.copyWith(
-      stations: state.stations.map((s) {
-        if (s.id == fromId) {
-          if (s.nextStationIds.contains(toId)) {
-            return s.copyWith(
-              nextStationIds:
-                  s.nextStationIds.where((id) => id != toId).toList(),
-            );
-          } else {
-            return s.copyWith(nextStationIds: [...s.nextStationIds, toId]);
-          }
-        }
-        if (s.id == toId) {
-          if (s.prevStationIds.contains(fromId)) {
-            return s.copyWith(
-              prevStationIds:
-                  s.prevStationIds.where((id) => id != fromId).toList(),
-            );
-          } else {
-            return s.copyWith(prevStationIds: [...s.prevStationIds, fromId]);
-          }
-        }
-        return s;
-      }).toList(),
+      stations: updatedStations,
+      connections: updatedConnections,
     );
     saveCurrentLine();
+  }
+
+  void updateConnection(LineConnection connection) {
+    final list = List<LineConnection>.from(state.resolvedConnections);
+    final idx = list.indexWhere((c) => c.id == connection.id);
+    if (idx >= 0) {
+      list[idx] = connection;
+    } else {
+      list.add(connection);
+    }
+    state = state.copyWith(connections: list);
+    saveCurrentLine();
+  }
+
+  void updateConnectionColor(String connectionId, int colorValue) {
+    final list = state.resolvedConnections.map((c) {
+      if (c.id == connectionId) {
+        return c.copyWith(colorValue: colorValue);
+      }
+      return c;
+    }).toList();
+    state = state.copyWith(connections: list);
+    saveCurrentLine();
+  }
+
+  void updateConnectionWaypoints(String connectionId, List<Offset> waypoints) {
+    final list = state.resolvedConnections.map((c) {
+      if (c.id == connectionId) {
+        return c.copyWith(waypoints: waypoints);
+      }
+      return c;
+    }).toList();
+    state = state.copyWith(connections: list);
+    saveCurrentLine();
+  }
+
+  void toggleConnectionCurved(String connectionId) {
+    final list = state.resolvedConnections.map((c) {
+      if (c.id == connectionId) {
+        return c.copyWith(isCurved: !c.isCurved);
+      }
+      return c;
+    }).toList();
+    state = state.copyWith(connections: list);
+    saveCurrentLine();
+  }
+
+  void removeConnection(String connectionId) {
+    final parts = connectionId.split('->');
+    if (parts.length == 2) {
+      linkStations(parts[0], parts[1]);
+    } else {
+      final list = state.connections.where((c) => c.id != connectionId).toList();
+      state = state.copyWith(connections: list);
+      saveCurrentLine();
+    }
   }
 
   void updateStationPosition(String id, Offset newPos) {
@@ -641,12 +821,29 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       double calculatedCycleTime = 20.0;
       double calculatedEnergyCost = 0.0;
 
+      // Priority 1: Check work_processes / SOP steps duration
+      final sopRes = await DbHelper.query('''
+        SELECT SUM(s.duration_minutes) as total_min, COUNT(s.step_id) as step_cnt
+        FROM work_processes wp
+        JOIN work_process_steps s ON wp.process_id = s.process_id
+        WHERE wp.machine_id = @id
+      ''', params: {'id': machineId});
+
+      bool capacityFound = false;
+      if (sopRes.isNotEmpty) {
+        final stepCnt = (sopRes.first['step_cnt'] as num?)?.toInt() ?? 0;
+        final totalMin = (sopRes.first['total_min'] as num?)?.toDouble() ?? 0.0;
+        if (stepCnt > 0 && totalMin > 0) {
+          calculatedCycleTime = totalMin * 60.0;
+          capacityFound = true;
+        }
+      }
+
       final specRes = await DbHelper.queryOne(
         'SELECT power_kw, capacity, capacity_unit, fuel_consumption_rate, fuel_type FROM machine_specs WHERE machine_id = @id',
         params: {'id': machineId},
       );
 
-      bool capacityFound = false;
       if (specRes != null) {
         final powerKw = (specRes['power_kw'] as num?)?.toDouble() ?? 0.0;
         final elecCost = powerKw * state.electricityRate;
@@ -705,6 +902,77 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
     } catch (_) {}
     return null;
   }
+
+  Future<String> createNewLine({
+    required String lineName,
+    String? department,
+    double availableTimeMin = 480.0,
+    double demandQuantity = 1000.0,
+  }) async {
+    final newLineId = const Uuid().v4();
+    state = LineBalancingState(
+      lineId: newLineId,
+      lineName: lineName.trim().isNotEmpty ? lineName.trim() : 'สายการผลิตใหม่',
+      department: department,
+      availableTimeMin: availableTimeMin,
+      demandQuantity: demandQuantity,
+      electricityRate: state.electricityRate,
+      fuelRate: state.fuelRate,
+      stations: [],
+    );
+    await saveCurrentLine();
+    return newLineId;
+  }
+
+  Future<void> deleteLine(String lineId) async {
+    try {
+      await ensureTables();
+      await DbHelper.execute(
+        'DELETE FROM production_line_stations WHERE line_id = @id',
+        params: {'id': lineId},
+      );
+      await DbHelper.execute(
+        'DELETE FROM production_lines WHERE line_id = @id',
+        params: {'id': lineId},
+      );
+
+      if (state.lineId == lineId) {
+        final remaining = await DbHelper.query(
+          'SELECT line_id FROM production_lines ORDER BY created_at ASC LIMIT 1',
+        );
+        if (remaining.isNotEmpty) {
+          await loadLine(remaining.first['line_id'].toString());
+        } else {
+          await createNewLine(lineName: 'สายการผลิตที่ 1 (Main Line)');
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> renameLine(String lineId, String newName) async {
+    try {
+      await ensureTables();
+      await DbHelper.execute(
+        'UPDATE production_lines SET line_name = @name, updated_at = CURRENT_TIMESTAMP WHERE line_id = @id',
+        params: {'id': lineId, 'name': newName.trim()},
+      );
+      if (state.lineId == lineId) {
+        state = state.copyWith(lineName: newName.trim());
+      }
+    } catch (_) {}
+  }
+
+  Future<String> duplicateCurrentLine({String? newName}) async {
+    final dupName = newName ?? '${state.lineName} (สำเนา)';
+    final newLineId = const Uuid().v4();
+
+    state = state.copyWith(
+      lineId: newLineId,
+      lineName: dupName,
+    );
+    await saveCurrentLine();
+    return newLineId;
+  }
 }
 
 final lineBalancingProvider =
@@ -715,8 +983,12 @@ final lineBalancingProvider =
 final allProductionLinesProvider =
     FutureProvider<List<Map<String, dynamic>>>((ref) async {
   await LineBalancingNotifier.ensureTables();
-  final rows = await DbHelper.query(
-    'SELECT * FROM production_lines ORDER BY created_at DESC',
-  );
+  final rows = await DbHelper.query('''
+    SELECT pl.*, COUNT(pls.station_id) as station_count
+    FROM production_lines pl
+    LEFT JOIN production_line_stations pls ON pl.line_id = pls.line_id
+    GROUP BY pl.line_id
+    ORDER BY pl.created_at ASC
+  ''');
   return rows;
 });

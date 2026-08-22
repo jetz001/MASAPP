@@ -660,6 +660,26 @@ class DbInitializer {
           ''');
         }
 
+        // 13.1 Add tool_machine_map
+        final toolMapTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'tool_machine_map'],
+        );
+        if (toolMapTable.isEmpty) {
+          _log.i('Migration: Creating tool_machine_map table...');
+          await db.execute('''
+            CREATE TABLE tool_machine_map (
+              map_id      TEXT PRIMARY KEY,
+              tool_id     TEXT NOT NULL REFERENCES tools(tool_id) ON DELETE CASCADE,
+              machine_id  TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+              quantity    INTEGER NOT NULL DEFAULT 1,
+              notes       TEXT,
+              UNIQUE(tool_id, machine_id)
+            )
+          ''');
+        }
+
         // 14. Repair any dangling foreign keys referencing work_orders_old
         final brokenTables = await db.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%work_orders_old%'",

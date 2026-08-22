@@ -207,19 +207,19 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     super.initState();
     final settings = ref.read(appSettingsProvider).valueOrNull;
     _nameCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgName, defaultValue: 'บริษัท บอส คาร์ตัน จำกัด') ?? 'บริษัท บอส คาร์ตัน จำกัด',
+      text: settings?.get(AppSettingKeys.orgName) ?? '',
     );
     _plantCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgPlant, defaultValue: 'โรงงานลาดหลุมแก้ว') ?? 'โรงงานลาดหลุมแก้ว',
+      text: settings?.get(AppSettingKeys.orgPlant) ?? '',
     );
     _deptCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgDepartment, defaultValue: 'หน่วยงานซ่อมบำรุง (Maintenance)') ?? 'หน่วยงานซ่อมบำรุง (Maintenance)',
+      text: settings?.get(AppSettingKeys.orgDepartment, defaultValue: 'หน่วยงานซ่อมบำรุงและวิศวกรรม (Maintenance & Engineering)') ?? 'หน่วยงานซ่อมบำรุงและวิศวกรรม (Maintenance & Engineering)',
     );
     _businessTypeCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgBusinessType, defaultValue: 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น') ?? 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น',
+      text: settings?.get(AppSettingKeys.orgBusinessType) ?? '',
     );
     _aiContextCtrl = TextEditingController(
-      text: settings?.get(AppSettingKeys.orgAiContext, defaultValue: 'บริษัท บอส คาร์ตัน จำกัด เป็นโรงงานผลิตกล่องกระดาษลูกฟูกและบรรจุภัณฑ์ครบวงจร มีเครื่องจักรหลักคือ เครื่องพิมพ์, เครื่องไดคัท, เครื่องปะกาวเกี่ยวก้น, เครื่องตัดกระดาษ, รถโฟล์คลิฟต์') ?? '',
+      text: settings?.get(AppSettingKeys.orgAiContext) ?? '',
     );
     _addressCtrl = TextEditingController(
       text: settings?.get(AppSettingKeys.orgAddress) ?? '',
@@ -300,6 +300,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                 _nameCtrl,
                 'ชื่อบริษัท / องค์กร',
                 Icons.business_rounded,
+                hintText: 'เช่น บริษัท ตัวอย่างอุตสาหกรรม จำกัด',
               ),
               Row(
                 children: [
@@ -308,6 +309,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                       _plantCtrl,
                       'โรงงาน / สาขา',
                       Icons.factory_outlined,
+                      hintText: 'เช่น โรงงานหลัก (สาขา 1)',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -316,6 +318,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                       _deptCtrl,
                       'ส่วน / แผนกหลัก',
                       Icons.work_outline_rounded,
+                      hintText: 'เช่น ฝ่ายซ่อมบำรุงและวิศวกรรม',
                     ),
                   ),
                 ],
@@ -325,18 +328,21 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                 'ประเภทธุรกิจ & กระบวนการผลิตหลัก',
                 Icons.precision_manufacturing_rounded,
                 maxLines: 2,
+                hintText: 'เช่น โรงงานแปรรูปอาหาร, โรงงานผลิตชิ้นส่วนยานยนต์, โรงงานกลึงและขึ้นรูปโลหะ',
               ),
               _buildField(
                 _aiContextCtrl,
                 '🤖 บริบทองค์กรสำหรับ AI Assistant (ให้ AI เข้าใจโรงงานไม่งง)',
                 Icons.auto_awesome_rounded,
                 maxLines: 3,
+                hintText: 'เช่น โรงงานผลิตชิ้นส่วน มีเครื่องจักรหลักคือ CNC, Press machine, Robotic arm...',
               ),
               _buildField(
                 _addressCtrl,
                 'ที่อยู่สำนักงาน',
                 Icons.location_on_rounded,
                 maxLines: 2,
+                hintText: 'เลขที่ ถนน ตำบล อำเภอ จังหวัด',
               ),
               Row(
                 children: [
@@ -345,6 +351,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                       _taxIdCtrl,
                       'เลขประจำตัวผู้เสียภาษี',
                       Icons.badge_rounded,
+                      hintText: '13 หลัก',
                     ),
                   ),
                   const SizedBox(width: AppSpacing.md),
@@ -353,6 +360,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
                       _phoneCtrl,
                       'เบอร์โทรศัพท์ติดต่อ',
                       Icons.phone_rounded,
+                      hintText: '02-xxx-xxxx',
                     ),
                   ),
                 ],
@@ -390,6 +398,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
     String label,
     IconData icon, {
     int maxLines = 1,
+    String? hintText,
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.lg),
@@ -406,6 +415,7 @@ class _OrganizationInfoTabState extends ConsumerState<_OrganizationInfoTab> {
             maxLines: maxLines,
             decoration: InputDecoration(
               prefixIcon: Icon(icon, size: 18),
+              hintText: hintText,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -1684,6 +1694,36 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                     ),
                   ),
 
+                  if (definition.recommendedModels.isNotEmpty) ...[
+                    const SizedBox(height: AppSpacing.xs),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: definition.recommendedModels.map((m) {
+                        final isSelected = _modelController.text.trim() == m ||
+                            (_modelController.text.trim().isEmpty && m == definition.defaultModel);
+                        return ActionChip(
+                          label: Text(
+                            m,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                            ),
+                          ),
+                          avatar: isSelected
+                              ? Icon(Icons.check, size: 14, color: Theme.of(context).colorScheme.primary)
+                              : null,
+                          onPressed: () {
+                            setState(() {
+                              _modelController.text = m;
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+
                   if (definition.supportsCustomBaseUrl) ...[
                     const SizedBox(height: AppSpacing.lg),
                     TextField(
@@ -1938,6 +1978,37 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                               setState(() => _embObscureKey = !_embObscureKey),
                         ),
                         border: const OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+
+                  if (_selectedEmbeddingProvider == EmbeddingProviderKind.ollama ||
+                      _selectedProvider == AiProviderKind.ollama) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(
+                          color: Colors.blue.withValues(alpha: 0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline, size: 20, color: Colors.blue),
+                          SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(
+                              '💡 เครื่องมือจัดการโมเดลในเครื่อง:\n'
+                              '• ติดตั้ง/ดาวน์โหลดโมเดล: ดับเบิ้ลคลิกไฟล์ setup_ai_environment.bat ในโฟลเดอร์โปรแกรม\n'
+                              '• ลบโมเดล/คืนพื้นที่ Harddisk: ดับเบิ้ลคลิกไฟล์ uninstall_ai_models.bat',
+                              style: TextStyle(fontSize: 12, height: 1.4),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],

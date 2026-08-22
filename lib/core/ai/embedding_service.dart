@@ -166,13 +166,18 @@ class EmbeddingService {
     List<String> texts,
     EmbeddingProviderConfig config,
   ) async {
-    final baseUrl = config.resolvedBaseUrl.replaceAll(RegExp(r'/+$'), '');
+    var baseUrl = config.resolvedBaseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    if (baseUrl.endsWith('/api')) {
+      baseUrl = baseUrl.substring(0, baseUrl.length - 4);
+    }
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (config.apiKey.trim().isNotEmpty) {
       headers['Authorization'] = 'Bearer ${config.apiKey.trim()}';
     }
 
-    // Try Ollama /api/embed (Batch endpoint supported in newer Ollama)
+    final modelName = config.model.isNotEmpty ? config.model : 'nomic-embed-text';
+
+    // 1. Try Ollama /api/embed (Batch endpoint supported in modern Ollama)
     try {
       final embedUri = Uri.parse('$baseUrl/api/embed');
       final response = await http
@@ -180,7 +185,7 @@ class EmbeddingService {
             embedUri,
             headers: headers,
             body: jsonEncode({
-              'model': config.model.isNotEmpty ? config.model : 'nomic-embed-text',
+              'model': modelName,
               'input': texts,
             }),
           )
@@ -197,7 +202,7 @@ class EmbeddingService {
       }
     } catch (_) {}
 
-    // Fallback to sequential /api/embeddings for older Ollama versions
+    // 2. Fallback to /api/embeddings or handle single input
     final results = <List<double>>[];
     final legacyUri = Uri.parse('$baseUrl/api/embeddings');
     for (final text in texts) {
@@ -206,7 +211,7 @@ class EmbeddingService {
             legacyUri,
             headers: headers,
             body: jsonEncode({
-              'model': config.model.isNotEmpty ? config.model : 'nomic-embed-text',
+              'model': modelName,
               'prompt': text,
             }),
           )
@@ -217,6 +222,26 @@ class EmbeddingService {
         final emb = (data['embedding'] as List<dynamic>?) ?? [];
         results.add(emb.map((v) => (v as num).toDouble()).toList());
       } else {
+        // If 404 on legacy endpoint, try /api/embed for single item
+        final singleEmbedUri = Uri.parse('$baseUrl/api/embed');
+        final singleResp = await http
+            .post(
+              singleEmbedUri,
+              headers: headers,
+              body: jsonEncode({
+                'model': modelName,
+                'input': text,
+              }),
+            )
+            .timeout(_requestTimeout);
+        if (singleResp.statusCode == 200) {
+          final singleData = jsonDecode(utf8.decode(singleResp.bodyBytes)) as Map<String, dynamic>;
+          final embs = singleData['embeddings'] as List<dynamic>? ?? [];
+          if (embs.isNotEmpty) {
+            results.add((embs.first as List<dynamic>).map((v) => (v as num).toDouble()).toList());
+            continue;
+          }
+        }
         throw HttpException('Ollama error (${response.statusCode}): ${response.body}');
       }
     }

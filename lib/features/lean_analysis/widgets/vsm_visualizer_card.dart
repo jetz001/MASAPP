@@ -61,74 +61,83 @@ class VsmVisualizerCard extends StatelessWidget {
   }
 
   Widget _buildHeader(VsmSummary summary, ThemeData theme, bool isDark) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Colors.indigo.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Icon(
-            Icons.alt_route_rounded,
-            color: Colors.indigo,
-            size: 24,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isNarrow = constraints.maxWidth < 950;
+
+        final titleSection = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.indigo.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.alt_route_rounded,
+                color: Colors.indigo,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'แผนผังสายธารคุณค่า (Value Stream Map - VSM)',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        'แผนผังสายธารคุณค่า (Value Stream Map - VSM)',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: process.methodType == WorkProcessMethodType.improved
+                              ? Colors.green.withValues(alpha: 0.15)
+                              : Colors.blue.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: process.methodType == WorkProcessMethodType.improved
+                                ? Colors.green
+                                : Colors.blue,
+                          ),
+                        ),
+                        child: Text(
+                          process.methodType == WorkProcessMethodType.improved
+                              ? 'Future State (ปรับปรุง)'
+                              : 'Current State (ปัจจุบัน)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: process.methodType == WorkProcessMethodType.improved
+                                ? Colors.green.shade700
+                                : Colors.blue.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: process.methodType == WorkProcessMethodType.improved
-                          ? Colors.green.withValues(alpha: 0.15)
-                          : Colors.blue.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: process.methodType == WorkProcessMethodType.improved
-                            ? Colors.green
-                            : Colors.blue,
-                      ),
-                    ),
-                    child: Text(
-                      process.methodType == WorkProcessMethodType.improved
-                          ? 'Future State (ปรับปรุง)'
-                          : 'Current State (ปัจจุบัน)',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: process.methodType == WorkProcessMethodType.improved
-                            ? Colors.green.shade700
-                            : Colors.blue.shade700,
-                      ),
-                    ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'จำลองการไหลของข้อมูล (Information Flow) และวัสดุ (Material Flow) พร้อมสถิติเวลา Cycle Time & คอขวด',
+                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
                   ),
                 ],
               ),
-              const SizedBox(height: 4),
-              Text(
-                'จำลองการไหลของข้อมูล (Information Flow) และวัสดุ (Material Flow) พร้อมสถิติเวลา Cycle Time & คอขวด',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-        ),
-        // KPI Badges
-        Row(
-          mainAxisSize: MainAxisSize.min,
+            ),
+          ],
+        );
+
+        final kpiSection = Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             _buildKpiChip(
               'Lead Time (L/T)',
@@ -137,7 +146,6 @@ class VsmVisualizerCard extends StatelessWidget {
               Colors.blue,
               isDark,
             ),
-            const SizedBox(width: 8),
             _buildKpiChip(
               'Processing (VA)',
               '${summary.totalProcessingTimeMinutes.toStringAsFixed(1)} m',
@@ -145,7 +153,6 @@ class VsmVisualizerCard extends StatelessWidget {
               Colors.green,
               isDark,
             ),
-            const SizedBox(width: 8),
             _buildKpiChip(
               'PCE Efficiency',
               '${summary.processCycleEfficiency.toStringAsFixed(1)}%',
@@ -153,8 +160,7 @@ class VsmVisualizerCard extends StatelessWidget {
               summary.processCycleEfficiency >= 50 ? Colors.green : Colors.orange,
               isDark,
             ),
-            if (summary.kaizenCount > 0) ...[
-              const SizedBox(width: 8),
+            if (summary.kaizenCount > 0)
               _buildKpiChip(
                 'จุด Kaizen 💥',
                 '${summary.kaizenCount} จุด',
@@ -162,10 +168,29 @@ class VsmVisualizerCard extends StatelessWidget {
                 Colors.amber.shade800,
                 isDark,
               ),
-            ],
           ],
-        ),
-      ],
+        );
+
+        if (isNarrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              titleSection,
+              const SizedBox(height: 12),
+              kpiSection,
+            ],
+          );
+        }
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: titleSection),
+            const SizedBox(width: 16),
+            kpiSection,
+          ],
+        );
+      },
     );
   }
 
@@ -428,7 +453,7 @@ class VsmVisualizerCard extends StatelessWidget {
     }
 
     return Container(
-      width: 170,
+      width: 175,
       decoration: BoxDecoration(
         color: isDark ? Colors.grey.shade900 : Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -478,9 +503,19 @@ class VsmVisualizerCard extends StatelessWidget {
             padding: const EdgeInsets.all(8.0),
             child: Column(
               children: [
-                _buildVsmDataRow('Cycle Time (C/T)', '${s.durationMinutes.toStringAsFixed(1)} นาที', isHighlight: isBottleneck),
-                _buildVsmDataRow('ระยะทาง (Dist)', '${s.distanceMeters.toStringAsFixed(0)} ม.'),
-                _buildVsmDataRow('ประเภทคุณค่า', s.valueLabel, color: s.valueType == LeanValueType.va ? Colors.green : (s.valueType == LeanValueType.nva ? Colors.red : Colors.orange)),
+                _buildVsmDataRow(
+                  'Cycle Time (C/T)',
+                  s.durationMinutes >= 1
+                      ? '${s.durationMinutes.toStringAsFixed(1)} นาที'
+                      : '${(s.durationMinutes * 60).toStringAsFixed(1)} วินาที',
+                  isHighlight: isBottleneck,
+                  color: isBottleneck ? Colors.red : null,
+                ),
+                _buildVsmDataRow(
+                  'กำลังคน (Manpower)',
+                  s.partsQuantity?.isNotEmpty == true ? s.partsQuantity! : '1 คน',
+                  color: Colors.blue.shade700,
+                ),
                 _buildVsmDataRow('สัญลักษณ์ ASME', s.eventName),
                 if (s.problemCause?.isNotEmpty ?? false) ...[
                   const SizedBox(height: 4),
@@ -564,13 +599,24 @@ class VsmVisualizerCard extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
-              color: color ?? (isHighlight ? Colors.red : null),
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: isHighlight ? FontWeight.bold : FontWeight.w600,
+                color: color ?? (isHighlight ? Colors.red : null),
+              ),
             ),
           ),
         ],
@@ -593,11 +639,14 @@ class VsmVisualizerCard extends StatelessWidget {
             children: [
               const Icon(Icons.linear_scale_rounded, size: 18, color: Colors.indigo),
               const SizedBox(width: 8),
-              const Text(
-                'บันไดเวลา VSM (Timeline Ladder) — จำแนกเวลาที่สร้างคุณค่า (VA) vs เวลาสูญเปล่า (Non-VA)',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              const Expanded(
+                child: Text(
+                  'บันไดเวลา VSM (Timeline Ladder) — จำแนกเวลาที่สร้างคุณค่า (VA) vs เวลาสูญเปล่า (Non-VA)',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 'Total Lead Time: ${summary.totalLeadTimeMinutes.toStringAsFixed(1)} min',
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blue),
@@ -620,9 +669,11 @@ class VsmVisualizerCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // Summary Footer
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Summary Footer (Wrap to prevent overflow on any screen width)
+          Wrap(
+            spacing: 16,
+            runSpacing: 6,
+            alignment: WrapAlignment.spaceBetween,
             children: [
               Text(
                 '🔺 ระดับบน (Non-VA / Delay Time): ${summary.totalDelayTimeMinutes.toStringAsFixed(1)} นาที',

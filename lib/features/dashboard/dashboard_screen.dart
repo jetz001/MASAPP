@@ -8,6 +8,8 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
+import '../analytics/analytics_provider.dart';
+import '../analytics/analytics_dashboard_screen.dart';
 import 'package:intl/intl.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -150,19 +152,23 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authProvider);
     final statsAsync = ref.watch(dashboardStatsProvider);
+    final dateRange = ref.watch(analyticsDateRangeProvider);
+    final metricsAsync = ref.watch(maintenanceMetricsProvider);
+    final paretoAsync = ref.watch(paretoAnalysisProvider);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header with Greeting & Date Range Selector
           Row(
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('แดชบอร์ด', style: Theme.of(context).textTheme.headlineLarge),
+                  Text('แดชบอร์ดบริหารจัดการโรงงาน',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(
                     'ยินดีต้อนรับ, ${user?.fullName ?? ''} · ${_greeting()}',
@@ -173,11 +179,31 @@ class DashboardScreen extends ConsumerWidget {
                 ],
               ),
               const Spacer(),
-              Text(
-                DateFormat('EEEE d MMMM yyyy', 'th').format(DateTime.now()),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+              // Date Range Picker Button for KPIs
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.date_range_rounded, size: 16),
+                label: Text(
+                  dateRange == null
+                      ? '30 วันล่าสุด (Default)'
+                      : '${dateRange.start.day}/${dateRange.start.month}/${dateRange.start.year} - ${dateRange.end.day}/${dateRange.end.month}/${dateRange.end.year}',
+                  style: const TextStyle(fontSize: 12.5),
+                ),
+                onPressed: () async {
+                  final picked = await showDateRangePicker(
+                    context: context,
+                    locale: const Locale('th', 'TH'),
+                    initialDateRange: dateRange ??
+                        DateTimeRange(
+                          start: DateTime.now().subtract(const Duration(days: 30)),
+                          end: DateTime.now(),
+                        ),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime.now(),
+                  );
+                  if (picked != null) {
+                    ref.read(analyticsDateRangeProvider.notifier).state = picked;
+                  }
+                },
               ),
               const SizedBox(width: AppSpacing.md),
               IconButton(
@@ -186,99 +212,220 @@ class DashboardScreen extends ConsumerWidget {
                   size: 18,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
-                onPressed: () => ref.invalidate(dashboardStatsProvider),
-                tooltip: 'รีเฟรช',
+                onPressed: () {
+                  ref.invalidate(dashboardStatsProvider);
+                  ref.invalidate(maintenanceMetricsProvider);
+                  ref.invalidate(paretoAnalysisProvider);
+                  ref.invalidate(oeeTrendProvider);
+                },
+                tooltip: 'รีเฟรชข้อมูลทั้งหมด',
               ),
             ],
           ),
 
           const SizedBox(height: AppSpacing.xxl),
 
-          // KPI Cards
+          // 1. Maintenance Status Row
           statsAsync.when(
             loading: () => const Center(
-                child: Padding(
-              padding: EdgeInsets.all(32),
-              child: CircularProgressIndicator(),
-            )),
-            error: (e, _) => Text('Error: $e'),
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (e, _) => Text('Error loading stats: $e'),
+            data: (stats) => Row(
+              children: [
+                _KpiCard(
+                  label: 'เครื่องจักรทั้งหมด',
+                  value: '${stats.totalMachines}',
+                  unit: 'เครื่อง',
+                  icon: HugeIcons.strokeRoundedFactory,
+                  color: AppColors.primary,
+                  onTap: () => context.go('/machine-registry'),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                _KpiCard(
+                  label: 'งานที่รอนายตรวจ',
+                  value: '${stats.pendingReview}',
+                  unit: 'ใบ',
+                  icon: HugeIcons.strokeRoundedTask01,
+                  color: AppColors.warning,
+                  onTap: () => context.go('/work-orders'),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                _KpiCard(
+                  label: 'กำลังดำเนินการ',
+                  value: '${stats.inProgress}',
+                  unit: 'รายการ',
+                  icon: HugeIcons.strokeRoundedSettings01,
+                  color: AppColors.primary,
+                  onTap: () => context.go('/pm-am'),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                _KpiCard(
+                  label: 'ใบอนุญาตรออนุมัติ',
+                  value: '${stats.pendingPermits}',
+                  unit: 'ใบ',
+                  icon: HugeIcons.strokeRoundedAgreement01,
+                  color: AppColors.info,
+                  onTap: () => context.go('/work-permit'),
+                ),
+                const SizedBox(width: AppSpacing.lg),
+                _KpiCard(
+                  label: 'สต็อกต่ำกว่ากำหนด',
+                  value: '${stats.lowStockParts}',
+                  unit: 'รายการ',
+                  icon: HugeIcons.strokeRoundedArchive02,
+                  color: AppColors.severityHigh,
+                  onTap: () => context.go('/spare-parts'),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.xxl),
+
+          // 2. Plant Reliability & OEE Section Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(Icons.speed_rounded, color: Colors.green, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'ตัวชี้วัดประสิทธิภาพโรงงาน & OEE (Plant Reliability & OEE KPIs)',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // 3. 6 KPI Cards (MTBF, MTTR, OEE, Availability, Performance, Quality)
+          metricsAsync.when(
+            data: (metrics) => KPICards(metrics: metrics),
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (err, _) => Text('คำนวณ KPI ล้มเหลว: $err'),
+          ),
+
+          const SizedBox(height: AppSpacing.xxl),
+
+          // 4. Failure Analysis (Pareto) & Machine Status Distribution
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Pareto Failure Analysis
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Icon(Icons.bar_chart_rounded, color: Colors.redAccent, size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'วิเคราะห์สาเหตุเครื่องเสีย (Pareto Analysis)',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            isDense: true,
+                            value: ref.watch(paretoGroupByProvider),
+                            items: const [
+                              DropdownMenuItem(value: 'failureType', child: Text('หมวดหมู่อาการเสีย', style: TextStyle(fontSize: 12))),
+                              DropdownMenuItem(value: 'causeCategory', child: Text('สาเหตุหลัก (Root Cause)', style: TextStyle(fontSize: 12))),
+                              DropdownMenuItem(value: 'machine', child: Text('เครื่องจักร (Machine)', style: TextStyle(fontSize: 12))),
+                            ],
+                            onChanged: (val) {
+                              if (val != null) {
+                                ref.read(paretoGroupByProvider.notifier).state = val;
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    paretoAsync.when(
+                      data: (pareto) => ParetoChart(analysis: pareto),
+                      loading: () => const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+                      error: (err, _) => Text('Error loading Pareto: $err'),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: AppSpacing.lg),
+
+              // Machine Status Distribution
+              Expanded(
+                flex: 3,
+                child: statsAsync.when(
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
+                  data: (stats) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Icon(Icons.pie_chart_outline_rounded, color: Colors.blue, size: 18),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'สถานะเครื่องจักร',
+                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _MachineStatusCard(stats: stats),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: AppSpacing.xxl),
+
+          // 5. WO 7-Day Trend Chart
+          statsAsync.when(
+            loading: () => const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
             data: (stats) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // KPI row
-                Row(
-                  children: [
-                    _KpiCard(
-                      label: 'เครื่องจักรทั้งหมด',
-                      value: '${stats.totalMachines}',
-                      unit: 'เครื่อง',
-                      icon: HugeIcons.strokeRoundedFactory,
-                      color: AppColors.primary,
-                      onTap: () => context.go('/machine-registry'),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    _KpiCard(
-                      label: 'งานที่รอนายตรวจ',
-                      value: '${stats.pendingReview}',
-                      unit: 'ใบ',
-                      icon: HugeIcons.strokeRoundedTask01,
-                      color: AppColors.warning,
-                      onTap: () => context.go('/work-orders'),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    _KpiCard(
-                      label: 'กำลังดำเนินการ',
-                      value: '${stats.inProgress}',
-                      unit: 'รายการ',
-                      icon: HugeIcons.strokeRoundedSettings01,
-                      color: AppColors.primary,
-                      onTap: () => context.go('/pm-am'),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    _KpiCard(
-                      label: 'ใบอนุญาตรออนุมัติ',
-                      value: '${stats.pendingPermits}',
-                      unit: 'ใบ',
-                      icon: HugeIcons.strokeRoundedAgreement01,
-                      color: AppColors.info,
-                      onTap: () => context.go('/work-permit'),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    _KpiCard(
-                      label: 'สต็อกต่ำกว่ากำหนด',
-                      value: '${stats.lowStockParts}',
-                      unit: 'รายการ',
-                      icon: HugeIcons.strokeRoundedArchive02,
-                      color: AppColors.severityHigh,
-                      onTap: () => context.go('/spare-parts'),
-                    ),
-                  ],
-                ),
-
+                _WoTrendCard(values: stats.woTrendValues),
                 const SizedBox(height: AppSpacing.xxl),
-
-                // Charts + Recent WOs
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // WO Trend Chart
-                    Expanded(
-                      flex: 5,
-                      child: _WoTrendCard(values: stats.woTrendValues),
-                    ),
-                    const SizedBox(width: AppSpacing.lg),
-                    // Machine Status Distribution
-                    Expanded(
-                      flex: 3,
-                      child: _MachineStatusCard(
-                        stats: stats,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: AppSpacing.xxl),
-
                 // Recent Work Orders
                 _RecentWorkOrdersCard(orders: stats.recentWorkOrders),
               ],
@@ -758,7 +905,7 @@ class _RecentWorkOrdersCard extends StatelessWidget {
                  Text('ใบแจ้งซ่อมล่าสุด', style: AppTextStyles.titleMedium),
                 const Spacer(),
                 TextButton.icon(
-                  onPressed: () {},
+                  onPressed: () => context.push('/work-orders'),
                   icon: HugeIcon(
                       icon: HugeIcons.strokeRoundedArrowRight01,
                       size: 14,
@@ -788,99 +935,102 @@ class _RecentWorkOrdersCard extends StatelessWidget {
               } catch (_) {}
               return Column(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.xl, vertical: AppSpacing.md),
-                    child: Row(
-                      children: [
-                        // Priority indicator
-                        Container(
-                          width: 4,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: _priorityColor(priority),
-                            borderRadius: BorderRadius.circular(2),
+                  InkWell(
+                    onTap: () => context.push('/work-orders'),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xl, vertical: AppSpacing.md),
+                      child: Row(
+                        children: [
+                          // Priority indicator
+                          Container(
+                            width: 4,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: _priorityColor(priority),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        // WO info
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                o['wo_no'] as String? ?? '-',
-                                style: AppTextStyles.labelMedium.copyWith(
-                                    color: Theme.of(context).colorScheme.primary),
-                              ),
-                              Text(
-                                o['title'] as String? ?? '-',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          const SizedBox(width: AppSpacing.md),
+                          // WO info
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  o['wo_no'] as String? ?? '-',
+                                  style: AppTextStyles.labelMedium.copyWith(
+                                      color: Theme.of(context).colorScheme.primary),
                                 ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                                Text(
+                                  o['title'] as String? ?? '-',
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        // Machine
-                        Text(
-                          o['machine_no'] as String? ?? '-',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.xl),
-                        // Technician
-                        SizedBox(
-                          width: 120,
-                          child: Text(
-                            o['technician'] as String? ?? 'ยังไม่มอบหมาย',
+                          const SizedBox(width: AppSpacing.md),
+                          // Machine
+                          Text(
+                            o['machine_no'] as String? ?? '-',
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(width: AppSpacing.xl),
-                        // Date
-                        SizedBox(
-                          width: 90,
-                          child: Text(
-                            dt != null
-                                ? DateFormat('dd/MM/yy HH:mm').format(dt)
-                                : '-',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                ),
+                          const SizedBox(width: AppSpacing.xl),
+                          // Technician
+                          SizedBox(
+                            width: 120,
+                            child: Text(
+                              o['technician'] as String? ?? 'ยังไม่มอบหมาย',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: AppSpacing.md),
-                        // Status badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: _statusColor(status)
-                                .withValues(alpha: 0.12),
-                            borderRadius:
-                                BorderRadius.circular(AppRadius.full),
-                            border: Border.all(
+                          const SizedBox(width: AppSpacing.xl),
+                          // Date
+                          SizedBox(
+                            width: 90,
+                            child: Text(
+                              dt != null
+                                  ? DateFormat('dd/MM/yy HH:mm').format(dt)
+                                  : '-',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          // Status badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
                               color: _statusColor(status)
+                                  .withValues(alpha: 0.12),
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.full),
+                              border: Border.all(
+                                color: _statusColor(status)
                                   .withValues(alpha: 0.4),
+                              ),
+                            ),
+                            child: Text(
+                              _statusLabel(status),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: _statusColor(status),
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
-                          child: Text(
-                            _statusLabel(status),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: _statusColor(status),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   Container(

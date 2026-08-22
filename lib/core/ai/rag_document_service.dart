@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:excel/excel.dart' as xls;
+import 'package:archive/archive.dart';
 import '../database/db_helper.dart';
 import '../storage/attachment_storage_service.dart';
 import 'embedding_service.dart';
@@ -118,17 +119,74 @@ class RagDocumentService {
           'text': textChunks[c],
         });
       }
+    } else if (ext == '.docx' || ext == '.doc') {
+      try {
+        final bytes = await file.readAsBytes();
+        final archive = ZipDecoder().decodeBytes(bytes);
+        for (final entry in archive) {
+          if (entry.name == 'word/document.xml') {
+            final xmlBytes = entry.content as List<int>;
+            final xmlStr = utf8.decode(xmlBytes, allowMalformed: true);
+            var cleanText = xmlStr
+                .replaceAll(RegExp(r'</w:p>'), '\n')
+                .replaceAll(RegExp(r'</w:tr>'), '\n')
+                .replaceAll(RegExp(r'<[^>]+>'), '');
+            cleanText = cleanText
+                .replaceAll('&amp;', '&')
+                .replaceAll('&lt;', '<')
+                .replaceAll('&gt;', '>')
+                .replaceAll('&quot;', '"')
+                .replaceAll('&apos;', "'");
+            fullTextBuffer.writeln(cleanText.trim());
+            break;
+          }
+        }
+      } catch (_) {
+        try {
+          final rawText = await file.readAsString();
+          fullTextBuffer.write(rawText);
+        } catch (_) {}
+      }
+
+      final rawDocxText = fullTextBuffer.toString().trim();
+      if (rawDocxText.isNotEmpty) {
+        final textChunks = _splitIntoChunks(rawDocxText, maxChars: 800, overlap: 100);
+        for (int c = 0; c < textChunks.length; c++) {
+          extractedChunks.add({
+            'page': c + 1,
+            'chunk_index': c,
+            'text': textChunks[c],
+          });
+        }
+      }
     } else {
       // Plain text, markdown, CSV, JSON
-      final rawText = await file.readAsString();
-      fullTextBuffer.write(rawText);
-      final textChunks = _splitIntoChunks(rawText, maxChars: 800, overlap: 100);
-      for (int c = 0; c < textChunks.length; c++) {
-        extractedChunks.add({
-          'page': 1,
-          'chunk_index': c,
-          'text': textChunks[c],
-        });
+      try {
+        final rawText = await file.readAsString();
+        fullTextBuffer.write(rawText);
+        final textChunks = _splitIntoChunks(rawText, maxChars: 800, overlap: 100);
+        for (int c = 0; c < textChunks.length; c++) {
+          extractedChunks.add({
+            'page': 1,
+            'chunk_index': c,
+            'text': textChunks[c],
+          });
+        }
+      } catch (_) {
+        // Fallback for non-UTF8 text files
+        try {
+          final bytes = await file.readAsBytes();
+          final rawText = utf8.decode(bytes, allowMalformed: true);
+          fullTextBuffer.write(rawText);
+          final textChunks = _splitIntoChunks(rawText, maxChars: 800, overlap: 100);
+          for (int c = 0; c < textChunks.length; c++) {
+            extractedChunks.add({
+              'page': 1,
+              'chunk_index': c,
+              'text': textChunks[c],
+            });
+          }
+        } catch (_) {}
       }
     }
 

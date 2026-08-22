@@ -496,3 +496,41 @@ class MachineBomItem {
     );
   }
 }
+
+class MachineToolItem {
+  final String mapId;
+  final String machineId;
+  final String toolId;
+  final String toolCode;
+  final String toolName;
+  final String? category;
+  final String status;
+  final int quantity;
+  final String? notes;
+
+  const MachineToolItem({
+    required this.mapId,
+    required this.machineId,
+    required this.toolId,
+    required this.toolCode,
+    required this.toolName,
+    this.category,
+    this.status = 'available',
+    required this.quantity,
+    this.notes,
+  });
+
+  factory MachineToolItem.fromMap(Map<String, dynamic> m) {
+    return MachineToolItem(
+      mapId: m['map_id'] as String,
+      machineId: m['machine_id'] as String,
+      toolId: m['tool_id'] as String,
+      toolCode: m['tool_code'] as String? ?? '',
+      toolName: m['tool_name'] as String? ?? '',
+      category: m['category'] as String?,
+      status: m['status'] as String? ?? 'available',
+      quantity: m['quantity'] as int? ?? 1,
+      notes: m['notes'] as String?,
+    );
+  }
+}

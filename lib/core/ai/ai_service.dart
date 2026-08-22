@@ -71,18 +71,18 @@ IMPORTANT CONSTRAINTS:
 20. When you want to show a PDF/file card, use a fenced block with language pdfcard and a JSON object with keys: title, path, pages, thumbnail. Set thumbnail only when it is an actual image URL/path, not a PDF URL.
 21. File metadata is available in file_assets, including storage_path, thumbnail_path, preview_path, mime_type, page_count, module_type, entity_id, and display_name.
 22. When the user asks about symptoms, how to fix an issue, troubleshooting, root cause analysis (RCA), machine manual instructions, or maintenance standards, ALWAYS use search_vector_knowledge to find relevant semantic vector knowledge chunks from historical repairs and manuals before answering.
-23. When the user asks to attach, upload, or link a document/PDF/manual/photo to a machine (e.g. DP-01, DP 01), use `manage_machine_assets` with `action: 'attach_document'`, `machine_identifier`, `file_name`, and `file_path`. The machine will then show the document in ทะเบียนเครื่องจักร -> เอกสาร.
+23. When the user asks to attach, upload, or link a document/PDF/manual/photo to a machine (e.g. MC-01, CNC-01), use `manage_machine_assets` with `action: 'attach_document'`, `machine_identifier`, `file_name`, and `file_path`. The machine will then show the document in ทะเบียนเครื่องจักร -> เอกสาร.
 24. CONSOLIDATE BULK & MULTI-ITEM OPERATIONS INTO A SINGLE ACTION:
-   When the user asks to operate on multiple items, a range of machines (e.g. "BM-01 ถึง BM-09", "เครื่องจักรทั้งหมด", or multiple parts/records), ALWAYS consolidate all items into ONE SINGLE `action_confirmation` block.
+   When the user asks to operate on multiple items, a range of machines (e.g. "MC-01 ถึง MC-09", "เครื่องจักรทั้งหมด", or multiple parts/records), ALWAYS consolidate all items into ONE SINGLE `action_confirmation` block.
    DO NOT split into multiple confirmation steps or cards. DO NOT ask confirmation one by one.
-   Use `machine_identifier: "BM-01 ถึง BM-09"` (or list of machines) in the single action params so the user clicks [OK ยืนยัน] ONLY ONCE to process everything!
+   Use `machine_identifier: "MC-01 ถึง MC-09"` (or list of machines) in the single action params so the user clicks [OK ยืนยัน] ONLY ONCE to process everything!
 25. Action confirmation format using ```action_confirmation with valid JSON:
 ```action_confirmation
 {
   "action_id": "<uuid-or-unique-string>",
   "tool": "<tool_name_e.g_manage_machine_assets_or_manage_machines>",
   "action": "<insert|update|delete|attach_document>",
-  "title": "<Short consolidated title in Thai e.g. แนบคู่มือลงในเครื่องจักร BM-01 ถึง BM-09 ทั้งหมด>",
+  "title": "<Short consolidated title in Thai e.g. แนบคู่มือลงในเครื่องจักร MC-01 ถึง MC-09 ทั้งหมด>",
   "summary": "<Clear Thai description of changes to be made across all items>",
   "params": { ...tool arguments with full range/list of machines... }
 }
@@ -108,8 +108,8 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
   - VSM Bottleneck RCA (5-Why & Fishbone 4M1E): Conduct 5-Why root cause drill-down and Ishikawa 4M1E analysis (Man, Machine, Material, Method, Environment) on the top waste/bottleneck steps to formulate Corrective & Preventive ECRS countermeasures.
 
 27. STRICT AUTONOMOUS SEARCH FOR MACHINE NAMES & IDENTIFIERS:
-   - When the user refers to any machine by name, nickname, Thai term, or colloquial factory word (e.g. "ปะกาวเกี่ยวก้น", "ปะกาวเกี่ยวกัน", "ปะกาวเซมิ", "ปะกาวเลเซอร์", "ไดคัท", "พิมพ์ 5 สี", "ปั๊มฟอยล์", "ตัดกระดาษ"):
-     1. IMMEDIATELY check the registered machines directory below or execute `query_database` (e.g. `SELECT machine_id, machine_no, machine_name FROM machines WHERE machine_name LIKE '%...%' OR machine_no LIKE '%...'`) or `search_vector_knowledge` to resolve the machine code (machine_no e.g. "GM-04").
+   - When the user refers to any machine by name, nickname, Thai term, or colloquial factory word (e.g. "เครื่องตัดเลเซอร์", "เครื่องกลึง CNC", "ปั๊มลมแรงดันสูง", "สายพานลำเลียง", "เครื่องปั๊มขึ้นรูป"):
+     1. IMMEDIATELY check the registered machines directory below or execute `query_database` (e.g. `SELECT machine_id, machine_no, machine_name FROM machines WHERE machine_name LIKE '%...%' OR machine_no LIKE '%...'`) or `search_vector_knowledge` to resolve the machine code (machine_no e.g. "MC-01").
      2. NEVER ask the user to provide the machine code (machine identifier) or ask "กรุณาระบุรหัสเครื่องจักร" or ask if they want you to search when you can find it yourself!
      3. Once resolved, immediately execute the requested task (attach document, update specs, query history) with the resolved machine_no.
 
@@ -120,13 +120,13 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
         - แรงดันไฟฟ้า: `voltage_v` (V)
         - กระแสไฟฟ้า: `current_a` (A)
         - ความถี่: `frequency_hz` (Hz)
-        - อัตรา/กำลังการผลิต: `capacity` และ `capacity_unit` (เช่น 1500 กล่อง/ชม., ชิ้น/นาที)
+        - อัตรา/กำลังการผลิต: `capacity` และ `capacity_unit` (เช่น 1500 ชิ้น/ชม., ชิ้น/นาที, ตัน/วัน)
         - ขนาดมิติเครื่อง: `dim_length_mm`, `dim_width_mm`, `dim_height_mm` (มิลลิเมตร)
         - น้ำหนักเครื่อง: `weight_kg` (กก.)
         - ความเร็วรอบ: `rpm`
-        - สเปกและคุณสมบัติเพิ่มเติม: `extra_specs` (เช่น ความจุกาว, ชนิดกาว, แรงดันลม, อุณหภูมิ)
+        - สเปกและคุณสมบัติเพิ่มเติม: `extra_specs` (เช่น แรงดันลม, อุณหภูมิใช้งาน, ขนาดหัวจับ, กำลังแรงอัด)
         - ยี่ห้อ: `brand`, รุ่น: `model`, หมายเลขเครื่อง: `serial_no`, ตำแหน่ง: `location`
-     2. CRITICAL: You MUST call `manage_machines` with `action: 'update'` or `action: 'update_specs'`, `machine_identifier` (e.g. 'GM-04'), and pass ALL extracted spec parameters directly into the database!
+     2. CRITICAL: You MUST call `manage_machines` with `action: 'update'` or `action: 'update_specs'`, `machine_identifier` (e.g. 'MC-01'), and pass ALL extracted spec parameters directly into the database!
      3. DO NOT ONLY call `manage_machine_assets` (attach_document)! Attaching a document does NOT update the machine specs table! You MUST also call `manage_machines` to write the specs (`power_kw`, `voltage_v`, `capacity`, `brand`, `model`, etc.) into `machine_specs` and `machines` tables!
      4. NEVER reply that specs are updated without calling `manage_machines` with the extracted numeric parameters!
      5. Always summarize the updated specs clearly with numbers and units in your response table/bullet points.
@@ -412,6 +412,71 @@ Start by greeting the user and asking how you can help with maintenance operatio
         'reserved_hours': Schema(SchemaType.number, description: 'Reserved/Booked hours'),
       },
       requiredProperties: ['action', 'technician_identifier'],
+    ),
+  );
+
+  static final _manageWorkProcessesTool = FunctionDeclaration(
+    'manage_work_processes',
+    'Manage, create, and import machine standard operating procedures (SOP), Job Safety Analysis (JSA), and operation step checklists (create_process, import_sop, import_sop_bulk, add_steps, delete_process).',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'create_process, import_sop, import_sop_bulk, add_steps, delete_process'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "MC-01") or Machine ID'),
+        'process_no': Schema(SchemaType.string, description: 'Unique SOP process number (e.g. "SOP-MC01")'),
+        'title': Schema(SchemaType.string, description: 'Title of the SOP or JSA process'),
+        'company': Schema(SchemaType.string, description: 'Company name'),
+        'factory': Schema(SchemaType.string, description: 'Factory/Plant name'),
+        'department': Schema(SchemaType.string, description: 'Department name'),
+        'method_type': Schema(SchemaType.string, description: 'current or improved'),
+        'work_type': Schema(SchemaType.string, description: 'standard or maintenance'),
+        'notes': Schema(SchemaType.string, description: 'Notes or safety overview'),
+        'steps': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'step_no': Schema(SchemaType.integer, description: 'Step sequence number 1, 2, 3...'),
+              'description': Schema(SchemaType.string, description: 'Task or safety action description. Required.'),
+              'duration_minutes': Schema(SchemaType.number, description: 'Duration in minutes'),
+              'value_type': Schema(SchemaType.string, description: 'va, nva, or nnva'),
+              'problem_cause': Schema(SchemaType.string, description: 'Identified safety risk or hazard from JSA'),
+              'improvement_idea': Schema(SchemaType.string, description: 'Safety preventive measure or control from JSA'),
+              'tools_used': Schema(SchemaType.string, description: 'Tools or PPE required'),
+            },
+            requiredProperties: ['description'],
+          ),
+          description: 'List of operation/safety steps for this machine',
+        ),
+        'processes': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No'),
+              'process_no': Schema(SchemaType.string),
+              'title': Schema(SchemaType.string),
+              'steps': Schema(
+                SchemaType.array,
+                items: Schema(
+                  SchemaType.object,
+                  properties: {
+                    'step_no': Schema(SchemaType.integer),
+                    'description': Schema(SchemaType.string),
+                    'duration_minutes': Schema(SchemaType.number),
+                    'problem_cause': Schema(SchemaType.string),
+                    'improvement_idea': Schema(SchemaType.string),
+                  },
+                  requiredProperties: ['description'],
+                ),
+              ),
+            },
+            requiredProperties: ['machine_identifier'],
+          ),
+          description: 'Array of processes when bulk importing for multiple machines',
+        ),
+      },
+      requiredProperties: ['action'],
     ),
   );
 
@@ -1062,6 +1127,58 @@ Start by greeting the user and asking how you can help with maintenance operatio
     {
       'type': 'function',
       'function': {
+        'name': 'manage_work_processes',
+        'description': 'Manage, create, and import machine standard operating procedures (SOP), Job Safety Analysis (JSA), and operation step checklists (create_process, import_sop, import_sop_bulk, add_steps, delete_process).',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'create_process, import_sop, import_sop_bulk, add_steps, delete_process'},
+            'machine_identifier': {'type': 'string', 'description': 'Machine code/No (e.g. "MC-01")'},
+            'process_no': {'type': 'string'},
+            'title': {'type': 'string'},
+            'company': {'type': 'string'},
+            'factory': {'type': 'string'},
+            'department': {'type': 'string'},
+            'method_type': {'type': 'string'},
+            'work_type': {'type': 'string'},
+            'notes': {'type': 'string'},
+            'steps': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'step_no': {'type': 'integer'},
+                  'description': {'type': 'string'},
+                  'duration_minutes': {'type': 'number'},
+                  'value_type': {'type': 'string'},
+                  'problem_cause': {'type': 'string'},
+                  'improvement_idea': {'type': 'string'},
+                  'tools_used': {'type': 'string'},
+                },
+                'required': ['description'],
+              },
+            },
+            'processes': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'machine_identifier': {'type': 'string'},
+                  'process_no': {'type': 'string'},
+                  'title': {'type': 'string'},
+                  'steps': {'type': 'array', 'items': {'type': 'object'}},
+                },
+                'required': ['machine_identifier'],
+              },
+            },
+          },
+          'required': ['action'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
         'name': 'query_database',
         'description': 'Execute a SQLite SELECT query on the MASAPP database to retrieve operational data. Only SELECT statements allowed. Results capped at 200 rows.',
         'parameters': {
@@ -1442,6 +1559,56 @@ Start by greeting the user and asking how you can help with maintenance operatio
       },
     },
     {
+      'name': 'manage_work_processes',
+      'description':
+          'Manage, create, and import machine standard operating procedures (SOP), Job Safety Analysis (JSA), and operation step checklists (create_process, import_sop, import_sop_bulk, add_steps, delete_process).',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'create_process, import_sop, import_sop_bulk, add_steps, delete_process'},
+          'machine_identifier': {'type': 'string', 'description': 'Machine code/No (e.g. "MC-01")'},
+          'process_no': {'type': 'string'},
+          'title': {'type': 'string'},
+          'company': {'type': 'string'},
+          'factory': {'type': 'string'},
+          'department': {'type': 'string'},
+          'method_type': {'type': 'string'},
+          'work_type': {'type': 'string'},
+          'notes': {'type': 'string'},
+          'steps': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'step_no': {'type': 'integer'},
+                'description': {'type': 'string'},
+                'duration_minutes': {'type': 'number'},
+                'value_type': {'type': 'string'},
+                'problem_cause': {'type': 'string'},
+                'improvement_idea': {'type': 'string'},
+                'tools_used': {'type': 'string'},
+              },
+              'required': ['description'],
+            },
+          },
+          'processes': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'machine_identifier': {'type': 'string'},
+                'process_no': {'type': 'string'},
+                'title': {'type': 'string'},
+                'steps': {'type': 'array', 'items': {'type': 'object'}},
+              },
+              'required': ['machine_identifier'],
+            },
+          },
+        },
+        'required': ['action'],
+      },
+    },
+    {
       'name': 'query_database',
       'description':
           'Execute a SQLite SELECT query on the MASAPP database to retrieve operational data. Only SELECT statements allowed. Results capped at 200 rows.',
@@ -1752,6 +1919,12 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final action = args['action'] ?? '';
         final tech = args['technician_identifier'] ?? '';
         return 'ตรวจสอบข้อมูลช่างซ่อมบำรุง ($action $tech)'.trim();
+      case 'manage_work_processes':
+      case 'import_work_processes':
+      case 'manage_sop_steps':
+        final action = args['action'] ?? '';
+        final mc = args['machine_identifier'] ?? args['process_no'] ?? '';
+        return 'จัดการขั้นตอนการทำงาน SOP/JSA ($action $mc)'.trim();
       case 'manage_work_permits':
         final action = args['action'] ?? '';
         final id = args['permit_identifier'] ?? '';
@@ -1774,6 +1947,44 @@ Start by greeting the user and asking how you can help with maintenance operatio
     }
   }
 
+  /// Window Cut Prevention & Context Budgeting:
+  /// Preserves recent conversation flow while preventing token explosion and context dilution.
+  static List<AiConversationMessage> _optimizeHistory(
+    List<AiConversationMessage> history, {
+    int maxMessages = 16,
+    int maxTotalChars = 24000,
+  }) {
+    if (history.isEmpty) return const [];
+
+    final recent = history.length > maxMessages
+        ? history.sublist(history.length - maxMessages)
+        : List<AiConversationMessage>.from(history);
+
+    int currentChars = recent.fold(0, (sum, m) => sum + m.content.length);
+    if (currentChars > maxTotalChars) {
+      final optimized = <AiConversationMessage>[];
+      final protectedCount = 4.clamp(0, recent.length);
+      final startIndex = recent.length - protectedCount;
+
+      for (int i = 0; i < recent.length; i++) {
+        final msg = recent[i];
+        if (i >= startIndex) {
+          optimized.add(msg);
+        } else {
+          if (msg.content.length > 1000) {
+            final truncated = '${msg.content.substring(0, 800)}\n...(ย่อเนื้อหาประวัติการสนทนา)...';
+            optimized.add(AiConversationMessage(role: msg.role, content: truncated));
+          } else {
+            optimized.add(msg);
+          }
+        }
+      }
+      return optimized;
+    }
+
+    return recent;
+  }
+
   static Future<AiChatResult> chat({
     AiProviderConfig? config,
     required List<AiConversationMessage> history,
@@ -1786,11 +1997,13 @@ Start by greeting the user and asking how you can help with maintenance operatio
     final effectiveConfig = config ?? await loadConfig();
     await _ensureProviderReachable(effectiveConfig);
 
+    final optimizedHistory = _optimizeHistory(history);
+
     switch (effectiveConfig.provider) {
       case AiProviderKind.gemini:
         return _chatWithGemini(
           effectiveConfig,
-          history,
+          optimizedHistory,
           userMessage,
           attachments: attachments,
           imageBytesList: imageBytesList,
@@ -1800,7 +2013,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       case AiProviderKind.claude:
         return _chatWithClaude(
           effectiveConfig,
-          history,
+          optimizedHistory,
           userMessage,
           attachments: attachments,
           imageBytesList: imageBytesList,
@@ -1810,7 +2023,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       case AiProviderKind.ollama:
         return _chatWithOllama(
           effectiveConfig,
-          history,
+          optimizedHistory,
           userMessage,
           onReasoningStep: onReasoningStep,
           onReasoningChunk: onReasoningChunk,
@@ -1821,7 +2034,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       case AiProviderKind.mistral:
         return _chatWithOpenAiCompatible(
           effectiveConfig,
-          history,
+          optimizedHistory,
           userMessage,
           attachments: attachments,
           imageBytesList: imageBytesList,
@@ -1846,27 +2059,29 @@ Start by greeting the user and asking how you can help with maintenance operatio
       }
       final orgName = orgSettings['org_name']?.trim().isNotEmpty == true
           ? orgSettings['org_name']!.trim()
-          : 'บริษัท บอส คาร์ตัน จำกัด (BOSSCARTON CO., LTD.)';
+          : '';
       final orgPlant = orgSettings['org_plant']?.trim().isNotEmpty == true
           ? orgSettings['org_plant']!.trim()
-          : 'โรงงานลาดหลุมแก้ว (จ.ปทุมธานี)';
+          : '';
       final orgDept = orgSettings['org_department']?.trim().isNotEmpty == true
           ? orgSettings['org_department']!.trim()
-          : 'หน่วยงานซ่อมบำรุง (Maintenance Department)';
+          : 'หน่วยงานซ่อมบำรุงและวิศวกรรม (Maintenance & Engineering)';
       final orgBusinessType = orgSettings['org_business_type']?.trim().isNotEmpty == true
           ? orgSettings['org_business_type']!.trim()
-          : 'โรงงานผลิตบรรจุภัณฑ์กล่องกระดาษลูกฟูก กล่องพิมพ์ออฟเซ็ท ไดคัท และปะกาวเกี่ยวก้น';
+          : '';
       final orgAiContext = orgSettings['org_ai_context']?.trim() ?? '';
 
-      buffer.writeln('\n\n=== FACTORY & ORGANIZATION DOMAIN CONTEXT ===');
-      buffer.writeln('- Company / Organization: $orgName');
-      buffer.writeln('- Plant / Location: $orgPlant');
-      buffer.writeln('- Primary Department: $orgDept');
-      buffer.writeln('- Core Manufacturing & Business: $orgBusinessType');
-      if (orgAiContext.isNotEmpty) {
-        buffer.writeln('- Factory Context & Details: $orgAiContext');
+      if (orgName.isNotEmpty || orgBusinessType.isNotEmpty || orgAiContext.isNotEmpty) {
+        buffer.writeln('\n\n=== FACTORY & ORGANIZATION DOMAIN CONTEXT ===');
+        if (orgName.isNotEmpty) buffer.writeln('- Company / Organization: $orgName');
+        if (orgPlant.isNotEmpty) buffer.writeln('- Plant / Location: $orgPlant');
+        if (orgDept.isNotEmpty) buffer.writeln('- Primary Department: $orgDept');
+        if (orgBusinessType.isNotEmpty) buffer.writeln('- Core Manufacturing & Business: $orgBusinessType');
+        if (orgAiContext.isNotEmpty) {
+          buffer.writeln('- Factory Context & Details: $orgAiContext');
+        }
+        buffer.writeln('FACTORY SCOPE & DOMAIN KNOWLEDGE: You are the dedicated Smart Maintenance & Industrial Engineering AI for this factory. When analyzing machines, production lines, maintenance orders, spare parts, and Lean VSM process steps, strictly align with this factory domain.');
       }
-      buffer.writeln('FACTORY SCOPE & DOMAIN KNOWLEDGE: You are the dedicated Smart Maintenance & Industrial Engineering AI for this factory. When analyzing machines (e.g. ปะกาว, ไดคัท, เครื่องพิมพ์), maintenance orders, spare parts, and Lean VSM process steps, strictly align with this factory domain.');
 
       // 1. Registered Machines
       final machines = await DbHelper.query(
@@ -1883,7 +2098,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           final extraStr = extra.isNotEmpty ? ' ($extra)' : '';
           buffer.writeln('- $no: $name$extraStr');
         }
-        buffer.writeln('INSTRUCTION: Always resolve colloquial machine names (e.g. "ปะกาวเกี่ยวก้น" -> GM-04) from the directory above. NEVER ask the user to provide machine code!');
+        buffer.writeln('INSTRUCTION: Always resolve colloquial machine names (e.g. from registered directory) to their machine_no. NEVER ask the user to provide machine code!');
       }
 
       // 2. Spare Parts Overview
@@ -1993,6 +2208,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
             _manageToolsTool,
             _manageOeeLogsTool,
             _manageTechniciansTool,
+            _manageWorkProcessesTool,
             _registerMachinesTool,
             _createPmPlansTool,
             _registerSparePartsTool,
@@ -2030,7 +2246,31 @@ Start by greeting the user and asking how you can help with maintenance operatio
       userParts.add(DataPart('image/png', imgBytes));
     }
 
-    var response = await session.sendMessage(
+    Future<GenerateContentResponse> sendWithRetry(Content content) async {
+      int attempts = 0;
+      while (true) {
+        attempts++;
+        try {
+          return await session.sendMessage(content);
+        } catch (e) {
+          final errStr = e.toString();
+          final isRateLimit = errStr.contains('429') ||
+              errStr.contains('ResourceExhausted') ||
+              errStr.contains('RESOURCE_EXHAUSTED') ||
+              errStr.contains('rate limit') ||
+              errStr.contains('Quota exceeded');
+          if (isRateLimit && attempts <= 3) {
+            final delaySec = attempts * 3;
+            addStep('กำลังรอระบบ AI สักครู่ ($delaySec วินาที) เนื่องจากมีคำขอใช้งานสูง...');
+            await Future.delayed(Duration(seconds: delaySec));
+            continue;
+          }
+          rethrow;
+        }
+      }
+    }
+
+    var response = await sendWithRetry(
       userParts.length > 1 ? Content.multi(userParts) : Content.text(userMessage),
     );
 
@@ -2049,7 +2289,9 @@ Start by greeting the user and asking how you can help with maintenance operatio
       }
 
       addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
-      response = await session.sendMessage(
+      // Subtle throttle delay to prevent bursting API
+      await Future.delayed(const Duration(milliseconds: 500));
+      response = await sendWithRetry(
         Content.functionResponses(functionResponses),
       );
     }

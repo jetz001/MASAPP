@@ -1329,7 +1329,7 @@ class _MachineIntakeFormScreenState
               onPressed: _saving ? null : () => _handleSaveDocuments(moveToNext: true),
               child: _saving 
                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('บันทึก & ถัดไป — อะไหล่ประจำเครื่อง'),
+                : const Text('บันทึก & ถัดไป — BOM & เครื่องมือ'),
             ),
           ],
         ),
@@ -1776,7 +1776,7 @@ class _StepIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final steps = ['ข้อมูล', 'เอกสาร', 'ติดตั้ง', 'ทดสอบ', 'ผ่านรับ', 'เสร็จสิ้น'];
+    final steps = ['ข้อมูล', 'เอกสาร', 'BOM & เครื่องมือ', 'ติดตั้ง', 'ทดสอบ', 'ผ่านรับ', 'เสร็จสิ้น'];
     return Container(
       color: Theme.of(context).colorScheme.surface,
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),

@@ -101,9 +101,9 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
       } else {
         // Default new record from organization settings
         final settings = ref.read(appSettingsProvider).valueOrNull;
-        final orgName = settings?.get(AppSettingKeys.orgName, defaultValue: 'บริษัท บอส คาร์ตัน จำกัด') ?? 'บริษัท บอส คาร์ตัน จำกัด';
-        final orgPlant = settings?.get(AppSettingKeys.orgPlant, defaultValue: 'โรงงานลาดหลุมแก้ว') ?? 'โรงงานลาดหลุมแก้ว';
-        final orgDept = settings?.get(AppSettingKeys.orgDepartment, defaultValue: 'หน่วยงานซ่อมบำรุง (Maintenance)') ?? 'หน่วยงานซ่อมบำรุง (Maintenance)';
+        final orgName = settings?.get(AppSettingKeys.orgName) ?? '';
+        final orgPlant = settings?.get(AppSettingKeys.orgPlant) ?? '';
+        final orgDept = settings?.get(AppSettingKeys.orgDepartment, defaultValue: 'หน่วยงานซ่อมบำรุงและวิศวกรรม (Maintenance & Engineering)') ?? 'หน่วยงานซ่อมบำรุงและวิศวกรรม (Maintenance & Engineering)';
 
         _companyCtrl.text = orgName;
         _factoryCtrl.text = orgPlant;
@@ -183,6 +183,9 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
   void _removeStep(int index) {
     setState(() {
       _steps.removeAt(index);
+      for (int i = 0; i < _steps.length; i++) {
+        _steps[i] = _steps[i].copyWith(stepNo: i + 1);
+      }
     });
   }
 
@@ -192,6 +195,9 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
     setState(() {
       final item = _steps.removeAt(index);
       _steps.insert(newIndex, item);
+      for (int i = 0; i < _steps.length; i++) {
+        _steps[i] = _steps[i].copyWith(stepNo: i + 1);
+      }
     });
   }
 
@@ -303,19 +309,6 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
               : 'บันทึกขั้นตอนการปฏิบัติงานประจำเครื่องจักร (SOP)',
         ),
         actions: [
-          if (widget.processId != null)
-            FilledButton.tonalIcon(
-              icon: const Icon(Icons.analytics_rounded, size: 18),
-              label: const Text('วิเคราะห์ Lean / VSM'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.amber.shade100,
-                foregroundColor: Colors.amber.shade900,
-              ),
-              onPressed: () => context.push(
-                '/lean-analysis?processId=${widget.processId}',
-              ),
-            ),
-          const SizedBox(width: 8),
           FilledButton.icon(
             onPressed: _saving ? null : _save,
             icon: _saving
@@ -510,6 +503,7 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
     final step = _steps[index];
 
     return Container(
+      key: ValueKey(step.stepId),
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -537,6 +531,7 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: TextFormField(
+                  key: ValueKey('desc_${step.stepId}'),
                   initialValue: step.description,
                   decoration: InputDecoration(
                     labelText: 'ขั้นตอนที่ ${index + 1} (รายละเอียดสิ่งที่ต้องปฏิบัติ) *',
@@ -555,6 +550,7 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
               SizedBox(
                 width: 140,
                 child: TextFormField(
+                  key: ValueKey('dur_${step.stepId}'),
                   initialValue: step.durationMinutes > 0 ? step.durationMinutes.toString() : '',
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
@@ -589,18 +585,6 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
                 onPressed: () => _removeStep(index),
               ),
             ],
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            initialValue: step.toolsUsed ?? '',
-            decoration: const InputDecoration(
-              labelText: 'เครื่องมือ / อุปกรณ์ / ข้อควรระวังด้านความปลอดภัย (Tools & Safety Notes)',
-              hintText: 'เช่น สวมถุงมือกันบาด, ประแจเบอร์ 14, ตรวจสัญญาณไฟเขียว (ไม่บังคับ)',
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (val) => _steps[index] = step.copyWith(toolsUsed: val),
           ),
         ],
       ),
@@ -649,19 +633,6 @@ class _WorkProcessFormScreenState extends ConsumerState<WorkProcessFormScreen> {
               ),
             ],
           ),
-          const Spacer(),
-          if (widget.processId != null)
-            FilledButton.tonalIcon(
-              icon: const Icon(Icons.analytics_rounded, size: 18),
-              label: const Text('วิเคราะห์ Lean / VSM'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.amber.shade100,
-                foregroundColor: Colors.amber.shade900,
-              ),
-              onPressed: () => context.push(
-                '/lean-analysis?processId=${widget.processId}',
-              ),
-            ),
         ],
       ),
     );

@@ -660,6 +660,100 @@ class MachineRepository {
     );
   }
 
+  // --- Machine Tools ---
+
+  Future<List<MachineToolItem>> fetchMachineTools(String machineId) async {
+    await DbHelper.execute('''
+      CREATE TABLE IF NOT EXISTS tool_machine_map (
+        map_id      TEXT PRIMARY KEY,
+        tool_id     TEXT NOT NULL REFERENCES tools(tool_id) ON DELETE CASCADE,
+        machine_id  TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+        quantity    INTEGER NOT NULL DEFAULT 1,
+        notes       TEXT,
+        UNIQUE(tool_id, machine_id)
+      )
+    ''');
+
+    final res = await DbHelper.query(
+      '''
+      SELECT 
+        m.map_id,
+        m.machine_id,
+        m.tool_id,
+        m.quantity,
+        m.notes,
+        t.tool_code,
+        t.tool_name,
+        t.category,
+        t.status
+      FROM tool_machine_map m
+      JOIN tools t ON m.tool_id = t.tool_id
+      WHERE m.machine_id = @mid AND t.is_active = 1
+      ORDER BY t.tool_name ASC
+    ''',
+      params: {'mid': machineId},
+    );
+    return res.map((e) => MachineToolItem.fromMap(e)).toList();
+  }
+
+  Future<void> addMachineToolItem({
+    required String machineId,
+    required String toolId,
+    required int quantity,
+    String? notes,
+  }) async {
+    await DbHelper.execute('''
+      CREATE TABLE IF NOT EXISTS tool_machine_map (
+        map_id      TEXT PRIMARY KEY,
+        tool_id     TEXT NOT NULL REFERENCES tools(tool_id) ON DELETE CASCADE,
+        machine_id  TEXT NOT NULL REFERENCES machines(machine_id) ON DELETE CASCADE,
+        quantity    INTEGER NOT NULL DEFAULT 1,
+        notes       TEXT,
+        UNIQUE(tool_id, machine_id)
+      )
+    ''');
+
+    await DbHelper.execute(
+      '''
+      INSERT OR REPLACE INTO tool_machine_map (map_id, machine_id, tool_id, quantity, notes)
+      VALUES (@id, @mid, @tid, @qty, @notes)
+    ''',
+      params: {
+        'id': 'TMAP-${DateTime.now().millisecondsSinceEpoch}',
+        'mid': machineId,
+        'tid': toolId,
+        'qty': quantity,
+        'notes': notes,
+      },
+    );
+  }
+
+  Future<void> removeMachineToolItem(String mapId) async {
+    await DbHelper.execute(
+      'DELETE FROM tool_machine_map WHERE map_id = @id',
+      params: {'id': mapId},
+    );
+  }
+
+  Future<void> updateMachineToolItemQuantity(String mapId, int quantity) async {
+    await DbHelper.execute(
+      'UPDATE tool_machine_map SET quantity = @qty WHERE map_id = @id',
+      params: {'qty': quantity, 'id': mapId},
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> searchTools(String query) async {
+    return DbHelper.query(
+      '''
+      SELECT tool_id, tool_code, tool_name, category, status
+      FROM tools
+      WHERE is_active = 1 AND (tool_code LIKE @q OR tool_name LIKE @q)
+      ORDER BY tool_name LIMIT 20
+    ''',
+      params: {'q': '%$query%'},
+    );
+  }
+
   /// Fetch categories for dropdown
   Future<List<Map<String, dynamic>>> fetchCategories() async {
     return DbHelper.query(
@@ -867,4 +961,12 @@ final machineBomProvider = FutureProvider.family<List<MachineBomItem>, String>((
 ) async {
   final repo = ref.watch(machineRepositoryProvider);
   return repo.fetchMachineBom(machineId);
+});
+
+final machineToolsProvider = FutureProvider.family<List<MachineToolItem>, String>((
+  ref,
+  machineId,
+) async {
+  final repo = ref.watch(machineRepositoryProvider);
+  return repo.fetchMachineTools(machineId);
 });

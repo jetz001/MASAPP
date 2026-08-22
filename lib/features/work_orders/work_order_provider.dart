@@ -180,9 +180,11 @@ class WorkOrderRepository {
 
       // Get labor entries
       final laborRows = await DbHelper.query(
-        '''SELECT * FROM work_order_labor
-           WHERE wo_id = @wo_id
-           ORDER BY start_time''',
+        '''SELECT l.*, COALESCE(u.full_name, l.technician_id) as technician_name
+           FROM work_order_labor l
+           LEFT JOIN users u ON u.user_id = l.technician_id
+           WHERE l.wo_id = @wo_id
+           ORDER BY l.start_time''',
         params: {'wo_id': woId},
       );
       final labors = laborRows.map((r) => WorkOrderLabor.fromMap(r)).toList();

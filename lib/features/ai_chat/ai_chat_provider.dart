@@ -131,11 +131,13 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
     );
 
     state = state.copyWith(messages: [...state.messages, userMsg, loadingMsg]);
+    _isCancelled = false;
 
     // Save user message to DB
     await _saveToDb(state.sessionId, 'user', displayed, userId: userId);
 
     void updateProgress({String? newStep, String? reasoningChunk}) {
+      if (_isCancelled) return;
       if (newStep != null && !initialSteps.contains(newStep)) {
         initialSteps.add(newStep);
       }
@@ -169,6 +171,8 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
         onReasoningStep: (step) => updateProgress(newStep: step),
         onReasoningChunk: (chunk) => updateProgress(reasoningChunk: chunk),
       );
+
+      if (_isCancelled) return;
 
       final responseText = chatResult.text;
       final finalSteps = chatResult.reasoningSteps.isNotEmpty
@@ -206,8 +210,15 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
         userId: userId,
       );
     } catch (e) {
+      if (_isCancelled) return;
       String rawMsg = e.toString().replaceFirst('Exception: ', '');
-      if (e is TimeoutException || rawMsg.contains('TimeoutException') || rawMsg.contains('timed out')) {
+      if (rawMsg.contains('429') ||
+          rawMsg.contains('ResourceExhausted') ||
+          rawMsg.contains('RESOURCE_EXHAUSTED') ||
+          rawMsg.contains('rate limit') ||
+          rawMsg.contains('Quota exceeded')) {
+        rawMsg = 'ระบบเรียกใช้งาน AI ถี่เกินไปชั่วคราว (Rate Limit / HTTP 429) กรุณารอสักครู่ (ประมาณ 30-60 วินาที) แล้วลองใหม่อีกครั้ง หรือลองแบ่งเนื้อหาให้กระชับขึ้นครับ';
+      } else if (e is TimeoutException || rawMsg.contains('TimeoutException') || rawMsg.contains('timed out')) {
         rawMsg = 'การประมวลผลใช้เวลานานเกินกำหนด (Timeout) เนื่องจากเอกสารมีขนาดใหญ่หรือโมเดล AI กำลังประมวลผลข้อมูลจำนวนมาก กรุณาลองส่งใหม่อีกครั้งครับ';
       }
       final errMsg = 'เกิดข้อผิดพลาด: $rawMsg';
@@ -219,6 +230,26 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
       }).toList();
       state = state.copyWith(messages: updatedMessages);
     }
+  }
+
+  bool _isCancelled = false;
+
+  /// Stop the ongoing generation
+  void stopGeneration() {
+    _isCancelled = true;
+    final updatedMessages = state.messages.map((m) {
+      if (m.isLoading) {
+        return m.copyWith(
+          content: m.content.isNotEmpty
+              ? '${m.content}\n\n🛑 [หยุดการประมวลผลโดยผู้ใช้]'
+              : '🛑 [หยุดการประมวลผลโดยผู้ใช้]',
+          isLoading: false,
+          isError: false,
+        );
+      }
+      return m;
+    }).toList();
+    state = state.copyWith(messages: updatedMessages);
   }
 
   /// Add assistant message directly (e.g. after RAG upload notification)
