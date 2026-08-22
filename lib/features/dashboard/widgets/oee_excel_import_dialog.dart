@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -100,7 +100,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'เนเธกเนเธชเธฒเธกเธฒเธฃเธ–เธญเนเธฒเธเนเธเธฅเนเนเธ”เน: $e';
+        _errorMessage = 'ไม่สามารถอ่านไฟล์ได้: $e';
         _isLoading = false;
       });
     }
@@ -145,7 +145,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
       }
 
       if (headers.isEmpty) {
-        throw Exception('เนเธกเนเธเธเธซเธฑเธงเธเธญเธฅเธฑเธกเธเนเนเธเนเธเธฅเน');
+        throw Exception('ไม่พบหัวคอลัมน์ในไฟล์');
       }
 
       _autoDetectColumns(headers);
@@ -157,19 +157,19 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เนเธเธเธฒเธฃเธงเธดเน€เธเธฃเธฒเธฐเธซเนเนเธเธฅเน: $e';
+        _errorMessage = 'เกิดข้อผิดพลาดในการวิเคราะห์ไฟล์: $e';
         _isLoading = false;
       });
     }
   }
 
   void _autoDetectColumns(List<String> headers) {
-    _colMachine = _findColumnIndex(headers, [r'machine', r'mc', r'm/c', r'เน€เธเธฃเธทเนเธญเธ', r'เธฃเธซเธฑเธชเน€เธเธฃเธทเนเธญเธ', r'line']);
-    _colDate = _findColumnIndex(headers, [r'date', r'เธงเธฑเธเธ—เธตเน', r'เธงเธฑเธ', r'time']);
-    _colHours = _findColumnIndex(headers, [r'hour', r'hrs', r'hr', r'เธเธก', r'เธเธฑเนเธงเนเธกเธ', r'uptime', r'run']);
-    _colTarget = _findColumnIndex(headers, [r'target', r'plan', r'เน€เธเนเธฒ', r'เน€เธเนเธฒเธซเธกเธฒเธข', r'เธขเธญเธ”เน€เธเนเธฒ']);
-    _colActual = _findColumnIndex(headers, [r'actual', r'output', r'เธเธฅเธดเธ•เนเธ”เน', r'เธขเธญเธ”เธเธฃเธดเธ', r'เธขเธญเธ”เธเธฅเธดเธ•']);
-    _colGood = _findColumnIndex(headers, [r'good', r'ok', r'เธเธญเธเธ”เธต', r'เธเธฒเธเธ”เธต', r'pass']);
+    _colMachine = _findColumnIndex(headers, [r'machine', r'mc', r'm/c', r'เครื่อง', r'รหัสเครื่อง', r'line']);
+    _colDate = _findColumnIndex(headers, [r'date', r'วันที่', r'วัน', r'time']);
+    _colHours = _findColumnIndex(headers, [r'hour', r'hrs', r'hr', r'ชม', r'ชั่วโมง', r'uptime', r'run']);
+    _colTarget = _findColumnIndex(headers, [r'target', r'plan', r'เป้า', r'เป้าหมาย', r'ยอดเป้า']);
+    _colActual = _findColumnIndex(headers, [r'actual', r'output', r'ผลิตได้', r'ยอดจริง', r'ยอดผลิต']);
+    _colGood = _findColumnIndex(headers, [r'good', r'ok', r'ของดี', r'งานดี', r'pass']);
   }
 
   int _findColumnIndex(List<String> headers, List<String> patterns) {
@@ -213,7 +213,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
   Future<void> _saveData() async {
     if (_colMachine == -1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('เธเธฃเธธเธ“เธฒเน€เธฅเธทเธญเธเธเธญเธฅเธฑเธกเธเนเธฃเธซเธฑเธชเน€เธเธฃเธทเนเธญเธเธเธฑเธเธฃ'), backgroundColor: Colors.orange),
+        const SnackBar(content: Text('กรุณาเลือกคอลัมน์รหัสเครื่องจักร'), backgroundColor: Colors.orange),
       );
       return;
     }
@@ -239,11 +239,11 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
 
         final id = const Uuid().v4();
         await DbHelper.execute(
-          '''INSERT INTO machine_running_hours (
-              hours_id, machine_id, cumulative_hours, target_production, actual_production, good_production, recorded_date, data_source
-             ) VALUES (
-              @id, @mId, @hrs, @tgt, @act, @good, @date, 'excel_import'
-             )''',
+          "INSERT INTO machine_running_hours (" +
+          "hours_id, machine_id, cumulative_hours, target_production, actual_production, good_production, recorded_date, data_source" +
+          ") VALUES (" +
+          "@id, @mId, @hrs, @tgt, @act, @good, @date, 'excel_import'" +
+          ")",
           params: {
             'id': id,
             'mId': matchedId,
@@ -265,7 +265,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('โ… เธเธณเน€เธเนเธฒเธเนเธญเธกเธนเธฅ OEE เธชเธณเน€เธฃเนเธ $insertedCount เธฃเธฒเธขเธเธฒเธฃ!'),
+            content: Text('✅ นำเข้าข้อมูล OEE สำเร็จ ' + insertedCount.toString() + ' รายการ!'),
             backgroundColor: Colors.green.shade700,
             behavior: SnackBarBehavior.floating,
           ),
@@ -273,7 +273,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
       }
     } catch (e) {
       setState(() {
-        _errorMessage = 'เธเธฑเธเธ—เธถเธเธเนเธญเธกเธนเธฅเธฅเนเธกเน€เธซเธฅเธง: $e';
+        _errorMessage = 'บันทึกข้อมูลล้มเหลว: $e';
         _isSaving = false;
       });
     }
@@ -291,7 +291,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     setState(() {
       _isTestingSql = false;
       _sqlTestSuccess = true;
-      _sqlStatusMessage = 'โ… เน€เธเธทเนเธญเธกเธ•เนเธญเน€เธเธดเธฃเนเธเน€เธงเธญเธฃเน ${_serverHostCtrl.text} (${_dbNameCtrl.text}) เธชเธณเน€เธฃเนเธ เธเธฃเนเธญเธกเธ”เธถเธเธเนเธญเธกเธนเธฅเธขเธญเธ”เธเธฅเธดเธ•!';
+      _sqlStatusMessage = '✅ เชื่อมต่อเซิร์ฟเวอร์ ${_serverHostCtrl.text} (${_dbNameCtrl.text}) สำเร็จ พร้อมดึงข้อมูลยอดผลิต!';
     });
   }
 
@@ -312,11 +312,11 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
         if (mId.isEmpty) continue;
         final id = const Uuid().v4();
         await DbHelper.execute(
-          '''INSERT INTO machine_running_hours (
-              hours_id, machine_id, cumulative_hours, target_production, actual_production, good_production, recorded_date, data_source
-             ) VALUES (
-              @id, @mId, 8.0, 1000.0, 960.0, 945.0, @date, 'sql_sync'
-             )''',
+          "INSERT INTO machine_running_hours (" +
+          "hours_id, machine_id, cumulative_hours, target_production, actual_production, good_production, recorded_date, data_source" +
+          ") VALUES (" +
+          "@id, @mId, 8.0, 1000.0, 960.0, 945.0, @date, 'sql_sync'" +
+          ")",
           params: {
             'id': id,
             'mId': mId,
@@ -333,13 +333,13 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
       setState(() {
         _isSyncingSql = false;
         _sqlTestSuccess = true;
-        _sqlStatusMessage = '๐ เธเธดเธเธเนเธเนเธญเธกเธนเธฅ OEE เธเธฒเธ $_dbType เธชเธณเน€เธฃเนเธ $syncCount เธฃเธฒเธขเธเธฒเธฃ (เธเนเธญเธกเธนเธฅเธญเธฑเธเน€เธ”เธ•เน€เธฃเธตเธขเธเธฃเนเธญเธข)!';
+        _sqlStatusMessage = '🎉 ซิงค์ข้อมูล OEE จาก $_dbType สำเร็จ ' + syncCount.toString() + ' รายการ (ข้อมูลอัปเดตเรียบร้อย)!';
       });
     } catch (e) {
       setState(() {
         _isSyncingSql = false;
         _sqlTestSuccess = false;
-        _sqlStatusMessage = 'โ เน€เธเธดเธ”เธเนเธญเธเธดเธ”เธเธฅเธฒเธ”เนเธเธเธฒเธฃเธ”เธถเธเธเนเธญเธกเธนเธฅ: $e';
+        _sqlStatusMessage = '❌ เกิดข้อผิดพลาดในการดึงข้อมูล: $e';
       });
     }
   }
@@ -351,12 +351,12 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        width: 880,
-        height: 680,
+        constraints: const BoxConstraints(maxWidth: 820, maxHeight: 680),
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Title Bar with Expanded
             Row(
               children: [
                 Container(
@@ -368,24 +368,35 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                   child: const Icon(Icons.hub_rounded, color: Colors.blue, size: 24),
                 ),
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('เธจเธนเธเธขเนเธเธณเน€เธเนเธฒเธเนเธญเธกเธนเธฅ OEE (Excel, CSV & SQL/ERP Connector)',
-                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 2),
-                    Text('เน€เธฅเธทเธญเธเธเธณเน€เธเนเธฒเธเธฒเธเนเธเธฅเนเน€เธญเธเธชเธฒเธฃ เธซเธฃเธทเธญ เน€เธเธทเนเธญเธกเธ•เนเธญเธ”เธถเธเธ•เธฃเธเธเธฒเธเธเธฒเธเธเนเธญเธกเธนเธฅ SQL Server/ERP',
-                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ศูนย์นำเข้าข้อมูล OEE (Excel, CSV & SQL/ERP)',
+                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'นำเข้าจากไฟล์ หรือ เชื่อมต่อดึงตรงจากฐานข้อมูล SQL Server / ERP',
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.of(context).pop(),
                 ),
               ],
             ),
+
             const SizedBox(height: 12),
+
+            // Tab Bar
             Container(
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -401,12 +412,15 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                 labelColor: Colors.white,
                 unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                 tabs: const [
-                  Tab(icon: Icon(Icons.table_view_rounded, size: 18), text: '1. เธเธณเน€เธเนเธฒเนเธเธฅเน Excel / CSV'),
-                  Tab(icon: Icon(Icons.storage_rounded, size: 18), text: '2. เน€เธเธทเนเธญเธกเธ•เนเธญเธเธฒเธเธเนเธญเธกเธนเธฅ SQL / ERP'),
+                  Tab(icon: Icon(Icons.table_view_rounded, size: 18), text: '1. นำเข้าไฟล์ Excel / CSV'),
+                  Tab(icon: Icon(Icons.storage_rounded, size: 18), text: '2. เชื่อมต่อฐานข้อมูล SQL / ERP'),
                 ],
               ),
             ),
+
             const SizedBox(height: 12),
+
+            // Tab Views
             Expanded(
               child: TabBarView(
                 controller: _tabController,
@@ -420,6 +434,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                 ],
               ),
             ),
+
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Container(
@@ -437,19 +452,22 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                 ),
               ),
             ],
+
             const SizedBox(height: 12),
+
+            // Footer Actions
             Row(
               children: [
                 if (_selectedFile != null && _tabController.index == 0)
                   OutlinedButton.icon(
                     icon: const Icon(Icons.refresh_rounded, size: 16),
-                    label: const Text('เน€เธฅเธทเธญเธเนเธเธฅเนเนเธซเธกเน'),
+                    label: const Text('เลือกไฟล์ใหม่'),
                     onPressed: _isSaving ? null : _pickFile,
                   ),
                 const Spacer(),
                 TextButton(
                   onPressed: _isSaving ? null : () => Navigator.of(context).pop(),
-                  child: const Text('เธเธดเธ”เธซเธเนเธฒเธ•เนเธฒเธ'),
+                  child: const Text('ปิดหน้าต่าง'),
                 ),
                 const SizedBox(width: 8),
                 if (_selectedFile != null && _rawRows.isNotEmpty && _tabController.index == 0)
@@ -457,7 +475,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                     icon: _isSaving
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Icon(Icons.cloud_upload_rounded, size: 18),
-                    label: Text(_isSaving ? 'เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธ...' : 'เธขเธทเธเธขเธฑเธเธเธณเน€เธเนเธฒ ${_rawRows.length} เธฃเธฒเธขเธเธฒเธฃ'),
+                    label: Text(_isSaving ? 'กำลังบันทึก...' : 'ยืนยันนำเข้า ' + _rawRows.length.toString() + ' รายการ'),
                     style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
                     onPressed: _isSaving ? null : _saveData,
                   ),
@@ -483,14 +501,14 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
             child: Icon(Icons.upload_file_rounded, size: 54, color: theme.colorScheme.primary),
           ),
           const SizedBox(height: 16),
-          Text('เน€เธฅเธทเธญเธเนเธเธฅเน Excel เธซเธฃเธทเธญ CSV เธเธฒเธเน€เธเธฃเธทเนเธญเธเธเธญเธเธเธธเธ“', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text('เลือกไฟล์ Excel หรือ CSV จากเครื่องของคุณ', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
-          Text('เธฃเธญเธเธฃเธฑเธเนเธเธฅเน .xlsx, .xls, .csv เธ—เธธเธเนเธเธฃเธเธชเธฃเนเธฒเธเธ•เธฒเธฃเธฒเธ เธเธฃเนเธญเธก Auto-Mapping',
+          Text('รองรับไฟล์ .xlsx, .xls, .csv ทุกโครงสร้างตาราง พร้อม Auto-Mapping',
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: const Icon(Icons.folder_open_rounded),
-            label: const Text('เน€เธฅเธทเธญเธเนเธเธฅเนเน€เธเธทเนเธญเธเธณเน€เธเนเธฒ'),
+            label: const Text('เลือกไฟล์เพื่อนำเข้า'),
             onPressed: _pickFile,
           ),
         ],
@@ -511,14 +529,16 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
             children: [
               const Icon(Icons.insert_drive_file_outlined, size: 18),
               const SizedBox(width: 8),
-              Text('เนเธเธฅเน: ${_fileName ?? "-"}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-              const Spacer(),
-              Text('เธเธเธ—เธฑเนเธเธซเธกเธ” ${_rawRows.length} เนเธ–เธง', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text('ไฟล์: ' + (_fileName ?? "-"), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13), overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              Text('พบทั้งหมด ' + _rawRows.length.toString() + ' แถว', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
         const SizedBox(height: 14),
-        Text('1. เธ•เธฃเธงเธเธชเธญเธเธเธฒเธฃเธเธฑเธเธเธนเนเธซเธฑเธงเธเธญเธฅเธฑเธกเธเน (Smart Auto-Mapping)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+        Text('1. ตรวจสอบการจับคู่หัวคอลัมน์ (Smart Auto-Mapping)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.all(12),
@@ -530,17 +550,17 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
             spacing: 16,
             runSpacing: 12,
             children: [
-              _buildDropdown('เธฃเธซเธฑเธชเน€เธเธฃเธทเนเธญเธเธเธฑเธเธฃ (Machine) *', _colMachine, (v) => setState(() => _colMachine = v ?? -1)),
-              _buildDropdown('เธงเธฑเธเธ—เธตเนเธเธฅเธดเธ• (Date)', _colDate, (v) => setState(() => _colDate = v ?? -1)),
-              _buildDropdown('เธเธฑเนเธงเนเธกเธเน€เธ”เธดเธเน€เธเธฃเธทเนเธญเธ (Hours)', _colHours, (v) => setState(() => _colHours = v ?? -1)),
-              _buildDropdown('เธขเธญเธ”เน€เธเนเธฒเธซเธกเธฒเธข (Target)', _colTarget, (v) => setState(() => _colTarget = v ?? -1)),
-              _buildDropdown('เธขเธญเธ”เธเธฅเธดเธ•เธเธฃเธดเธ (Actual)', _colActual, (v) => setState(() => _colActual = v ?? -1)),
-              _buildDropdown('เธขเธญเธ”เธเธญเธเธ”เธต (Good Qty)', _colGood, (v) => setState(() => _colGood = v ?? -1)),
+              _buildDropdown('รหัสเครื่องจักร (Machine) *', _colMachine, (v) => setState(() => _colMachine = v ?? -1)),
+              _buildDropdown('วันที่ผลิต (Date)', _colDate, (v) => setState(() => _colDate = v ?? -1)),
+              _buildDropdown('ชั่วโมงเดินเครื่อง (Hours)', _colHours, (v) => setState(() => _colHours = v ?? -1)),
+              _buildDropdown('ยอดเป้าหมาย (Target)', _colTarget, (v) => setState(() => _colTarget = v ?? -1)),
+              _buildDropdown('ยอดผลิตจริง (Actual)', _colActual, (v) => setState(() => _colActual = v ?? -1)),
+              _buildDropdown('ยอดของดี (Good Qty)', _colGood, (v) => setState(() => _colGood = v ?? -1)),
             ],
           ),
         ),
         const SizedBox(height: 16),
-        Text('2. เธ•เธฑเธงเธญเธขเนเธฒเธเธเนเธญเธกเธนเธฅเนเธฅเธฐเธเธฅเธเธณเธเธงเธ“ OEE (Live Preview)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+        Text('2. ตัวอย่างข้อมูลและผลคำนวณ OEE (Live Preview)', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
@@ -555,13 +575,13 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               dataRowMaxHeight: 36,
               columns: const [
                 DataColumn(label: Text('#')),
-                DataColumn(label: Text('เน€เธเธฃเธทเนเธญเธเธเธฑเธเธฃ')),
-                DataColumn(label: Text('เธงเธฑเธเธ—เธตเน')),
-                DataColumn(label: Text('เธเธก.เน€เธ”เธดเธ')),
-                DataColumn(label: Text('เน€เธเนเธฒเธซเธกเธฒเธข')),
-                DataColumn(label: Text('เธเธฅเธดเธ•เธเธฃเธดเธ')),
-                DataColumn(label: Text('เธเธญเธเธ”เธต')),
-                DataColumn(label: Text('เธเธณเธเธงเธ“ OEE')),
+                DataColumn(label: Text('เครื่องจักร')),
+                DataColumn(label: Text('วันที่')),
+                DataColumn(label: Text('ชม.เดิน')),
+                DataColumn(label: Text('เป้าหมาย')),
+                DataColumn(label: Text('ผลิตจริง')),
+                DataColumn(label: Text('ของดี')),
+                DataColumn(label: Text('คำนวณ OEE')),
               ],
               rows: List.generate(
                 _rawRows.length > 10 ? 10 : _rawRows.length,
@@ -581,10 +601,10 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
 
                   return DataRow(
                     cells: [
-                      DataCell(Text('${index + 1}')),
+                      DataCell(Text((index + 1).toString())),
                       DataCell(Text(mc, style: const TextStyle(fontWeight: FontWeight.bold))),
                       DataCell(Text(date)),
-                      DataCell(Text('${hrs.toStringAsFixed(1)}h')),
+                      DataCell(Text(hrs.toStringAsFixed(1) + 'h')),
                       DataCell(Text(tgt.toStringAsFixed(0))),
                       DataCell(Text(act.toStringAsFixed(0))),
                       DataCell(Text(good.toStringAsFixed(0))),
@@ -596,7 +616,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            '${oee.toStringAsFixed(1)}%',
+                            oee.toStringAsFixed(1) + '%',
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
                               color: oee >= 85 ? Colors.green.shade800 : Colors.orange.shade800,
@@ -631,7 +651,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'เน€เธเธทเนเธญเธกเธ•เนเธญเธ”เธถเธเธเนเธญเธกเธนเธฅเธขเธญเธ”เธเธฅเธดเธ•เนเธฅเธฐเน€เธงเธฅเธฒเน€เธ”เธดเธเน€เธเธฃเธทเนเธญเธเธเธฒเธเธฃเธฐเธเธ ERP เน€เธเนเธ iSoft, SAP, MySQL เธซเธฃเธทเธญ MS SQL Server เธญเธฑเธ•เนเธเธกเธฑเธ•เธด',
+                  'เชื่อมต่อดึงข้อมูลยอดผลิตและเวลาเดินเครื่องจากระบบ ERP เช่น iSoft, SAP, MySQL หรือ MS SQL Server อัตโนมัติ',
                   style: TextStyle(fontSize: 12.5),
                 ),
               ),
@@ -647,7 +667,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('เธเธฃเธฐเน€เธ เธ—เธเธฒเธเธเนเธญเธกเธนเธฅ (Database Engine)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Text('ประเภทฐานข้อมูล (Database Engine)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 6),
                   DropdownButtonFormField<String>(
                     value: _dbType,
@@ -671,19 +691,19 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                     controller: _serverHostCtrl,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: r'เน€เธเนเธ 192.168.1.50 เธซเธฃเธทเธญ .\SQLEXPRESS',
+                      hintText: r'เช่น 192.168.1.50 หรือ .\SQLEXPRESS',
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text('เธเธทเนเธญเธเธฒเธเธเนเธญเธกเธนเธฅ (Database Name)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Text('ชื่อฐานข้อมูล (Database Name)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 6),
                   TextField(
                     controller: _dbNameCtrl,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: 'เน€เธเนเธ isoft10_dbserver1',
+                      hintText: 'เช่น isoft10_dbserver1',
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
@@ -691,13 +711,13 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                 ],
               ),
             ),
-            const SizedBox(width: 20),
+            const SizedBox(width: 16),
             Expanded(
               flex: 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('เธเธญเธฃเนเธ• (Port)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const Text('พอร์ต (Port)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 6),
                   TextField(
                     controller: _portCtrl,
@@ -711,11 +731,22 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Checkbox(
-                        value: _useWindowsAuth,
-                        onChanged: (v) => setState(() => _useWindowsAuth = v ?? true),
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: Checkbox(
+                          value: _useWindowsAuth,
+                          onChanged: (v) => setState(() => _useWindowsAuth = v ?? true),
+                        ),
                       ),
-                      const Text('Windows Authentication (เนเธกเนเธ•เนเธญเธเนเธเน User/Pass)', style: TextStyle(fontSize: 12)),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Windows Authentication (Integrated)',
+                          style: TextStyle(fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                   if (!_useWindowsAuth) ...[
@@ -747,7 +778,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
           ],
         ),
         const SizedBox(height: 16),
-        const Text('เธเธณเธชเธฑเนเธ SQL Query / View เธชเธณเธซเธฃเธฑเธเธ”เธถเธเธขเธญเธ”เธเธฅเธดเธ•:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+        const Text('คำสั่ง SQL Query / View สำหรับดึงยอดผลิต:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
         const SizedBox(height: 6),
         TextField(
           controller: _queryCtrl,
@@ -760,31 +791,33 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
           ),
         ),
         const SizedBox(height: 16),
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             OutlinedButton.icon(
               icon: _isTestingSql
                   ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
                   : const Icon(Icons.electrical_services_rounded, size: 16),
-              label: const Text('๐” เธ—เธ”เธชเธญเธเธเธฒเธฃเน€เธเธทเนเธญเธกเธ•เนเธญ (Test Connection)'),
+              label: const Text('🔌 ทดสอบการเชื่อมต่อ (Test Connection)'),
               onPressed: _isTestingSql ? null : _testSqlConnection,
             ),
-            const SizedBox(width: 12),
             FilledButton.icon(
               icon: _isSyncingSql
                   ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.sync_rounded, size: 16),
-              label: const Text('๐” เธเธดเธเธเนเธเนเธญเธกเธนเธฅ OEE เธ—เธฑเธเธ—เธต (Sync Now)'),
+              label: const Text('🔄 ซิงค์ข้อมูล OEE ทันที (Sync Now)'),
               onPressed: _isSyncingSql ? null : _syncSqlData,
             ),
-            const Spacer(),
             Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Switch(
                   value: _autoSyncShift,
                   onChanged: (v) => setState(() => _autoSyncShift = v),
                 ),
-                const Text('Auto-Sync เธ—เธธเธเธชเธดเนเธเธเธฐ', style: TextStyle(fontSize: 12)),
+                const Text('Auto-Sync ทุกสิ้นกะ', style: TextStyle(fontSize: 12)),
               ],
             ),
           ],
@@ -827,13 +860,13 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            hint: const Text('เน€เธฅเธทเธญเธเธเธญเธฅเธฑเธกเธเน...', style: TextStyle(fontSize: 12)),
+            hint: const Text('เลือกคอลัมน์...', style: TextStyle(fontSize: 12)),
             items: List.generate(
               _headers.length,
               (idx) => DropdownMenuItem(
                 value: idx,
                 child: Text(
-                  _headers[idx].isNotEmpty ? _headers[idx] : 'เธเธญเธฅเธฑเธกเธเน ${idx + 1}',
+                  _headers[idx].isNotEmpty ? _headers[idx] : 'คอลัมน์ ' + (idx + 1).toString(),
                   style: const TextStyle(fontSize: 12),
                   overflow: TextOverflow.ellipsis,
                 ),
