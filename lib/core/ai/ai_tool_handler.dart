@@ -104,6 +104,31 @@ class AiToolHandler {
 
   // ── Helper Entity Finders ──────────────────────────────────────────────────
 
+  static List<String> _parseMachineIdentifiers(dynamic raw) {
+    if (raw == null) return [];
+    if (raw is List) {
+      return raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+    }
+    String str = raw.toString().trim();
+    if (str.isEmpty) return [];
+
+    // Remove surrounding brackets e.g. [A, B, C]
+    if (str.startsWith('[') && str.endsWith(']')) {
+      str = str.substring(1, str.length - 1).trim();
+    }
+
+    // Handle comma or semicolon separated list
+    if (str.contains(',') || str.contains(';') || str.contains('\n')) {
+      return str
+          .split(RegExp(r'[,;\n]+'))
+          .map((e) => e.replaceAll(RegExp(r'''['"\[\]]'''), '').trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+
+    return [str];
+  }
+
   static Future<Map<String, dynamic>?> _findMachine(String identifier) async {
     if (identifier.trim().isEmpty) return null;
     final id = identifier.trim();
@@ -1278,16 +1303,100 @@ class AiToolHandler {
       });
     }
 
+    final rawMachineIdentifiers = args['machine_identifier'] ?? args['machine_no'] ?? args['machines'];
+    final machineList = _parseMachineIdentifiers(rawMachineIdentifiers);
+
+    if (machineList.length > 1) {
+      int createdPlans = 0;
+      int totalTasks = 0;
+      final planCodes = <String>[];
+
+      final rawPlanNames = _parseMachineIdentifiers(args['plan_name']);
+      final planType = (args['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
+      final frequencyDays = (args['frequency_days'] as num?)?.toInt() ?? (planType == 'AM' ? 1 : 30);
+      final tasks = args['tasks'];
+
+      for (int i = 0; i < machineList.length; i++) {
+        final mcIdentifier = machineList[i];
+        final machine = await _findMachine(mcIdentifier);
+        if (machine == null) continue;
+
+        final machineId = machine['machine_id'].toString();
+        final machineNo = machine['machine_no'].toString();
+        final pName = (i < rawPlanNames.length && rawPlanNames[i].isNotEmpty)
+            ? rawPlanNames[i]
+            : (args['plan_name'] is String && (args['plan_name'] as String).isNotEmpty && !args['plan_name'].toString().startsWith('[')
+                ? '${args['plan_name']} - $machineNo'
+                : 'แผนบำรุงรักษา $planType $machineNo');
+
+        final planId = const Uuid().v4();
+        final planCode = '$planType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
+
+        await DbHelper.execute('''
+          INSERT INTO pm_am_plans (
+            plan_id, machine_id, plan_type, plan_code, plan_name,
+            frequency_days, status, created_at, updated_at
+          ) VALUES (
+            @id, @mid, @type, @code, @name,
+            @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': planId,
+          'mid': machineId,
+          'type': planType,
+          'code': planCode,
+          'name': pName,
+          'freq': frequencyDays,
+        });
+        createdPlans++;
+        planCodes.add(planCode);
+
+        if (tasks is List && tasks.isNotEmpty) {
+          for (int tIdx = 0; tIdx < tasks.length; tIdx++) {
+            final t = tasks[tIdx];
+            final taskName = (t is Map ? t['task_name'] : t)?.toString().trim() ?? '';
+            if (taskName.isEmpty) continue;
+            final taskType = (t is Map ? t['task_type']?.toString() : null) ?? 'inspect';
+            final isCritical = (t is Map && t['is_critical'] == true) ? 1 : 0;
+
+            await DbHelper.execute('''
+              INSERT INTO pm_am_tasks (
+                task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+              ) VALUES (
+                @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+              )
+            ''', params: {
+              'tid': const Uuid().v4(),
+              'pid': planId,
+              'order': tIdx + 1,
+              'name': taskName,
+              'type': taskType,
+              'crit': isCritical,
+            });
+            totalTasks++;
+          }
+        }
+      }
+
+      return jsonEncode({
+        'status': 'success',
+        'plans_created': createdPlans,
+        'tasks_created': totalTasks,
+        'plan_codes': planCodes,
+        'message': 'สร้างแผนแม่บท $planType สำเร็จ $createdPlans แผน (รวมรายการตรวจเช็ค $totalTasks รายการ)',
+      });
+    }
+
     // Default: create single plan / insert
-    final machineIdentifier = args['machine_identifier']?.toString().trim() ?? '';
+    final singleIdentifier = machineList.isNotEmpty ? machineList.first : (args['machine_identifier']?.toString().trim() ?? '');
     final planType = (args['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
     final planName = args['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษาประจำเครื่อง';
     final frequencyDays = (args['frequency_days'] as num?)?.toInt() ?? 30;
     final tasks = args['tasks'];
 
-    final machine = await _findMachine(machineIdentifier);
+    final machine = await _findMachine(singleIdentifier);
     if (machine == null) {
-      return jsonEncode({'error': 'ไม่พบเครื่องจักรที่มีรหัส/ชื่อ "$machineIdentifier"'});
+      return jsonEncode({'error': 'ไม่พบเครื่องจักรที่มีรหัส/ชื่อ "$singleIdentifier"'});
     }
 
     final machineId = machine['machine_id'].toString();
