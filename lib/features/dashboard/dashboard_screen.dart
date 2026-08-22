@@ -10,6 +10,7 @@ import '../../core/database/db_helper.dart';
 import '../../features/auth/auth_provider.dart';
 import '../analytics/analytics_provider.dart';
 import '../analytics/analytics_dashboard_screen.dart';
+import 'widgets/oee_excel_import_dialog.dart';
 import 'package:intl/intl.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,6 +302,17 @@ class DashboardScreen extends ConsumerWidget {
               Text(
                 'ตัวชี้วัดประสิทธิภาพโรงงาน & OEE (Plant Reliability & OEE KPIs)',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const Spacer(),
+              FilledButton.icon(
+                icon: const Icon(Icons.file_upload_outlined, size: 16),
+                label: const Text('นำเข้ายอดผลิต / OEE (Excel/CSV)', style: TextStyle(fontSize: 12.5)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+                onPressed: () => OeeExcelImportDialog.show(context),
               ),
             ],
           ),
