@@ -1131,22 +1131,42 @@ class AiToolHandler {
     if (action == 'delete_plan' || action == 'delete' || action == 'delete_all' || action == 'clear_all') {
       final rawIdentifier = args['plan_identifier'] ?? args['plan_code'] ?? args['plans'] ?? args['items'] ?? args['plan_ids'] ?? args['machine_identifier'];
       final planList = _parseMachineIdentifiers(rawIdentifier);
+      final rawStr = rawIdentifier?.toString().trim().toUpperCase() ?? '';
 
-      final typeFilter = args['plan_type']?.toString().toUpperCase();
-      if (planList.isEmpty || planList.contains('all') || planList.contains('all_pm') || planList.contains('ทั้งหมด') || action == 'delete_all' || action == 'clear_all') {
+      final isAll = planList.isEmpty ||
+          planList.any((p) => ['ALL', 'ALL_PM', 'ALL_AM', 'ทั้งหมด', 'ทุกแผน', 'PM_ALL', 'AM_ALL', '*'].contains(p.toUpperCase())) ||
+          ['ALL', 'ALL_PM', 'ALL_AM', 'ทั้งหมด', 'ทุกแผน', 'PM_ALL', 'AM_ALL', '*'].contains(rawStr) ||
+          action == 'delete_all' || action == 'clear_all';
+
+      if (isAll) {
+        final typeFilter = args['plan_type']?.toString().toUpperCase();
+        String? targetType;
         if (typeFilter == 'PM' || typeFilter == 'AM') {
-          final rows = await DbHelper.query('SELECT plan_id FROM pm_am_plans WHERE plan_type = @type', params: {'type': typeFilter});
-          for (final r in rows) {
-            final pid = r['plan_id'].toString();
-            await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': pid});
-            await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': pid});
-          }
-          return jsonEncode({
-            'status': 'success',
-            'deleted_count': rows.length,
-            'message': 'ลบแผนแม่บท $typeFilter ทั้งหมด ${rows.length} แผนเรียบร้อยแล้ว',
-          });
+          targetType = typeFilter;
+        } else if (rawStr.contains('PM') || planList.any((p) => p.toUpperCase().contains('PM'))) {
+          targetType = 'PM';
+        } else if (rawStr.contains('AM') || planList.any((p) => p.toUpperCase().contains('AM'))) {
+          targetType = 'AM';
         }
+
+        List<Map<String, dynamic>> rows;
+        if (targetType != null) {
+          rows = await DbHelper.query('SELECT plan_id FROM pm_am_plans WHERE plan_type = @type', params: {'type': targetType});
+        } else {
+          rows = await DbHelper.query('SELECT plan_id FROM pm_am_plans');
+        }
+
+        for (final r in rows) {
+          final pid = r['plan_id'].toString();
+          await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': pid});
+          await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': pid});
+        }
+
+        return jsonEncode({
+          'status': 'success',
+          'deleted_count': rows.length,
+          'message': 'ลบแผนแม่บท ${targetType ?? "ทั้งหมด"} จำนวน ${rows.length} แผน เรียบร้อยแล้ว',
+        });
       }
 
       if (planList.length > 1) {
@@ -1174,6 +1194,20 @@ class AiToolHandler {
       }
 
       final identifier = planList.isNotEmpty ? planList.first : '';
+      if (['ALL', 'ALL_PM', 'ALL_AM', 'ทั้งหมด'].contains(identifier.toUpperCase())) {
+        final rows = await DbHelper.query('SELECT plan_id FROM pm_am_plans');
+        for (final r in rows) {
+          final pid = r['plan_id'].toString();
+          await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': pid});
+          await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': pid});
+        }
+        return jsonEncode({
+          'status': 'success',
+          'deleted_count': rows.length,
+          'message': 'ลบแผนแม่บททั้งหมด ${rows.length} แผน เรียบร้อยแล้ว',
+        });
+      }
+
       final plan = await _findPmPlan(identifier);
       if (plan == null) {
         final res = await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id OR plan_code = @id', params: {'id': identifier});
