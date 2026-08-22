@@ -1,3 +1,4 @@
+import 'package:masapp/features/machine_intake/machine_provider.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -2125,20 +2126,26 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RadioListTile<WorkOrderPriority>(
+                    title: const Text('ต่ำ (Low)'),
+                    value: WorkOrderPriority.low,
+                    groupValue: selected,
+                    onChanged: (v) => setState(() => selected = v!),
+                  ),
+                  RadioListTile<WorkOrderPriority>(
                     title: const Text('ปกติ (Normal)'),
                     value: WorkOrderPriority.normal,
                     groupValue: selected,
                     onChanged: (v) => setState(() => selected = v!),
                   ),
                   RadioListTile<WorkOrderPriority>(
-                    title: const Text('เร่งด่วน (Urgent)'),
-                    value: WorkOrderPriority.urgent,
+                    title: const Text('สูง (High)'),
+                    value: WorkOrderPriority.high,
                     groupValue: selected,
                     onChanged: (v) => setState(() => selected = v!),
                   ),
                   RadioListTile<WorkOrderPriority>(
-                    title: const Text('ฉุกเฉิน (Emergency)'),
-                    value: WorkOrderPriority.emergency,
+                    title: const Text('ด่วนมาก (Urgent)'),
+                    value: WorkOrderPriority.urgent,
                     groupValue: selected,
                     onChanged: (v) => setState(() => selected = v!),
                   ),
