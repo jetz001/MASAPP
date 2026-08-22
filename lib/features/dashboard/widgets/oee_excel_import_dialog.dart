@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart';
 import '../../../core/database/db_helper.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../analytics/analytics_provider.dart';
@@ -28,7 +29,11 @@ class OeeExcelImportDialog extends ConsumerStatefulWidget {
 class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // Excel/CSV state
+  // Registered Machines
+  List<Map<String, dynamic>> _machines = [];
+  bool _isLoadingMachines = true;
+
+  // 1. Excel/CSV state
   File? _selectedFile;
   String? _fileName;
   List<String> _headers = [];
@@ -44,7 +49,16 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
   int _colActual = -1;
   int _colGood = -1;
 
-  // SQL / ERP state
+  // 2. Quick Manual Entry state
+  String? _selectedManualMachineId;
+  DateTime _manualDate = DateTime.now();
+  final _manualHoursCtrl = TextEditingController(text: '8.0');
+  final _manualTargetCtrl = TextEditingController(text: '1000');
+  final _manualActualCtrl = TextEditingController(text: '950');
+  final _manualGoodCtrl = TextEditingController(text: '935');
+  bool _isSavingManual = false;
+
+  // 3. SQL / ERP state
   String _dbType = 'MSSQL';
   final _serverHostCtrl = TextEditingController(text: r'.\SQLEXPRESS');
   final _portCtrl = TextEditingController(text: '1433');
@@ -64,12 +78,32 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
+    _loadMachines();
+  }
+
+  Future<void> _loadMachines() async {
+    try {
+      final rows = await DbHelper.query('SELECT machine_id, machine_no, machine_name FROM machines ORDER BY machine_no');
+      setState(() {
+        _machines = rows;
+        if (rows.isNotEmpty) {
+          _selectedManualMachineId = rows.first['machine_id']?.toString();
+        }
+        _isLoadingMachines = false;
+      });
+    } catch (_) {
+      setState(() => _isLoadingMachines = false);
+    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _manualHoursCtrl.dispose();
+    _manualTargetCtrl.dispose();
+    _manualActualCtrl.dispose();
+    _manualGoodCtrl.dispose();
     _serverHostCtrl.dispose();
     _portCtrl.dispose();
     _dbNameCtrl.dispose();
@@ -79,6 +113,9 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     super.dispose();
   }
 
+  // ---------------------------------------------------------------------------
+  // Excel File Parsing & Saving
+  // ---------------------------------------------------------------------------
   Future<void> _pickFile() async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -222,8 +259,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
 
     try {
       int insertedCount = 0;
-      final machinesInDb = await DbHelper.query('SELECT machine_id, machine_no FROM machines');
-      final machineMap = {for (var m in machinesInDb) m['machine_no']?.toString().toUpperCase(): m['machine_id']?.toString()};
+      final machineMap = {for (var m in _machines) m['machine_no']?.toString().toUpperCase(): m['machine_id']?.toString()};
 
       for (final row in _rawRows) {
         if (row.isEmpty) continue;
@@ -279,6 +315,68 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Quick Manual Entry Saving
+  // ---------------------------------------------------------------------------
+  Future<void> _saveManualEntry() async {
+    if (_selectedManualMachineId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('กรุณาเลือกเครื่องจักร'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    setState(() => _isSavingManual = true);
+
+    try {
+      final hours = _parseDouble(_manualHoursCtrl.text, fallback: 8.0);
+      final target = _parseDouble(_manualTargetCtrl.text, fallback: 1000.0);
+      final actual = _parseDouble(_manualActualCtrl.text, fallback: 950.0);
+      final good = _parseDouble(_manualGoodCtrl.text, fallback: actual);
+
+      final id = const Uuid().v4();
+      await DbHelper.execute(
+        "INSERT INTO machine_running_hours (" +
+        "hours_id, machine_id, cumulative_hours, target_production, actual_production, good_production, recorded_date, data_source" +
+        ") VALUES (" +
+        "@id, @mId, @hrs, @tgt, @act, @good, @date, 'manual_entry'" +
+        ")",
+        params: {
+          'id': id,
+          'mId': _selectedManualMachineId,
+          'hrs': hours,
+          'tgt': target,
+          'act': actual,
+          'good': good,
+          'date': _manualDate.toIso8601String(),
+        },
+      );
+
+      ref.invalidate(maintenanceMetricsProvider);
+      ref.invalidate(dashboardStatsProvider);
+      ref.invalidate(oeeTrendProvider);
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('✅ บันทึกยอดผลิตและคำนวณ OEE เรียบร้อยแล้ว!'),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'บันทึกข้อมูลล้มเหลว: $e';
+        _isSavingManual = false;
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // SQL Server Test & Sync
+  // ---------------------------------------------------------------------------
   Future<void> _testSqlConnection() async {
     setState(() {
       _isTestingSql = true;
@@ -303,11 +401,10 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
 
     try {
       await Future.delayed(const Duration(milliseconds: 1500));
-      final machinesInDb = await DbHelper.query('SELECT machine_id, machine_no FROM machines LIMIT 5');
       final now = DateTime.now();
       int syncCount = 0;
 
-      for (final m in machinesInDb) {
+      for (final m in _machines.take(5)) {
         final mId = m['machine_id']?.toString() ?? '';
         if (mId.isEmpty) continue;
         final id = const Uuid().v4();
@@ -351,12 +448,12 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        constraints: const BoxConstraints(maxWidth: 820, maxHeight: 680),
+        constraints: const BoxConstraints(maxWidth: 860, maxHeight: 690),
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Title Bar with Expanded
+            // Title Bar
             Row(
               children: [
                 Container(
@@ -373,13 +470,13 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'ศูนย์นำเข้าข้อมูล OEE (Excel, CSV & SQL/ERP)',
+                        'ศูนย์ข้อมูลยอดผลิต & คำนวณ OEE (OEE Data Center)',
                         style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'นำเข้าจากไฟล์ หรือ เชื่อมต่อดึงตรงจากฐานข้อมูล SQL Server / ERP',
+                        'รองรับทั้งไฟล์ Excel, การบันทึกประจำวันในระบบ, และการต่อตรงกับ ERP',
                         style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -396,7 +493,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
 
             const SizedBox(height: 12),
 
-            // Tab Bar
+            // Tab Bar with 3 factory modes
             Container(
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -412,8 +509,9 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                 labelColor: Colors.white,
                 unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                 tabs: const [
-                  Tab(icon: Icon(Icons.table_view_rounded, size: 18), text: '1. นำเข้าไฟล์ Excel / CSV'),
-                  Tab(icon: Icon(Icons.storage_rounded, size: 18), text: '2. เชื่อมต่อฐานข้อมูล SQL / ERP'),
+                  Tab(icon: Icon(Icons.table_view_rounded, size: 16), text: '1. นำเข้า Excel / CSV'),
+                  Tab(icon: Icon(Icons.edit_calendar_rounded, size: 16), text: '2. บันทึกยอดประจำวัน'),
+                  Tab(icon: Icon(Icons.storage_rounded, size: 16), text: '3. เชื่อมต่อ SQL / ERP'),
                 ],
               ),
             ),
@@ -425,11 +523,17 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               child: TabBarView(
                 controller: _tabController,
                 children: [
+                  // Tab 1: Excel / CSV
                   _selectedFile == null
                       ? _buildUploadArea(theme)
                       : _isLoading
                           ? const Center(child: CircularProgressIndicator())
                           : _buildMappingAndPreview(theme),
+
+                  // Tab 2: Quick Manual Entry
+                  _buildManualEntryTab(theme),
+
+                  // Tab 3: SQL / ERP
                   _buildSqlConnectorTab(theme),
                 ],
               ),
@@ -487,6 +591,9 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // TAB 1 WIDGETS (Excel Upload)
+  // ---------------------------------------------------------------------------
   Widget _buildUploadArea(ThemeData theme) {
     return Center(
       child: Column(
@@ -635,6 +742,282 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // TAB 2 WIDGETS (Quick Manual Entry)
+  // ---------------------------------------------------------------------------
+  Widget _buildManualEntryTab(ThemeData theme) {
+    final hrs = _parseDouble(_manualHoursCtrl.text, fallback: 8.0);
+    final tgt = _parseDouble(_manualTargetCtrl.text, fallback: 1000.0);
+    final act = _parseDouble(_manualActualCtrl.text, fallback: 950.0);
+    final good = _parseDouble(_manualGoodCtrl.text, fallback: act);
+
+    final avail = hrs > 0 ? (hrs / (hrs + 0.5)) : 0.0;
+    final perf = tgt > 0 ? (act / tgt) : 0.0;
+    final qual = act > 0 ? (good / act) : 0.0;
+    final oee = (avail * perf * qual * 100).clamp(0, 100);
+
+    return ListView(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.green.withValues(alpha: 0.2)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.check_circle_outline_rounded, color: Colors.green, size: 20),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'เหมาะสำหรับโรงงานที่ต้องการให้ช่างหรือหัวหน้างานบันทึกยอดผลิตรายวัน/รายกะง่ายๆ ในระบบ โดยไม่ต้องเชื่อมต่อกับระบบภายนอก',
+                  style: TextStyle(fontSize: 12.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Left Form
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('เลือกเครื่องจักร (Machine) *', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: _selectedManualMachineId,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    hint: const Text('เลือกเครื่องจักร...'),
+                    items: _machines.map((m) {
+                      final id = m['machine_id']?.toString() ?? '';
+                      final no = m['machine_no']?.toString() ?? '-';
+                      final name = m['machine_name']?.toString() ?? '';
+                      return DropdownMenuItem(
+                        value: id,
+                        child: Text(no + ' : ' + name, style: const TextStyle(fontSize: 12)),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setState(() => _selectedManualMachineId = v),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('วันที่บันทึก (Date)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 6),
+                            InkWell(
+                              onTap: () async {
+                                final d = await showDatePicker(
+                                  context: context,
+                                  initialDate: _manualDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime.now(),
+                                );
+                                if (d != null) setState(() => _manualDate = d);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: theme.colorScheme.outlineVariant),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today_rounded, size: 16),
+                                    const SizedBox(width: 8),
+                                    Text(DateFormat('dd/MM/yyyy').format(_manualDate), style: const TextStyle(fontSize: 12.5)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ชั่วโมงเดินเครื่อง (Hours)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _manualHoursCtrl,
+                              keyboardType: TextInputType.number,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                suffixText: 'ชม.',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ยอดเป้าหมาย (Target)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _manualTargetCtrl,
+                              keyboardType: TextInputType.number,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                suffixText: 'ชิ้น',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ยอดผลิตจริง (Actual)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _manualActualCtrl,
+                              keyboardType: TextInputType.number,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                suffixText: 'ชิ้น',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('ยอดของดี (Good Qty)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _manualGoodCtrl,
+                              keyboardType: TextInputType.number,
+                              onChanged: (_) => setState(() {}),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                suffixText: 'ชิ้น',
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(width: 20),
+
+            // Right Live OEE Summary Card
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('📊 คำนวณ OEE แบบเรียลไทม์', style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 13)),
+                    const SizedBox(height: 12),
+                    _buildMetricRow('Availability (ความพร้อมใช้งาน):', (avail * 100).toStringAsFixed(1) + '%'),
+                    const SizedBox(height: 6),
+                    _buildMetricRow('Performance (ประสิทธิภาพ):', (perf * 100).toStringAsFixed(1) + '%'),
+                    const SizedBox(height: 6),
+                    _buildMetricRow('Quality (คุณภาพของดี):', (qual * 100).toStringAsFixed(1) + '%'),
+                    const Divider(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Overall OEE:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Text(
+                          oee.toStringAsFixed(1) + '%',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: oee >= 85 ? Colors.green.shade800 : Colors.orange.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        icon: _isSavingManual
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.save_rounded, size: 18),
+                        label: Text(_isSavingManual ? 'กำลังบันทึก...' : '💾 บันทึกยอดผลิตนี้'),
+                        style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+                        onPressed: _isSavingManual ? null : _saveManualEntry,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetricRow(String label, String val) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(child: Text(label, style: const TextStyle(fontSize: 11.5))),
+        Text(val, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+      ],
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TAB 3 WIDGETS (SQL / ERP Connector)
+  // ---------------------------------------------------------------------------
   Widget _buildSqlConnectorTab(ThemeData theme) {
     return ListView(
       children: [
@@ -651,7 +1034,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'เชื่อมต่อดึงข้อมูลยอดผลิตและเวลาเดินเครื่องจากระบบ ERP เช่น iSoft, SAP, MySQL หรือ MS SQL Server อัตโนมัติ',
+                  'เหมาะสำหรับโรงงานที่มีทีมไอทีและระบบ ERP (เช่น iSoft, SAP, MySQL, MS SQL Server) และต้องการดึงข้อมูลยอดผลิตตรงแบบอัตโนมัติ',
                   style: TextStyle(fontSize: 12.5),
                 ),
               ),
