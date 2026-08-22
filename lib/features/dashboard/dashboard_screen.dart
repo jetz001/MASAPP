@@ -305,8 +305,8 @@ class DashboardScreen extends ConsumerWidget {
               ),
               const Spacer(),
               FilledButton.icon(
-                icon: const Icon(Icons.file_upload_outlined, size: 16),
-                label: const Text('นำเข้ายอดผลิต / OEE (Excel/CSV)', style: TextStyle(fontSize: 12.5)),
+                icon: const Icon(Icons.hub_rounded, size: 16),
+                label: const Text('นำเข้ายอดผลิต / เชื่อมต่อ SQL (OEE)', style: TextStyle(fontSize: 12.5)),
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.green.shade700,
                   foregroundColor: Colors.white,
