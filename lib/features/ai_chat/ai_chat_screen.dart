@@ -430,7 +430,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             'Add-Type -AssemblyName System.Drawing;',
             r'$img = [System.Windows.Forms.Clipboard]::GetImage();',
             r'if ($null -ne $img) {',
-            '  $img.Save("$targetPath", [System.Drawing.Imaging.ImageFormat]::Png);',
+            r'$img.Save("' + targetPath + r'", [System.Drawing.Imaging.ImageFormat]::Png);',
             '  Write-Output "OK";',
             r'} else {',
             r'  $files = [System.Windows.Forms.Clipboard]::GetFileDropList();',
