@@ -1123,6 +1123,28 @@ class AiToolHandler {
     return jsonEncode({'error': 'ไม่รู้จัก action "$action"'});
   }
 
+  static Future<void> _deletePmPlanCascade(String planId) async {
+    try {
+      await DbHelper.execute('''
+        DELETE FROM pm_am_executions 
+        WHERE task_id IN (SELECT task_id FROM pm_am_tasks WHERE plan_id = @id)
+           OR schedule_id IN (SELECT schedule_id FROM pm_am_schedules WHERE plan_id = @id)
+      ''', params: {'id': planId});
+    } catch (_) {}
+
+    try {
+      await DbHelper.execute('DELETE FROM pm_am_schedules WHERE plan_id = @id', params: {'id': planId});
+    } catch (_) {}
+
+    try {
+      await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': planId});
+    } catch (_) {}
+
+    try {
+      await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id OR plan_code = @id', params: {'id': planId});
+    } catch (_) {}
+  }
+
   // ── 3. PM/AM MASTER PLANS CRUD (manage_pm_plans) ───────────────────────────
 
   static Future<String> _managePmPlans(Map<String, dynamic> args) async {
@@ -1158,8 +1180,7 @@ class AiToolHandler {
 
         for (final r in rows) {
           final pid = r['plan_id'].toString();
-          await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': pid});
-          await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': pid});
+          await _deletePmPlanCascade(pid);
         }
 
         return jsonEncode({
@@ -1173,18 +1194,9 @@ class AiToolHandler {
         int deletedCount = 0;
         for (final id in planList) {
           final plan = await _findPmPlan(id);
-          if (plan != null) {
-            final planId = plan['plan_id'].toString();
-            await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': planId});
-            await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': planId});
-            deletedCount++;
-          } else {
-            final res = await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id OR plan_code = @id', params: {'id': id});
-            if (res > 0) {
-              await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': id});
-              deletedCount++;
-            }
-          }
+          final planId = plan != null ? plan['plan_id'].toString() : id;
+          await _deletePmPlanCascade(planId);
+          deletedCount++;
         }
         return jsonEncode({
           'status': 'success',
@@ -1194,39 +1206,13 @@ class AiToolHandler {
       }
 
       final identifier = planList.isNotEmpty ? planList.first : '';
-      if (['ALL', 'ALL_PM', 'ALL_AM', 'ทั้งหมด'].contains(identifier.toUpperCase())) {
-        final rows = await DbHelper.query('SELECT plan_id FROM pm_am_plans');
-        for (final r in rows) {
-          final pid = r['plan_id'].toString();
-          await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': pid});
-          await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': pid});
-        }
-        return jsonEncode({
-          'status': 'success',
-          'deleted_count': rows.length,
-          'message': 'ลบแผนแม่บททั้งหมด ${rows.length} แผน เรียบร้อยแล้ว',
-        });
-      }
-
       final plan = await _findPmPlan(identifier);
-      if (plan == null) {
-        final res = await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id OR plan_code = @id', params: {'id': identifier});
-        if (res > 0) {
-          await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': identifier});
-          return jsonEncode({
-            'status': 'success',
-            'message': 'ลบแผนแม่บท PM/AM เรียบร้อยแล้ว',
-          });
-        }
-        return jsonEncode({'error': 'ไม่พบแผนแม่บท PM/AM "$identifier"'});
-      }
-      final planId = plan['plan_id'].toString();
-      await DbHelper.execute('DELETE FROM pm_am_tasks WHERE plan_id = @id', params: {'id': planId});
-      await DbHelper.execute('DELETE FROM pm_am_plans WHERE plan_id = @id', params: {'id': planId});
+      final planId = plan != null ? plan['plan_id'].toString() : identifier;
+      await _deletePmPlanCascade(planId);
       return jsonEncode({
         'status': 'success',
-        'plan_code': plan['plan_code'],
-        'message': 'ลบแผนแม่บท PM/AM (${plan["plan_code"]}) และรายการตรวจเช็คทั้งหมดเรียบร้อยแล้ว',
+        'plan_code': plan?['plan_code'] ?? identifier,
+        'message': 'ลบแผนแม่บท PM/AM (${plan?["plan_code"] ?? identifier}) เรียบร้อยแล้ว',
       });
     }
 
