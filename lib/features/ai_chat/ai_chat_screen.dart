@@ -288,9 +288,9 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
     }
   }
 
-  Future<bool> _handleClipboardPaste() async {
+  Future<bool> _handleClipboardPaste({bool allowTextPaste = true}) async {
     final now = DateTime.now();
-    if (_isPasting || now.difference(_lastPasteTime).inMilliseconds < 600) {
+    if (_isPasting || now.difference(_lastPasteTime).inMilliseconds < 300) {
       return true;
     }
     _isPasting = true;
@@ -363,14 +363,15 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
         debugPrint('[Pasteboard.files error]: $e');
       }
 
-      // 3. Fallback: Check if clipboard text is a local file path
+      // 3. Check plain text (can be a local file path OR normal text)
       try {
         final plainData = await Clipboard.getData(Clipboard.kTextPlain);
-        final rawText = plainData?.text?.trim() ?? '';
+        final rawText = plainData?.text ?? '';
         if (rawText.isNotEmpty) {
-          final cleaned = rawText.replaceAll('"', '').replaceAll("'", '');
+          final trimmed = rawText.trim();
+          final cleaned = trimmed.replaceAll('"', '').replaceAll("'", '');
           final file = File(cleaned);
-          if (await file.exists()) {
+          if (cleaned.length < 300 && await file.exists()) {
             final ext = p.extension(cleaned).toLowerCase().replaceAll('.', '');
             final supported = [
               'png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif',
@@ -381,10 +382,43 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               return true;
             }
           }
+
+          // If allowTextPaste is true, paste normal text directly into text field!
+          if (allowTextPaste) {
+            final curText = _controller.text;
+            final selection = _controller.selection;
+            final start = (selection.start >= 0 && selection.start <= curText.length)
+                ? selection.start
+                : curText.length;
+            final end = (selection.end >= 0 && selection.end <= curText.length)
+                ? selection.end
+                : curText.length;
+            final newText = curText.replaceRange(start, end, rawText);
+            _controller.text = newText;
+            _controller.selection = TextSelection.collapsed(offset: start + rawText.length);
+            _focusNode.requestFocus();
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: const [
+                      Icon(Icons.paste_rounded, color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text('วางข้อความเรียบร้อยแล้ว'),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 1),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                ),
+              );
+            }
+            return true;
+          }
         }
       } catch (_) {}
 
-      // 4. Windows PowerShell Native Clipboard Fallback (100% works even if C++ plugin is missing or hot-reloading)
+      // 4. Windows PowerShell Native Clipboard Fallback for images
       if (Platform.isWindows) {
         try {
           final tempDir = await getTemporaryDirectory();
@@ -396,7 +430,7 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
             'Add-Type -AssemblyName System.Drawing;',
             r'$img = [System.Windows.Forms.Clipboard]::GetImage();',
             r'if ($null -ne $img) {',
-            '  \$img.Save("$targetPath", [System.Drawing.Imaging.ImageFormat]::Png);',
+            '  $img.Save("$targetPath", [System.Drawing.Imaging.ImageFormat]::Png);',
             '  Write-Output "OK";',
             r'} else {',
             r'  $files = [System.Windows.Forms.Clipboard]::GetFileDropList();',
@@ -450,22 +484,6 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
                 );
               }
               return true;
-            }
-          } else if (res.exitCode == 0 && res.stdout != null) {
-            final stdoutStr = res.stdout.toString();
-            final fileLines = stdoutStr
-                .split(RegExp(r'\r?\n'))
-                .where((l) => l.startsWith('FILE:'))
-                .map((l) => l.substring(5).trim())
-                .where((l) => l.isNotEmpty)
-                .toList();
-            if (fileLines.isNotEmpty) {
-              final fileList =
-                  fileLines.map((p) => File(p)).where((f) => f.existsSync()).toList();
-              if (fileList.isNotEmpty) {
-                await _handleMultipleFiles(fileList);
-                return true;
-              }
             }
           }
         } catch (e) {
@@ -1065,8 +1083,8 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.content_paste_go_rounded),
-                tooltip: 'วางรูปภาพหรือไฟล์จาก Clipboard (Ctrl+V)',
-                onPressed: _sending ? null : () => _handleClipboardPaste(),
+                tooltip: 'วางข้อความ รูปภาพ หรือไฟล์จาก Clipboard (Ctrl+V)',
+                onPressed: _sending ? null : () => _handleClipboardPaste(allowTextPaste: true),
               ),
               const SizedBox(width: 4),
               Expanded(
