@@ -99,7 +99,7 @@ class _OeeLogsScreenState extends ConsumerState<OeeLogsScreen> {
                       const SizedBox(height: 16),
                       SwitchListTile(
                         title: const Text('รับข้อมูลจาก PLC อัตโนมัติ'),
-                        subtitle: const Text('หากเปิด ระบบจะดึงค่าจาก iSoft/PLC อัตโนมัติ'),
+                        subtitle: const Text('หากเปิด ระบบจะดึงค่าจากสัญญาณ PLC / IoT อัตโนมัติ'),
                         value: _usePlc,
                         onChanged: (val) {
                           setState(() {

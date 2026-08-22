@@ -62,7 +62,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
   String _dbType = 'MSSQL';
   final _serverHostCtrl = TextEditingController(text: r'.\SQLEXPRESS');
   final _portCtrl = TextEditingController(text: '1433');
-  final _dbNameCtrl = TextEditingController(text: 'isoft10_dbserver1');
+  final _dbNameCtrl = TextEditingController(text: 'erp_production_db');
   final _userCtrl = TextEditingController(text: 'sa');
   final _passCtrl = TextEditingController(text: '');
   final _queryCtrl = TextEditingController(
@@ -1034,7 +1034,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'เหมาะสำหรับโรงงานที่มีทีมไอทีและระบบ ERP (เช่น iSoft, SAP, MySQL, MS SQL Server) และต้องการดึงข้อมูลยอดผลิตตรงแบบอัตโนมัติ',
+                  'เหมาะสำหรับโรงงานที่มีทีมไอทีและระบบ ERP (เช่น MS SQL Server, SAP, Oracle, MySQL, MS SQL Server) และต้องการดึงข้อมูลยอดผลิตตรงแบบอัตโนมัติ',
                   style: TextStyle(fontSize: 12.5),
                 ),
               ),
@@ -1060,7 +1060,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     items: const [
-                      DropdownMenuItem(value: 'MSSQL', child: Text('MS SQL Server (iSoft / Express)')),
+                      DropdownMenuItem(value: 'MSSQL', child: Text('MS SQL Server / Express')),
                       DropdownMenuItem(value: 'MySQL', child: Text('MySQL / MariaDB')),
                       DropdownMenuItem(value: 'PostgreSQL', child: Text('PostgreSQL')),
                       DropdownMenuItem(value: 'Oracle', child: Text('Oracle Database')),
@@ -1086,7 +1086,7 @@ class _OeeExcelImportDialogState extends ConsumerState<OeeExcelImportDialog> wit
                     controller: _dbNameCtrl,
                     decoration: InputDecoration(
                       isDense: true,
-                      hintText: 'เช่น isoft10_dbserver1',
+                      hintText: 'เช่น erp_production_db',
                       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
