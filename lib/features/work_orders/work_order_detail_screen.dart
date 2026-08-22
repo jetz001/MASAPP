@@ -195,8 +195,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ข้อมูลเครื่องจักร',
                           icon: HugeIcons.strokeRoundedSettings01,
-                          onEdit: () =>
-                              context.push('/work-orders/new', extra: wo),
+                          onEdit: () => _showEditMachineInfoDialog(context, ref, wo),
                           children: [
                             _InfoRow(
                               label: 'เครื่องจักร',
@@ -212,8 +211,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ผู้เกี่ยวข้อง',
                           icon: HugeIcons.strokeRoundedUserGroup,
-                          onEdit: () =>
-                              context.push('/work-orders/new', extra: wo),
+                          onEdit: () => _showEditPersonnelDialog(context, ref, wo),
                           children: [
                             _InfoRow(
                               label: 'ผู้แจ้ง',
@@ -330,8 +328,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'ความสำคัญ',
                           icon: HugeIcons.strokeRoundedAlert02,
-                          onEdit: () =>
-                              context.push('/work-orders/new', extra: wo),
+                          onEdit: () => _showEditPriorityDialog(context, ref, wo),
                           children: [
                             _InfoRow(
                               label: 'ระดับ',
@@ -343,8 +340,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                         _buildInfoCard(
                           title: 'เวลาดำเนินการ',
                           icon: HugeIcons.strokeRoundedTime04,
-                          onEdit: () =>
-                              context.push('/work-orders/new', extra: wo),
+                          onEdit: () => _showEditTimingDialog(context, ref, wo),
                           children: [
                             _InfoRow(
                               label: 'เริ่มซ่อม',
@@ -1760,6 +1756,539 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     }
   }
 }
+
+
+  // ── DIALOG: แก้ไขผู้เกี่ยวข้อง (Personnel Dialog) ──────────────────────────
+  Future<void> _showEditPersonnelDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
+    // Load users from DB for dropdown selection
+    final users = await DbHelper.query('SELECT user_id, full_name, username, role FROM users ORDER BY full_name');
+    String? selectedAssignedTo = wo.assignedTo;
+    DateTime selectedDate = wo.createdAt;
+    TimeOfDay selectedTime = TimeOfDay.fromDateTime(wo.createdAt);
+
+    if (!context.mounted) return;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.people_outline_rounded, color: Colors.blueAccent),
+                  SizedBox(width: 8),
+                  Text('แก้ไขผู้เกี่ยวข้อง', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('ช่างผู้รับผิดชอบ (Assigned Technician)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      DropdownButtonFormField<String?>(
+                        value: users.any((u) => u['user_id']?.toString() == selectedAssignedTo)
+                            ? selectedAssignedTo
+                            : null,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          hintText: 'เลือกช่างผู้รับผิดชอบ...',
+                        ),
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('- ยังไม่ระบุช่างผู้รับผิดชอบ -', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          ),
+                          ...users.map((u) {
+                            final uid = u['user_id']?.toString();
+                            final name = u['full_name']?.toString() ?? u['username']?.toString() ?? '-';
+                            final role = u['role']?.toString() ?? '';
+                            return DropdownMenuItem<String?>(
+                              value: uid,
+                              child: Text('$name ($role)', style: const TextStyle(fontSize: 13)),
+                            );
+                          }),
+                        ],
+                        onChanged: (val) => setState(() => selectedAssignedTo = val),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text('วันที่และเวลาที่แจ้ง (Reported Date & Time)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final d = await showDatePicker(
+                                  context: ctx,
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                                );
+                                if (d != null) setState(() => selectedDate = d);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey.shade400),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today_rounded, size: 16, color: Colors.blueAccent),
+                                    const SizedBox(width: 8),
+                                    Text(DateFormat('dd/MM/yyyy').format(selectedDate), style: const TextStyle(fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final t = await showTimePicker(
+                                  context: ctx,
+                                  initialTime: selectedTime,
+                                );
+                                if (t != null) setState(() => selectedTime = t);
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey.shade400),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.access_time_rounded, size: 16, color: Colors.blueAccent),
+                                    const SizedBox(width: 8),
+                                    Text(selectedTime.format(ctx), style: const TextStyle(fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('บันทึกการแก้ไข'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && context.mounted) {
+      final combinedDateTime = DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        selectedTime.hour,
+        selectedTime.minute,
+      );
+
+      await DbHelper.execute('''
+        UPDATE work_orders
+        SET assigned_to = @assigned,
+            created_at = @createdAt,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE wo_id = @id
+      ''', params: {
+        'id': wo.woId,
+        'assigned': selectedAssignedTo,
+        'createdAt': combinedDateTime.toIso8601String(),
+      });
+
+      ref.invalidate(workOrderProvider(wo.woId));
+      ref.invalidate(workOrderListProvider);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ แก้ไขข้อมูลผู้เกี่ยวข้องสำเร็จ'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── DIALOG: แก้ไขเวลาดำเนินการ (Timing Dialog) ──────────────────────────────
+  Future<void> _showEditTimingDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
+    DateTime? started = wo.startedAt;
+    DateTime? completed = wo.completedAt;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.access_time_rounded, color: Colors.blueAccent),
+                  SizedBox(width: 8),
+                  Text('แก้ไขเวลาดำเนินการซ่อม', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('เวลาเริ่มซ่อม (Started At)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: ctx,
+                                initialDate: started ?? DateTime.now(),
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (d != null) {
+                                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(started ?? DateTime.now()));
+                                final time = t ?? const TimeOfDay(hour: 8, minute: 0);
+                                setState(() => started = DateTime(d.year, d.month, d.day, time.hour, time.minute));
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade400),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.play_circle_outline_rounded, size: 16, color: Colors.green),
+                                  const SizedBox(width: 8),
+                                  Text(started != null ? DateFormat('dd/MM/yyyy HH:mm').format(started!) : 'ยังไม่ระบุ', style: const TextStyle(fontSize: 13)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (started != null)
+                          IconButton(
+                            icon: const Icon(Icons.clear, size: 18, color: Colors.grey),
+                            onPressed: () => setState(() => started = null),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('เวลาเสร็จสิ้น (Completed At)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () async {
+                              final d = await showDatePicker(
+                                context: ctx,
+                                initialDate: completed ?? DateTime.now(),
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now().add(const Duration(days: 365)),
+                              );
+                              if (d != null) {
+                                final t = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(completed ?? DateTime.now()));
+                                final time = t ?? const TimeOfDay(hour: 17, minute: 0);
+                                setState(() => completed = DateTime(d.year, d.month, d.day, time.hour, time.minute));
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: Colors.grey.shade400),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_outline_rounded, size: 16, color: Colors.blueAccent),
+                                  const SizedBox(width: 8),
+                                  Text(completed != null ? DateFormat('dd/MM/yyyy HH:mm').format(completed!) : 'ยังไม่ระบุ', style: const TextStyle(fontSize: 13)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (completed != null)
+                          IconButton(
+                            icon: const Icon(Icons.clear, size: 18, color: Colors.grey),
+                            onPressed: () => setState(() => completed = null),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('บันทึกการแก้ไข'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && context.mounted) {
+      await DbHelper.execute('''
+        UPDATE work_orders
+        SET started_at = @start,
+            completed_at = @comp,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE wo_id = @id
+      ''', params: {
+        'id': wo.woId,
+        'start': started?.toIso8601String(),
+        'comp': completed?.toIso8601String(),
+      });
+
+      ref.invalidate(workOrderProvider(wo.woId));
+      ref.invalidate(workOrderListProvider);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ แก้ไขเวลาดำเนินการสำเร็จ'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── DIALOG: แก้ไขระดับความสำคัญ (Priority Dialog) ──────────────────────────
+  Future<void> _showEditPriorityDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
+    WorkOrderPriority selected = wo.priority;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('แก้ไขระดับความสำคัญ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<WorkOrderPriority>(
+                    title: const Text('ปกติ (Normal)'),
+                    value: WorkOrderPriority.normal,
+                    groupValue: selected,
+                    onChanged: (v) => setState(() => selected = v!),
+                  ),
+                  RadioListTile<WorkOrderPriority>(
+                    title: const Text('เร่งด่วน (Urgent)'),
+                    value: WorkOrderPriority.urgent,
+                    groupValue: selected,
+                    onChanged: (v) => setState(() => selected = v!),
+                  ),
+                  RadioListTile<WorkOrderPriority>(
+                    title: const Text('ฉุกเฉิน (Emergency)'),
+                    value: WorkOrderPriority.emergency,
+                    groupValue: selected,
+                    onChanged: (v) => setState(() => selected = v!),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('บันทึก'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && context.mounted) {
+      await DbHelper.execute('''
+        UPDATE work_orders
+        SET priority = @prio,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE wo_id = @id
+      ''', params: {
+        'id': wo.woId,
+        'prio': selected.dbValue,
+      });
+
+      ref.invalidate(workOrderProvider(wo.woId));
+      ref.invalidate(workOrderListProvider);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ แก้ไขระดับความสำคัญสำเร็จ'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  // ── DIALOG: แก้ไขข้อมูลเครื่องจักร (Machine Info Dialog) ────────────────────
+  Future<void> _showEditMachineInfoDialog(
+    BuildContext context,
+    WidgetRef ref,
+    WorkOrder wo,
+  ) async {
+    final machines = await DbHelper.query('SELECT machine_id, machine_no, machine_name FROM machines ORDER BY machine_no');
+    String? selectedMachineId = wo.machineId;
+
+    if (!context.mounted) return;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.precision_manufacturing_rounded, color: Colors.blueAccent),
+                  SizedBox(width: 8),
+                  Text('แก้ไขเครื่องจักรที่แจ้งซ่อม', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ],
+              ),
+              content: SizedBox(
+                width: 440,
+                child: DropdownButtonFormField<String?>(
+                  value: machines.any((m) => m['machine_id']?.toString() == selectedMachineId)
+                      ? selectedMachineId
+                      : null,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    hintText: 'เลือกเครื่องจักร...',
+                  ),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('งานอาคาร / ทั่วไป (ไม่ระบุเครื่องจักร)', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    ),
+                    ...machines.map((m) {
+                      final mid = m['machine_id']?.toString();
+                      final no = m['machine_no']?.toString() ?? '-';
+                      final name = m['machine_name']?.toString() ?? '';
+                      return DropdownMenuItem<String?>(
+                        value: mid,
+                        child: Text('$no - $name', style: const TextStyle(fontSize: 13)),
+                      );
+                    }),
+                  ],
+                  onChanged: (val) => setState(() => selectedMachineId = val),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('ยกเลิก'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('บันทึก'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (result == true && context.mounted) {
+      String? snapshotId;
+      if (selectedMachineId != null && selectedMachineId!.isNotEmpty) {
+        snapshotId = await MachineRepository().getOrCreateSnapshot(selectedMachineId!);
+      }
+
+      await DbHelper.execute('''
+        UPDATE work_orders
+        SET machine_id = @mid,
+            snapshot_id = @sid,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE wo_id = @id
+      ''', params: {
+        'id': wo.woId,
+        'mid': selectedMachineId,
+        'sid': snapshotId,
+      });
+
+      ref.invalidate(workOrderProvider(wo.woId));
+      ref.invalidate(workOrderListProvider);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ แก้ไขข้อมูลเครื่องจักรสำเร็จ'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
 
 class _InfoRow extends StatelessWidget {
   final String label;

@@ -405,8 +405,84 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       );
       if (lines.isNotEmpty) {
         await loadLine(lines.first['line_id'].toString());
+        if (state.stations.isEmpty) {
+          await _seedDefaultStations();
+        }
+      } else {
+        await _seedDefaultLine();
       }
-    } catch (_) {}
+    } catch (e) {
+      // Fallback seed
+      await _seedDefaultLine();
+    }
+  }
+
+  Future<void> _seedDefaultLine() async {
+    state = LineBalancingState(
+      lineId: 'main_line',
+      lineName: 'สายการผลิตหลัก (Main Line)',
+      availableTimeMin: 480,
+      demandQuantity: 1000,
+      electricityRate: 4.0,
+      fuelRate: 30.0,
+      stations: [],
+    );
+    await _seedDefaultStations();
+  }
+
+  Future<void> _seedDefaultStations() async {
+    final s1 = WorkstationData(
+      id: 'st_1',
+      name: '1. ตัดและเตรียมวัตถุดิบ (Cutting)',
+      cycleTime: 25.0,
+      workers: 1,
+      eventType: 'operation',
+      valueType: 'va',
+      position: const Offset(1600, 1850),
+      nextStationIds: ['st_2'],
+    );
+    final s2 = WorkstationData(
+      id: 'st_2',
+      name: '2. ขึ้นรูปและกลึง (Machining)',
+      cycleTime: 35.0,
+      workers: 2,
+      eventType: 'operation',
+      valueType: 'va',
+      position: const Offset(1920, 1850),
+      prevStationIds: ['st_1'],
+      nextStationIds: ['st_3'],
+    );
+    final s3 = WorkstationData(
+      id: 'st_3',
+      name: '3. ประกอบชิ้นงาน (Assembly)',
+      cycleTime: 40.0,
+      workers: 2,
+      eventType: 'operation',
+      valueType: 'va',
+      position: const Offset(2240, 1850),
+      prevStationIds: ['st_2'],
+      nextStationIds: ['st_4'],
+    );
+    final s4 = WorkstationData(
+      id: 'st_4',
+      name: '4. ตรวจสอบคุณภาพและบรรจุ (QC & Pack)',
+      cycleTime: 20.0,
+      workers: 1,
+      eventType: 'inspection',
+      valueType: 'va',
+      position: const Offset(2560, 1850),
+      prevStationIds: ['st_3'],
+    );
+
+    final conn1 = LineConnection(id: 'st_1->st_2', fromStationId: 'st_1', toStationId: 'st_2', colorValue: 0xFFFB8C00);
+    final conn2 = LineConnection(id: 'st_2->st_3', fromStationId: 'st_2', toStationId: 'st_3', colorValue: 0xFFFB8C00);
+    final conn3 = LineConnection(id: 'st_3->st_4', fromStationId: 'st_3', toStationId: 'st_4', colorValue: 0xFFFB8C00);
+
+    state = state.copyWith(
+      stations: [s1, s2, s3, s4],
+      connections: [conn1, conn2, conn3],
+    );
+    await saveCurrentLine();
   }
 
   Future<void> loadLine(String lineId) async {
@@ -561,6 +637,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           'x': s.position.dx,
           'y': s.position.dy,
           'prev': jsonEncode(s.prevStationIds),
+          'next': jsonEncode(s.nextStationIds),
         });
       }
 
@@ -813,6 +890,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
         return s;
       }).toList(),
     );
+    saveCurrentLine();
   }
 
   Future<MachineBalancingData?> fetchMachineDataForBalancing(
