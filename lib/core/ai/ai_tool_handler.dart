@@ -1197,7 +1197,88 @@ class AiToolHandler {
       return jsonEncode({'status': 'success', 'message': 'ลบรายการตรวจเช็คเรียบร้อยแล้ว'});
     }
 
-    // Default: create_plan / insert
+    // Check if bulk plans list is provided
+    final rawPlans = args['plans'] ?? args['items'] ?? args['list'];
+    if (rawPlans is List && rawPlans.isNotEmpty) {
+      int createdPlans = 0;
+      int totalTasks = 0;
+      final createdCodes = <String>[];
+
+      for (final p in rawPlans) {
+        if (p is! Map) continue;
+        final pMap = Map<String, dynamic>.from(p);
+        final mcIdentifier = (pMap['machine_identifier'] ?? pMap['machine_no'] ?? pMap['machine_id'])?.toString().trim() ?? '';
+        if (mcIdentifier.isEmpty) continue;
+
+        final machine = await _findMachine(mcIdentifier);
+        if (machine == null) continue;
+
+        final machineId = machine['machine_id'].toString();
+        final machineNo = machine['machine_no'].toString();
+        final pType = (pMap['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
+        final pName = pMap['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษา $pType $machineNo';
+        final freqDays = (pMap['frequency_days'] as num?)?.toInt() ?? (pType == 'AM' ? 1 : 30);
+        final pTasks = pMap['tasks'];
+
+        final planId = const Uuid().v4();
+        final planCode = '$pType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
+
+        await DbHelper.execute('''
+          INSERT INTO pm_am_plans (
+            plan_id, machine_id, plan_type, plan_code, plan_name,
+            frequency_days, status, created_at, updated_at
+          ) VALUES (
+            @id, @mid, @type, @code, @name,
+            @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': planId,
+          'mid': machineId,
+          'type': pType,
+          'code': planCode,
+          'name': pName,
+          'freq': freqDays,
+        });
+        createdPlans++;
+        createdCodes.add(planCode);
+
+        if (pTasks is List && pTasks.isNotEmpty) {
+          for (int i = 0; i < pTasks.length; i++) {
+            final t = pTasks[i];
+            final taskName = (t is Map ? t['task_name'] : t)?.toString().trim() ?? '';
+            if (taskName.isEmpty) continue;
+            final taskType = (t is Map ? t['task_type']?.toString() : null) ?? 'inspect';
+            final isCritical = (t is Map && t['is_critical'] == true) ? 1 : 0;
+
+            await DbHelper.execute('''
+              INSERT INTO pm_am_tasks (
+                task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+              ) VALUES (
+                @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+              )
+            ''', params: {
+              'tid': const Uuid().v4(),
+              'pid': planId,
+              'order': i + 1,
+              'name': taskName,
+              'type': taskType,
+              'crit': isCritical,
+            });
+            totalTasks++;
+          }
+        }
+      }
+
+      return jsonEncode({
+        'status': 'success',
+        'plans_created': createdPlans,
+        'tasks_created': totalTasks,
+        'plan_codes': createdCodes,
+        'message': 'สร้างแผนแม่บท PM/AM สำเร็จ $createdPlans แผน (รวมรายการตรวจเช็ค $totalTasks รายการ)',
+      });
+    }
+
+    // Default: create single plan / insert
     final machineIdentifier = args['machine_identifier']?.toString().trim() ?? '';
     final planType = (args['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
     final planName = args['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษาประจำเครื่อง';
