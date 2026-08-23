@@ -39,6 +39,12 @@ class ToolManagementScreen extends ConsumerWidget {
                 const SizedBox(width: AppSpacing.md),
                 Text('เครื่องมือช่าง (Tools & Equipment)', style: AppTextStyles.displaySmall),
                 const Spacer(),
+                IconButton(
+                  tooltip: 'รีเฟรชข้อมูล',
+                  icon: const Icon(Icons.refresh_rounded),
+                  onPressed: () => ref.invalidate(toolsProvider),
+                ),
+                const SizedBox(width: AppSpacing.sm),
                 if (user?.isTechnicianOrAbove ?? false) ...[
                   OutlinedButton.icon(
                     onPressed: () {

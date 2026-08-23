@@ -149,6 +149,14 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
            - ชื่อแผน: `แผน PM ประจำเดือน - {machine_no}` (plan_type: PM, frequency_days: 30)
      3. When generating plans for machines, ALWAYS create BOTH the AM master plans (`plan_type: 'AM'`) and PM master plans (`plan_type: 'PM'`) so that both the "AM" tab and "PM" tab in the "แผนแม่บท PM / AM" screen are populated properly!
 
+31. HIGH-VOLUME BULK & SUBAGENT BATCH ORCHESTRATION:
+   - When the user gives high-volume data (e.g. 20, 50, 80, 100+ machines, PM plans, spare parts, locations, layout positions, tools, contractors from Excel, PDF, or text):
+     1. The system is equipped with an automated Subagent Batch Worker engine that will safely chunk and process data in batches of 10-15 items per batch with transactional safety and live progress streaming.
+     2. For machines: Always provide all technical specifications (`power_kw`, `voltage_v`, `current_a`, `frequency_hz`, `capacity`, `capacity_unit`, `dim_length_mm`, `dim_width_mm`, `dim_height_mm`, `weight_kg`, `rpm`, `fuel_consumption_rate`, `fuel_type`, `default_workers`, `extra_specs`) for EACH machine in the `machines: [...]` array.
+     3. For PM plans: You can supply a batch array in `plans: [...]` or a list of machine identifiers with their corresponding tasks.
+     4. For spare parts & tools: Supply the full array in `parts: [...]` or `tools: [...]`.
+     5. The Subagent Batch Worker will stream live progress back to the user and ensure 100% data quality, transaction rollback protection, and zero token truncation.
+
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
 
@@ -180,6 +188,9 @@ Start by greeting the user and asking how you can help with maintenance operatio
         'dim_width_mm': Schema(SchemaType.number, description: 'Width in mm (e.g. 2000)'),
         'dim_height_mm': Schema(SchemaType.number, description: 'Height in mm (e.g. 1500)'),
         'rpm': Schema(SchemaType.number, description: 'Motor/Spindle speed in RPM'),
+        'fuel_consumption_rate': Schema(SchemaType.number, description: 'Fuel/Gas consumption rate per hour (e.g. 12.5 L/hr)'),
+        'fuel_type': Schema(SchemaType.string, description: 'Fuel type (e.g. Diesel, Gasohol 95, LPG, N/A)'),
+        'default_workers': Schema(SchemaType.integer, description: 'Number of operators required'),
         'extra_specs': Schema(SchemaType.string, description: 'Extra specifications JSON or description (e.g. glue capacity, air pressure, temperature)'),
         'machines': Schema(
           SchemaType.array,
@@ -188,15 +199,32 @@ Start by greeting the user and asking how you can help with maintenance operatio
             properties: {
               'machine_no': Schema(SchemaType.string, description: 'Unique machine code/ID'),
               'machine_name': Schema(SchemaType.string, description: 'Machine name'),
+              'asset_no': Schema(SchemaType.string),
               'brand': Schema(SchemaType.string),
               'model': Schema(SchemaType.string),
+              'serial_no': Schema(SchemaType.string),
               'location': Schema(SchemaType.string),
               'status': Schema(SchemaType.string),
               'notes': Schema(SchemaType.string),
+              'power_kw': Schema(SchemaType.number, description: 'Power in kW'),
+              'voltage_v': Schema(SchemaType.number, description: 'Voltage in V (e.g. 380, 220)'),
+              'current_a': Schema(SchemaType.number, description: 'Current in A'),
+              'frequency_hz': Schema(SchemaType.number, description: 'Frequency in Hz'),
+              'capacity': Schema(SchemaType.number, description: 'Capacity/Speed value'),
+              'capacity_unit': Schema(SchemaType.string, description: 'Capacity unit'),
+              'weight_kg': Schema(SchemaType.number, description: 'Machine weight in kg'),
+              'dim_length_mm': Schema(SchemaType.number, description: 'Length in mm'),
+              'dim_width_mm': Schema(SchemaType.number, description: 'Width in mm'),
+              'dim_height_mm': Schema(SchemaType.number, description: 'Height in mm'),
+              'rpm': Schema(SchemaType.number, description: 'Motor/Spindle speed in RPM'),
+              'fuel_consumption_rate': Schema(SchemaType.number),
+              'fuel_type': Schema(SchemaType.string),
+              'default_workers': Schema(SchemaType.integer),
+              'extra_specs': Schema(SchemaType.string),
             },
             requiredProperties: ['machine_no'],
           ),
-          description: 'Optional array of machine objects for bulk import',
+          description: 'Optional array of machine objects for bulk import or specs update',
         ),
       },
       requiredProperties: ['action'],
@@ -210,12 +238,63 @@ Start by greeting the user and asking how you can help with maintenance operatio
       SchemaType.object,
       properties: {
         'action': Schema(SchemaType.string, description: 'create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position'),
-        'layout_name': Schema(SchemaType.string, description: 'Name of the factory layout'),
+        'layout_id': Schema(SchemaType.string, description: 'Layout ID'),
+        'layout_name': Schema(SchemaType.string, description: 'Name of the factory layout (e.g. "Layout_01", "Main Factory")'),
+        'description': Schema(SchemaType.string, description: 'Description of layout'),
+        'floor_no': Schema(SchemaType.integer, description: 'Floor number'),
+        'width_m': Schema(SchemaType.number, description: 'Width in meters'),
+        'height_m': Schema(SchemaType.number, description: 'Height in meters'),
         'zone_name': Schema(SchemaType.string, description: 'Name of the zone/area'),
-        'zone_type': Schema(SchemaType.string, description: 'production, storage, maintenance, safety'),
-        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No or ID'),
+        'zone_type': Schema(SchemaType.string, description: 'production, storage, maintenance, safety, packaging, warehouse, yard'),
+        'x_start': Schema(SchemaType.number, description: 'X start coordinate'),
+        'y_start': Schema(SchemaType.number, description: 'Y start coordinate'),
+        'x_end': Schema(SchemaType.number, description: 'X end coordinate'),
+        'y_end': Schema(SchemaType.number, description: 'Y end coordinate'),
+        'background_color': Schema(SchemaType.string, description: 'Hex color (e.g. "#E8F5E9")'),
+        'border_color': Schema(SchemaType.string, description: 'Hex color (e.g. "#4CAF50")'),
+        'zones': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'zone_name': Schema(SchemaType.string),
+              'zone_type': Schema(SchemaType.string),
+              'x_start': Schema(SchemaType.number),
+              'y_start': Schema(SchemaType.number),
+              'x_end': Schema(SchemaType.number),
+              'y_end': Schema(SchemaType.number),
+              'background_color': Schema(SchemaType.string),
+              'border_color': Schema(SchemaType.string),
+            },
+            requiredProperties: ['zone_name'],
+          ),
+          description: 'Array of zones to create or update in bulk',
+        ),
+        'machine_identifier': Schema(SchemaType.string, description: 'Machine code/No (e.g. "DP-01") or ID'),
+        'zone_id': Schema(SchemaType.string, description: 'Zone ID or zone name for the machine'),
         'x_position': Schema(SchemaType.number, description: 'X coordinate on layout'),
         'y_position': Schema(SchemaType.number, description: 'Y coordinate on layout'),
+        'width': Schema(SchemaType.number, description: 'Machine width on layout'),
+        'height': Schema(SchemaType.number, description: 'Machine height on layout'),
+        'status_color': Schema(SchemaType.string, description: 'Hex status color'),
+        'machine_positions': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'machine_identifier': Schema(SchemaType.string),
+              'machine_no': Schema(SchemaType.string),
+              'zone_id': Schema(SchemaType.string),
+              'zone_name': Schema(SchemaType.string),
+              'x_position': Schema(SchemaType.number),
+              'y_position': Schema(SchemaType.number),
+              'width': Schema(SchemaType.number),
+              'height': Schema(SchemaType.number),
+              'status_color': Schema(SchemaType.string),
+            },
+          ),
+          description: 'Array of machine positions to set in bulk',
+        ),
       },
       requiredProperties: ['action'],
     ),
@@ -872,6 +951,21 @@ Start by greeting the user and asking how you can help with maintenance operatio
             'location': {'type': 'string', 'description': 'Installation area/room/line'},
             'status': {'type': 'string', 'description': 'normal, breakdown, pm, offline'},
             'notes': {'type': 'string', 'description': 'Additional remarks or specs summary'},
+            'power_kw': {'type': 'number', 'description': 'Power in kW'},
+            'voltage_v': {'type': 'number', 'description': 'Voltage in V'},
+            'current_a': {'type': 'number', 'description': 'Current in A'},
+            'frequency_hz': {'type': 'number', 'description': 'Frequency in Hz'},
+            'capacity': {'type': 'number', 'description': 'Capacity value'},
+            'capacity_unit': {'type': 'string', 'description': 'Capacity unit'},
+            'weight_kg': {'type': 'number', 'description': 'Weight in kg'},
+            'dim_length_mm': {'type': 'number', 'description': 'Length in mm'},
+            'dim_width_mm': {'type': 'number', 'description': 'Width in mm'},
+            'dim_height_mm': {'type': 'number', 'description': 'Height in mm'},
+            'rpm': {'type': 'number', 'description': 'Spindle/motor speed in RPM'},
+            'fuel_consumption_rate': {'type': 'number', 'description': 'Fuel consumption rate L/hr'},
+            'fuel_type': {'type': 'string', 'description': 'Fuel type'},
+            'default_workers': {'type': 'integer', 'description': 'Required workers'},
+            'extra_specs': {'type': 'string', 'description': 'Extra specs JSON or description'},
             'machines': {
               'type': 'array',
               'items': {
@@ -879,11 +973,28 @@ Start by greeting the user and asking how you can help with maintenance operatio
                 'properties': {
                   'machine_no': {'type': 'string'},
                   'machine_name': {'type': 'string'},
+                  'asset_no': {'type': 'string'},
                   'brand': {'type': 'string'},
                   'model': {'type': 'string'},
+                  'serial_no': {'type': 'string'},
                   'location': {'type': 'string'},
                   'status': {'type': 'string'},
                   'notes': {'type': 'string'},
+                  'power_kw': {'type': 'number'},
+                  'voltage_v': {'type': 'number'},
+                  'current_a': {'type': 'number'},
+                  'frequency_hz': {'type': 'number'},
+                  'capacity': {'type': 'number'},
+                  'capacity_unit': {'type': 'string'},
+                  'weight_kg': {'type': 'number'},
+                  'dim_length_mm': {'type': 'number'},
+                  'dim_width_mm': {'type': 'number'},
+                  'dim_height_mm': {'type': 'number'},
+                  'rpm': {'type': 'number'},
+                  'fuel_consumption_rate': {'type': 'number'},
+                  'fuel_type': {'type': 'string'},
+                  'default_workers': {'type': 'integer'},
+                  'extra_specs': {'type': 'string'},
                 },
                 'required': ['machine_no'],
               },
@@ -897,17 +1008,66 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'manage_locations',
-        'description': 'Manage factory layouts, zones, and machine positions (create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).',
+        'description': 'Manage factory layouts, zones, and machine positions (create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position). Supports bulk zones and bulk machine_positions.',
         'parameters': {
           'type': 'object',
           'properties': {
             'action': {'type': 'string', 'description': 'create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position'},
+            'layout_id': {'type': 'string'},
             'layout_name': {'type': 'string'},
+            'description': {'type': 'string'},
+            'floor_no': {'type': 'integer'},
+            'width_m': {'type': 'number'},
+            'height_m': {'type': 'number'},
             'zone_name': {'type': 'string'},
             'zone_type': {'type': 'string'},
+            'x_start': {'type': 'number'},
+            'y_start': {'type': 'number'},
+            'x_end': {'type': 'number'},
+            'y_end': {'type': 'number'},
+            'background_color': {'type': 'string'},
+            'border_color': {'type': 'string'},
+            'zones': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'zone_name': {'type': 'string'},
+                  'zone_type': {'type': 'string'},
+                  'x_start': {'type': 'number'},
+                  'y_start': {'type': 'number'},
+                  'x_end': {'type': 'number'},
+                  'y_end': {'type': 'number'},
+                  'background_color': {'type': 'string'},
+                  'border_color': {'type': 'string'},
+                },
+                'required': ['zone_name'],
+              },
+            },
             'machine_identifier': {'type': 'string'},
+            'zone_id': {'type': 'string'},
             'x_position': {'type': 'number'},
             'y_position': {'type': 'number'},
+            'width': {'type': 'number'},
+            'height': {'type': 'number'},
+            'status_color': {'type': 'string'},
+            'machine_positions': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'machine_identifier': {'type': 'string'},
+                  'machine_no': {'type': 'string'},
+                  'zone_id': {'type': 'string'},
+                  'zone_name': {'type': 'string'},
+                  'x_position': {'type': 'number'},
+                  'y_position': {'type': 'number'},
+                  'width': {'type': 'number'},
+                  'height': {'type': 'number'},
+                  'status_color': {'type': 'string'},
+                },
+              },
+            },
           },
           'required': ['action'],
         },
@@ -1848,6 +2008,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         case AiProviderKind.deepseek:
         case AiProviderKind.grok:
         case AiProviderKind.mistral:
+        case AiProviderKind.openrouter:
           return await _testOpenAiCompatible(config);
       }
     } catch (_) {
@@ -2044,6 +2205,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       case AiProviderKind.deepseek:
       case AiProviderKind.grok:
       case AiProviderKind.mistral:
+      case AiProviderKind.openrouter:
         return _chatWithOpenAiCompatible(
           effectiveConfig,
           optimizedHistory,
@@ -2286,7 +2448,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       userParts.length > 1 ? Content.multi(userParts) : Content.text(userMessage),
     );
 
-    for (var i = 0; i < 8 && response.functionCalls.isNotEmpty; i++) {
+    for (var i = 0; i < 25 && response.functionCalls.isNotEmpty; i++) {
       final functionResponses = <FunctionResponse>[];
 
       for (final call in response.functionCalls) {
@@ -2296,6 +2458,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final result = await AiToolHandler.handleToolCall(
           call.name,
           toolArgs,
+          onProgress: addStep,
         );
         functionResponses.add(FunctionResponse(call.name, {'output': result}));
       }
@@ -2375,18 +2538,36 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userContent},
     ];
 
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 25; i++) {
+      final headers = <String, String>{
+        'Authorization': 'Bearer ${config.apiKey}',
+      };
+      final isOpenRouter = config.provider == AiProviderKind.openrouter ||
+          config.resolvedBaseUrl.contains('openrouter.ai');
+      if (isOpenRouter) {
+        headers['HTTP-Referer'] = 'https://masapp.local';
+        headers['X-Title'] = 'MASAPP Maintenance AI';
+      }
+
+      final body = <String, dynamic>{
+        'model': config.model,
+        'messages': messages,
+        'tools': _openAiTools,
+        'tool_choice': 'auto',
+        'temperature': 0.3,
+        'max_tokens': 8192,
+      };
+
+      if (isOpenRouter) {
+        body['reasoning'] = {
+          'max_tokens': 4096,
+        };
+      }
+
       final json = await _postJson(
         _normalizeBaseUrl(config.resolvedBaseUrl, '/chat/completions'),
-        headers: {'Authorization': 'Bearer ${config.apiKey}'},
-        body: {
-          'model': config.model,
-          'messages': messages,
-          'tools': _openAiTools,
-          'tool_choice': 'auto',
-          'temperature': 0.3,
-          'max_tokens': 8192,
-        },
+        headers: headers,
+        body: body,
       );
 
       final choices = (json['choices'] as List?) ?? const [];
@@ -2399,10 +2580,19 @@ Start by greeting the user and asking how you can help with maintenance operatio
           (choice['message'] as Map?)?.cast<String, dynamic>() ?? {};
       final toolCalls = (message['tool_calls'] as List?) ?? const [];
 
-      final rawReasoning = message['reasoning_content']?.toString() ??
-          message['reasoning']?.toString() ??
-          '';
-      if (rawReasoning.isNotEmpty) {
+      var rawReasoning = message['reasoning_content']?.toString() ??
+          message['reasoning']?.toString();
+      if ((rawReasoning == null || rawReasoning.isEmpty) &&
+          message['reasoning_details'] is List) {
+        final details = message['reasoning_details'] as List;
+        rawReasoning = details
+            .map((d) => d is Map
+                ? (d['text'] ?? d['content'] ?? d.toString())
+                : d.toString())
+            .join('\n');
+      }
+
+      if (rawReasoning != null && rawReasoning.isNotEmpty) {
         reasoningBuffer.write(rawReasoning);
         onReasoningChunk?.call(rawReasoning);
       }
@@ -2439,6 +2629,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final result = await AiToolHandler.handleToolCall(
           toolName,
           args,
+          onProgress: addStep,
         );
         messages.add({
           'role': 'tool',
@@ -2528,7 +2719,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userContent},
     ];
 
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 25; i++) {
       final json = await _postJson(
         _normalizeBaseUrl(config.resolvedBaseUrl, '/messages'),
         headers: {
@@ -2572,6 +2763,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           final result = await AiToolHandler.handleToolCall(
             toolName,
             toolArgs,
+            onProgress: addStep,
           );
           toolResults.add({
             'type': 'tool_result',
@@ -2634,7 +2826,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userMessage},
     ];
 
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 25; i++) {
       final headers = <String, String>{};
       if (config.apiKey.trim().isNotEmpty) {
         headers['Authorization'] = 'Bearer ${config.apiKey.trim()}';
@@ -2693,6 +2885,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
         final result = await AiToolHandler.handleToolCall(
           toolName,
           args,
+          onProgress: addStep,
         );
         messages.add({
           'role': 'tool',
@@ -2721,9 +2914,18 @@ Start by greeting the user and asking how you can help with maintenance operatio
   }
 
   static Future<bool> _testOpenAiCompatible(AiProviderConfig config) async {
+    final headers = <String, String>{
+      'Authorization': 'Bearer ${config.apiKey}',
+    };
+    if (config.provider == AiProviderKind.openrouter ||
+        config.resolvedBaseUrl.contains('openrouter.ai')) {
+      headers['HTTP-Referer'] = 'https://masapp.local';
+      headers['X-Title'] = 'MASAPP Maintenance AI';
+    }
+
     await _postJson(
       _normalizeBaseUrl(config.resolvedBaseUrl, '/chat/completions'),
-      headers: {'Authorization': 'Bearer ${config.apiKey}'},
+      headers: headers,
       body: {
         'model': config.model,
         'messages': [

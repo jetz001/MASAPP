@@ -1,4 +1,4 @@
-enum AiProviderKind { gemini, openai, claude, deepseek, grok, mistral, ollama }
+enum AiProviderKind { gemini, openai, claude, deepseek, grok, mistral, openrouter, ollama }
 
 class AiProviderDefinition {
   final AiProviderKind kind;
@@ -97,6 +97,29 @@ class AiProviderCatalog {
       defaultModel: 'mistral-small-latest',
       recommendedModels: ['mistral-small-latest', 'mistral-large-latest'],
       defaultBaseUrl: 'https://api.mistral.ai/v1',
+    ),
+    AiProviderDefinition(
+      kind: AiProviderKind.openrouter,
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      keyLabel: 'OpenRouter API Key',
+      keyHint: 'sk-or-v1-...',
+      helpText: 'รับ API Key ได้ที่ OpenRouter Console (openrouter.ai/keys)',
+      defaultModel: 'stealth/ox-alpha',
+      recommendedModels: [
+        'stealth/ox-alpha',
+        'anthropic/claude-3.5-haiku',
+        'anthropic/claude-3.5-sonnet',
+        'openai/gpt-4o-mini',
+        'openai/gpt-4o',
+        'deepseek/deepseek-chat',
+        'deepseek/deepseek-r1',
+        'google/gemini-flash-1.5',
+        'meta-llama/llama-3.3-70b-instruct',
+        'qwen/qwen-2.5-72b-instruct',
+      ],
+      defaultBaseUrl: 'https://openrouter.ai/api/v1',
+      supportsCustomBaseUrl: true,
     ),
     AiProviderDefinition(
       kind: AiProviderKind.ollama,

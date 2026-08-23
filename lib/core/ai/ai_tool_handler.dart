@@ -9,6 +9,7 @@ import '../database/db_helper.dart';
 import '../storage/attachment_storage_service.dart';
 import 'rag_document_service.dart';
 import 'vector_db_service.dart';
+import 'subagent_batch_worker.dart';
 
 class AiToolHandler {
   // Tables the AI cannot query (sensitive)
@@ -36,11 +37,12 @@ class AiToolHandler {
   static const _requestTimeout = Duration(seconds: 60);
   static const _braveSearchApiKeySetting = 'brave_search_api_key';
 
-  /// Handle a tool call from AI
+  /// Handle a tool call from AI with real-time progress notification
   static Future<String> handleToolCall(
     String toolName,
-    Map<String, dynamic> args,
-  ) async {
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     try {
       switch (toolName) {
         case 'query_database':
@@ -65,26 +67,26 @@ class AiToolHandler {
           return await _searchExternalImages(args);
         case 'manage_machines':
         case 'register_machines':
-          return await _manageMachines(args);
+          return await _manageMachines(args, onProgress: onProgress);
         case 'manage_locations':
-          return await _manageLocations(args);
+          return await _manageLocations(args, onProgress: onProgress);
         case 'manage_pm_plans':
         case 'create_pm_plans':
-          return await _managePmPlans(args);
+          return await _managePmPlans(args, onProgress: onProgress);
         case 'manage_pm_schedules':
           return await _managePmSchedules(args);
         case 'manage_work_orders':
         case 'create_work_order':
           return await _manageWorkOrders(args);
         case 'manage_contractors':
-          return await _manageContractors(args);
+          return await _manageContractors(args, onProgress: onProgress);
         case 'manage_work_permits':
           return await _manageWorkPermits(args);
         case 'manage_spare_parts':
         case 'register_spare_parts':
-          return await _manageSpareParts(args);
+          return await _manageSpareParts(args, onProgress: onProgress);
         case 'manage_tools':
-          return await _manageTools(args);
+          return await _manageTools(args, onProgress: onProgress);
         case 'manage_oee_logs':
           return await _manageOeeLogs(args);
         case 'manage_technicians':
@@ -92,7 +94,7 @@ class AiToolHandler {
         case 'manage_work_processes':
         case 'import_work_processes':
         case 'manage_sop_steps':
-          return await _manageWorkProcesses(args);
+          return await _manageWorkProcesses(args, onProgress: onProgress);
         default:
           return '{"error": "Unknown tool: $toolName"}';
       }
@@ -420,119 +422,191 @@ class AiToolHandler {
 
   // ── 1. MACHINES CRUD (manage_machines) ─────────────────────────────────────
 
-  static Future<String> _manageMachines(Map<String, dynamic> args) async {
+  static Future<String> _manageMachines(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'insert';
     if (action == 'attach_document' || action == 'attach_file' || action == 'attach' || action == 'upload_doc') {
       return await _manageMachineAssets(args);
     }
 
-    // Bulk registration support
+    // Bulk registration support via Subagent Batch Worker
     if (args['machines'] is List && (args['machines'] as List).isNotEmpty) {
       final rawList = args['machines'] as List;
-      int inserted = 0;
-      int updated = 0;
-      final details = <String>[];
+      int totalInserted = 0;
+      int totalUpdated = 0;
 
-      for (final item in rawList) {
-        if (item is! Map) continue;
-        final map = item.cast<String, dynamic>();
-        final machineNo = map['machine_no']?.toString().trim() ?? '';
-        if (machineNo.isEmpty) continue;
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: rawList,
+        chunkSize: 12,
+        entityName: 'เครื่องจักร',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final item in chunk) {
+            if (item is! Map) continue;
+            final map = item.cast<String, dynamic>();
+            final machineNo = map['machine_no']?.toString().trim() ?? '';
+            if (machineNo.isEmpty) continue;
 
-        final machineName = map['machine_name']?.toString().trim();
-        final assetNo = map['asset_no']?.toString().trim();
-        final brand = map['brand']?.toString().trim();
-        final model = map['model']?.toString().trim();
-        final serialNo = map['serial_no']?.toString().trim();
-        final location = map['location']?.toString().trim();
-        final status = map['status']?.toString().trim().toLowerCase() ?? 'normal';
-        final notes = map['notes']?.toString().trim();
+            final machineName = map['machine_name']?.toString().trim();
+            final assetNo = map['asset_no']?.toString().trim();
+            final brand = map['brand']?.toString().trim();
+            final model = map['model']?.toString().trim();
+            final serialNo = map['serial_no']?.toString().trim();
+            final location = map['location']?.toString().trim();
+            final status = map['status']?.toString().trim().toLowerCase() ?? 'normal';
+            final notes = map['notes']?.toString().trim();
 
-        final existing = await DbHelper.queryOne(
-          'SELECT machine_id FROM machines WHERE machine_no = @no OR (asset_no IS NOT NULL AND asset_no = @no)',
-          params: {'no': machineNo},
-        );
+            final existing = await DbHelper.queryOne(
+              'SELECT machine_id FROM machines WHERE machine_no = @no OR (asset_no IS NOT NULL AND asset_no = @no)',
+              params: {'no': machineNo},
+            );
 
-        String machineId;
-        if (existing != null) {
-          machineId = existing['machine_id'].toString();
-          await DbHelper.execute('''
-            UPDATE machines
-            SET machine_name = COALESCE(@name, machine_name),
-                asset_no = COALESCE(@asset, asset_no),
-                brand = COALESCE(@brand, brand),
-                model = COALESCE(@model, model),
-                serial_no = COALESCE(@serial, serial_no),
-                location = COALESCE(@loc, location),
-                status = COALESCE(@status, status),
-                notes = COALESCE(@notes, notes),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE machine_id = @id
-          ''', params: {
-            'id': machineId,
-            'name': machineName,
-            'asset': assetNo,
-            'brand': brand,
-            'model': model,
-            'serial': serialNo,
-            'loc': location,
-            'status': status,
-            'notes': notes,
-          });
-          updated++;
-        } else {
-          machineId = const Uuid().v4();
-          await DbHelper.execute('''
-            INSERT INTO machines (
-              machine_id, machine_no, machine_name, asset_no, brand, model,
-              serial_no, location, status, is_active, notes, created_at, updated_at
-            ) VALUES (
-              @id, @no, @name, @asset, @brand, @model,
-              @serial, @loc, @status, 1, @notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-            )
-          ''', params: {
-            'id': machineId,
-            'no': machineNo,
-            'name': machineName,
-            'asset': assetNo,
-            'brand': brand,
-            'model': model,
-            'serial': serialNo,
-            'loc': location,
-            'status': status,
-            'notes': notes,
-          });
-          inserted++;
-        }
+            String machineId;
+            if (existing != null) {
+              machineId = existing['machine_id'].toString();
+              await DbHelper.execute('''
+                UPDATE machines
+                SET machine_name = COALESCE(@name, machine_name),
+                    asset_no = COALESCE(@asset, asset_no),
+                    brand = COALESCE(@brand, brand),
+                    model = COALESCE(@model, model),
+                    serial_no = COALESCE(@serial, serial_no),
+                    location = COALESCE(@loc, location),
+                    status = COALESCE(@status, status),
+                    notes = COALESCE(@notes, notes),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE machine_id = @id
+              ''', params: {
+                'id': machineId,
+                'name': machineName,
+                'asset': assetNo,
+                'brand': brand,
+                'model': model,
+                'serial': serialNo,
+                'loc': location,
+                'status': status,
+                'notes': notes,
+              });
+              totalUpdated++;
+            } else {
+              machineId = const Uuid().v4();
+              await DbHelper.execute('''
+                INSERT INTO machines (
+                  machine_id, machine_no, machine_name, asset_no, brand, model,
+                  serial_no, location, status, is_active, notes, created_at, updated_at
+                ) VALUES (
+                  @id, @no, @name, @asset, @brand, @model,
+                  @serial, @loc, @status, 1, @notes, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'id': machineId,
+                'no': machineNo,
+                'name': machineName,
+                'asset': assetNo,
+                'brand': brand,
+                'model': model,
+                'serial': serialNo,
+                'loc': location,
+                'status': status,
+                'notes': notes,
+              });
+              totalInserted++;
+            }
 
-        if (map['specs'] is Map) {
-          final specs = (map['specs'] as Map).cast<String, dynamic>();
-          await DbHelper.execute('''
-            INSERT OR REPLACE INTO machine_specs (
-              spec_id, machine_id, power_kw, voltage_v, current_a, capacity, updated_at
-            ) VALUES (
-              @sid, @mid, @power, @volt, @curr, @cap, CURRENT_TIMESTAMP
-            )
-          ''', params: {
-            'sid': const Uuid().v4(),
-            'mid': machineId,
-            'power': (specs['power_kw'] as num?)?.toDouble(),
-            'volt': (specs['voltage_v'] as num?)?.toDouble(),
-            'curr': (specs['current_a'] as num?)?.toDouble(),
-            'cap': (specs['capacity'] as num?)?.toDouble(),
-          });
-        }
-        details.add('$machineNo: ${machineName ?? brand ?? "เครื่องจักร"}');
-      }
+            final specs = SubagentBatchWorker.normalizeMachineSpecs(map);
+            if (specs['has_specs'] == true) {
+              final existingSpec = await DbHelper.query(
+                'SELECT spec_id FROM machine_specs WHERE machine_id = @mid LIMIT 1',
+                params: {'mid': machineId},
+              );
+
+              if (existingSpec.isNotEmpty) {
+                await DbHelper.execute('''
+                  UPDATE machine_specs
+                  SET power_kw = COALESCE(@power, power_kw),
+                      voltage_v = COALESCE(@volt, voltage_v),
+                      current_a = COALESCE(@curr, current_a),
+                      frequency_hz = COALESCE(@freq, frequency_hz),
+                      capacity = COALESCE(@cap, capacity),
+                      capacity_unit = COALESCE(@cap_unit, capacity_unit),
+                      weight_kg = COALESCE(@weight, weight_kg),
+                      dim_length_mm = COALESCE(@dim_l, dim_length_mm),
+                      dim_width_mm = COALESCE(@dim_w, dim_width_mm),
+                      dim_height_mm = COALESCE(@dim_h, dim_height_mm),
+                      rpm = COALESCE(@rpm, rpm),
+                      fuel_consumption_rate = COALESCE(@fuel_rate, fuel_consumption_rate),
+                      fuel_type = COALESCE(@fuel_type, fuel_type),
+                      default_workers = COALESCE(@workers, default_workers),
+                      extra_specs = COALESCE(@extra, extra_specs),
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE machine_id = @mid
+                ''', params: {
+                  'mid': machineId,
+                  'power': specs['power_kw'],
+                  'volt': specs['voltage_v'],
+                  'curr': specs['current_a'],
+                  'freq': specs['frequency_hz'],
+                  'cap': specs['capacity'],
+                  'cap_unit': specs['capacity_unit'],
+                  'weight': specs['weight_kg'],
+                  'dim_l': specs['dim_length_mm'],
+                  'dim_w': specs['dim_width_mm'],
+                  'dim_h': specs['dim_height_mm'],
+                  'rpm': specs['rpm'],
+                  'fuel_rate': specs['fuel_consumption_rate'],
+                  'fuel_type': specs['fuel_type'],
+                  'workers': specs['default_workers'],
+                  'extra': specs['extra_specs'],
+                });
+              } else {
+                await DbHelper.execute('''
+                  INSERT INTO machine_specs (
+                    spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
+                    capacity, capacity_unit, weight_kg, dim_length_mm, dim_width_mm, dim_height_mm,
+                    rpm, fuel_consumption_rate, fuel_type, default_workers, extra_specs, updated_at
+                  ) VALUES (
+                    @sid, @mid, @power, @volt, @curr, @freq,
+                    @cap, @cap_unit, @weight, @dim_l, @dim_w, @dim_h,
+                    @rpm, @fuel_rate, @fuel_type, @workers, @extra, CURRENT_TIMESTAMP
+                  )
+                ''', params: {
+                  'sid': const Uuid().v4(),
+                  'mid': machineId,
+                  'power': specs['power_kw'],
+                  'volt': specs['voltage_v'],
+                  'curr': specs['current_a'],
+                  'freq': specs['frequency_hz'],
+                  'cap': specs['capacity'],
+                  'cap_unit': specs['capacity_unit'],
+                  'weight': specs['weight_kg'],
+                  'dim_l': specs['dim_length_mm'],
+                  'dim_w': specs['dim_width_mm'],
+                  'dim_h': specs['dim_height_mm'],
+                  'rpm': specs['rpm'],
+                  'fuel_rate': specs['fuel_consumption_rate'],
+                  'fuel_type': specs['fuel_type'],
+                  'workers': specs['default_workers'],
+                  'extra': specs['extra_specs'],
+                });
+              }
+            }
+            detailsAcc.add('$machineNo: ${machineName ?? brand ?? "เครื่องจักร"}');
+            VectorDbService.syncMachine(machineId);
+          }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
         'action': 'bulk_register',
-        'inserted_count': inserted,
-        'updated_count': updated,
-        'total_processed': inserted + updated,
-        'machines': details,
-        'message': 'บันทึกข้อมูลเครื่องจักรลงฐานข้อมูลสำเร็จ (เพิ่มใหม่ $inserted, อัปเดต $updated เครื่อง)',
+        'inserted_count': totalInserted,
+        'updated_count': totalUpdated,
+        'total_processed': totalInserted + totalUpdated,
+        'machines': batchResult.details,
+        'warnings': batchResult.warnings,
+        'message': 'บันทึกข้อมูลเครื่องจักรผ่านระบบ Subagent Batch Worker สำเร็จ (เพิ่มใหม่ $totalInserted, อัปเดต $totalUpdated เครื่อง)',
       });
     }
 
@@ -605,6 +679,9 @@ class AiToolHandler {
       final dimW = (rawSpecs['dim_width_mm'] as num?)?.toDouble();
       final dimH = (rawSpecs['dim_height_mm'] as num?)?.toDouble();
       final rpm = (rawSpecs['rpm'] as num?)?.toDouble();
+      final fuelRate = (rawSpecs['fuel_consumption_rate'] as num?)?.toDouble();
+      final fuelType = rawSpecs['fuel_type']?.toString();
+      final defaultWorkers = (rawSpecs['default_workers'] as num?)?.toInt();
       final extraSpecs = rawSpecs['extra_specs'] != null
           ? (rawSpecs['extra_specs'] is String
               ? rawSpecs['extra_specs']
@@ -622,6 +699,9 @@ class AiToolHandler {
           dimW != null ||
           dimH != null ||
           rpm != null ||
+          fuelRate != null ||
+          fuelType != null ||
+          defaultWorkers != null ||
           extraSpecs != null;
 
       if (hasSpecs) {
@@ -644,6 +724,9 @@ class AiToolHandler {
                 dim_width_mm = COALESCE(@dim_w, dim_width_mm),
                 dim_height_mm = COALESCE(@dim_h, dim_height_mm),
                 rpm = COALESCE(@rpm, rpm),
+                fuel_consumption_rate = COALESCE(@fuel_rate, fuel_consumption_rate),
+                fuel_type = COALESCE(@fuel_type, fuel_type),
+                default_workers = COALESCE(@workers, default_workers),
                 extra_specs = COALESCE(@extra, extra_specs),
                 updated_at = CURRENT_TIMESTAMP
             WHERE machine_id = @mid
@@ -660,6 +743,9 @@ class AiToolHandler {
             'dim_w': dimW,
             'dim_h': dimH,
             'rpm': rpm,
+            'fuel_rate': fuelRate,
+            'fuel_type': fuelType,
+            'workers': defaultWorkers,
             'extra': extraSpecs,
           });
         } else {
@@ -667,11 +753,11 @@ class AiToolHandler {
             INSERT INTO machine_specs (
               spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
               capacity, capacity_unit, weight_kg, dim_length_mm, dim_width_mm, dim_height_mm,
-              rpm, extra_specs, updated_at
+              rpm, fuel_consumption_rate, fuel_type, default_workers, extra_specs, updated_at
             ) VALUES (
               @sid, @mid, @power, @volt, @curr, @freq,
               @cap, @cap_unit, @weight, @dim_l, @dim_w, @dim_h,
-              @rpm, @extra, CURRENT_TIMESTAMP
+              @rpm, @fuel_rate, @fuel_type, @workers, @extra, CURRENT_TIMESTAMP
             )
           ''', params: {
             'sid': const Uuid().v4(),
@@ -687,6 +773,9 @@ class AiToolHandler {
             'dim_w': dimW,
             'dim_h': dimH,
             'rpm': rpm,
+            'fuel_rate': fuelRate,
+            'fuel_type': fuelType,
+            'workers': defaultWorkers,
             'extra': extraSpecs,
           });
         }
@@ -979,7 +1068,47 @@ class AiToolHandler {
 
   // ── 2. LOCATIONS & FACTORY LAYOUT CRUD (manage_locations) ──────────────────
 
-  static Future<String> _manageLocations(Map<String, dynamic> args) async {
+  static Future<String> _getOrCreateLayout({String? layoutId, String? layoutName}) async {
+    if (layoutId != null && layoutId.isNotEmpty && layoutId != 'DEFAULT_LAYOUT') {
+      final existing = await DbHelper.queryOne(
+        'SELECT layout_id FROM factory_layouts WHERE layout_id = @id LIMIT 1',
+        params: {'id': layoutId},
+      );
+      if (existing != null) return existing['layout_id'].toString();
+    }
+
+    if (layoutName != null && layoutName.isNotEmpty) {
+      final existing = await DbHelper.queryOne(
+        'SELECT layout_id FROM factory_layouts WHERE layout_name = @name LIMIT 1',
+        params: {'name': layoutName},
+      );
+      if (existing != null) return existing['layout_id'].toString();
+    }
+
+    final anyActive = await DbHelper.queryOne(
+      'SELECT layout_id FROM factory_layouts WHERE is_active = 1 LIMIT 1',
+    );
+    if (anyActive != null) return anyActive['layout_id'].toString();
+
+    final newId = const Uuid().v4();
+    final name = (layoutName != null && layoutName.isNotEmpty) ? layoutName : 'Main Factory Layout';
+    await DbHelper.execute('''
+      INSERT INTO factory_layouts (
+        layout_id, layout_name, description, floor_no, width_m, height_m, is_active, created_at, updated_at
+      ) VALUES (
+        @id, @name, 'Main factory floor layout', 1, 100.0, 60.0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      )
+    ''', params: {
+      'id': newId,
+      'name': name,
+    });
+    return newId;
+  }
+
+  static Future<String> _manageLocations(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_zone';
 
     if (action == 'create_layout') {
@@ -996,8 +1125,8 @@ class AiToolHandler {
         'name': layoutName,
         'desc': args['description'],
         'floor': (args['floor_no'] as num?)?.toInt() ?? 1,
-        'w': (args['width_m'] as num?)?.toDouble() ?? 50.0,
-        'h': (args['height_m'] as num?)?.toDouble() ?? 30.0,
+        'w': (args['width_m'] as num?)?.toDouble() ?? 100.0,
+        'h': (args['height_m'] as num?)?.toDouble() ?? 60.0,
       });
       return jsonEncode({
         'status': 'success',
@@ -1007,36 +1136,92 @@ class AiToolHandler {
       });
     }
 
-    if (action == 'create_zone') {
-      final layout = await DbHelper.queryOne('SELECT layout_id FROM factory_layouts WHERE is_active = 1 LIMIT 1');
-      final layoutId = args['layout_id']?.toString() ?? layout?['layout_id']?.toString() ?? 'DEFAULT_LAYOUT';
-      final zoneName = args['zone_name']?.toString().trim() ?? 'Zone Area';
-      final zoneId = const Uuid().v4();
+    if (action == 'create_zone' || action == 'add_zone') {
+      final layoutId = await _getOrCreateLayout(
+        layoutId: args['layout_id']?.toString(),
+        layoutName: args['layout_name']?.toString(),
+      );
 
-      await DbHelper.execute('''
-        INSERT INTO layout_zones (
-          zone_id, layout_id, zone_name, zone_type, x_start, y_start, x_end, y_end,
-          background_color, border_color, created_at
-        ) VALUES (
-          @id, @lid, @name, @type, @xs, @ys, @xe, @ye, @bg, @border, CURRENT_TIMESTAMP
-        )
-      ''', params: {
-        'id': zoneId,
-        'lid': layoutId,
-        'name': zoneName,
-        'type': args['zone_type'] ?? 'production',
-        'xs': (args['x_start'] as num?)?.toDouble() ?? 0.0,
-        'ys': (args['y_start'] as num?)?.toDouble() ?? 0.0,
-        'xe': (args['x_end'] as num?)?.toDouble() ?? 10.0,
-        'ye': (args['y_end'] as num?)?.toDouble() ?? 10.0,
-        'bg': args['background_color'] ?? '#E8F5E9',
-        'border': args['border_color'] ?? '#4CAF50',
-      });
+      final zonesList = (args['zones'] is List)
+          ? (args['zones'] as List)
+          : [args];
+
+      int inserted = 0;
+      final zoneNames = <String>[];
+
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: zonesList,
+        chunkSize: 10,
+        entityName: 'โซนพื้นที่',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final z in chunk) {
+            if (z is! Map) continue;
+            final map = z.cast<String, dynamic>();
+            final zoneName = map['zone_name']?.toString().trim();
+            if (zoneName == null || zoneName.isEmpty) continue;
+
+            final existingZone = await DbHelper.queryOne(
+              'SELECT zone_id FROM layout_zones WHERE layout_id = @lid AND zone_name = @name LIMIT 1',
+              params: {'lid': layoutId, 'name': zoneName},
+            );
+
+            if (existingZone != null) {
+              await DbHelper.execute('''
+                UPDATE layout_zones
+                SET zone_type = COALESCE(@type, zone_type),
+                    x_start = COALESCE(@xs, x_start),
+                    y_start = COALESCE(@ys, y_start),
+                    x_end = COALESCE(@xe, x_end),
+                    y_end = COALESCE(@ye, y_end),
+                    background_color = COALESCE(@bg, background_color),
+                    border_color = COALESCE(@border, border_color)
+                WHERE zone_id = @id
+              ''', params: {
+                'id': existingZone['zone_id'],
+                'type': map['zone_type'] ?? 'production',
+                'xs': (map['x_start'] as num?)?.toDouble(),
+                'ys': (map['y_start'] as num?)?.toDouble(),
+                'xe': (map['x_end'] as num?)?.toDouble(),
+                'ye': (map['y_end'] as num?)?.toDouble(),
+                'bg': map['background_color'],
+                'border': map['border_color'],
+              });
+            } else {
+              final zoneId = const Uuid().v4();
+              await DbHelper.execute('''
+                INSERT INTO layout_zones (
+                  zone_id, layout_id, zone_name, zone_type, x_start, y_start, x_end, y_end,
+                  background_color, border_color, created_at
+                ) VALUES (
+                  @id, @lid, @name, @type, @xs, @ys, @xe, @ye, @bg, @border, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'id': zoneId,
+                'lid': layoutId,
+                'name': zoneName,
+                'type': map['zone_type'] ?? 'production',
+                'xs': (map['x_start'] as num?)?.toDouble() ?? 0.0,
+                'ys': (map['y_start'] as num?)?.toDouble() ?? 0.0,
+                'xe': (map['x_end'] as num?)?.toDouble() ?? 10.0,
+                'ye': (map['y_end'] as num?)?.toDouble() ?? 10.0,
+                'bg': map['background_color'] ?? '#E8F5E9',
+                'border': map['border_color'] ?? '#4CAF50',
+              });
+            }
+            inserted++;
+            zoneNames.add(zoneName);
+          }
+        },
+      );
+
       return jsonEncode({
         'status': 'success',
-        'zone_id': zoneId,
-        'zone_name': zoneName,
-        'message': 'เพิ่มโซนพื้นที่ "$zoneName" ในผังโรงงานสำเร็จ',
+        'layout_id': layoutId,
+        'inserted_count': inserted,
+        'zones': zoneNames,
+        'warnings': batchResult.warnings,
+        'message': 'เพิ่มโซนพื้นที่ (${zoneNames.join(", ")}) ในผังโรงงานสำเร็จ',
       });
     }
 
@@ -1074,37 +1259,113 @@ class AiToolHandler {
       return jsonEncode({'status': 'success', 'message': 'ลบโซนพื้นที่เรียบร้อยแล้ว'});
     }
 
-    if (action == 'set_machine_position') {
-      final machineIdentifier = args['machine_identifier']?.toString().trim() ?? '';
-      final machine = await _findMachine(machineIdentifier);
-      if (machine == null) {
-        return jsonEncode({'error': 'ไม่พบเครื่องจักร "$machineIdentifier"'});
-      }
-      final machineId = machine['machine_id'].toString();
-      final layout = await DbHelper.queryOne('SELECT layout_id FROM factory_layouts WHERE is_active = 1 LIMIT 1');
-      final layoutId = args['layout_id']?.toString() ?? layout?['layout_id']?.toString() ?? 'DEFAULT_LAYOUT';
+    if (action == 'set_machine_position' || action == 'set_position') {
+      final layoutId = await _getOrCreateLayout(
+        layoutId: args['layout_id']?.toString(),
+        layoutName: args['layout_name']?.toString(),
+      );
 
-      await DbHelper.execute('''
-        INSERT OR REPLACE INTO machine_positions (
-          position_id, layout_id, machine_id, zone_id, x_position, y_position, width, height, status_color, updated_at
-        ) VALUES (
-          @id, @lid, @mid, @zid, @x, @y, @w, @h, @color, CURRENT_TIMESTAMP
-        )
-      ''', params: {
-        'id': const Uuid().v4(),
-        'lid': layoutId,
-        'mid': machineId,
-        'zid': args['zone_id'],
-        'x': (args['x_position'] as num?)?.toDouble() ?? 0.0,
-        'y': (args['y_position'] as num?)?.toDouble() ?? 0.0,
-        'w': (args['width'] as num?)?.toDouble() ?? 40.0,
-        'h': (args['height'] as num?)?.toDouble() ?? 40.0,
-        'color': args['status_color'] ?? '#4CAF50',
-      });
+      final posList = (args['machine_positions'] is List)
+          ? (args['machine_positions'] as List)
+          : (args['positions'] is List)
+              ? (args['positions'] as List)
+              : (args['machines'] is List)
+                  ? (args['machines'] as List)
+                  : [args];
+
+      int count = 0;
+      final positionedMachines = <String>[];
+
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: posList,
+        chunkSize: 15,
+        entityName: 'ตำแหน่งพิกัดเครื่องจักร',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final p in chunk) {
+            if (p is! Map) continue;
+            final map = p.cast<String, dynamic>();
+            final machineIdentifier = (map['machine_identifier'] ?? map['machine_no'] ?? map['machine_id'])?.toString().trim();
+            if (machineIdentifier == null || machineIdentifier.isEmpty) continue;
+
+            final machine = await _findMachine(machineIdentifier);
+            if (machine == null) continue;
+
+            final machineId = machine['machine_id'].toString();
+            final machineNo = machine['machine_no'].toString();
+
+            String? zoneId = map['zone_id']?.toString();
+            if (zoneId == null && map['zone_name'] != null) {
+              final z = await DbHelper.queryOne(
+                'SELECT zone_id FROM layout_zones WHERE layout_id = @lid AND zone_name = @zname LIMIT 1',
+                params: {'lid': layoutId, 'zname': map['zone_name'].toString().trim()},
+              );
+              zoneId = z?['zone_id']?.toString();
+            }
+
+            final existingPos = await DbHelper.queryOne(
+              'SELECT position_id FROM machine_positions WHERE layout_id = @lid AND machine_id = @mid LIMIT 1',
+              params: {'lid': layoutId, 'mid': machineId},
+            );
+
+            if (existingPos != null) {
+              await DbHelper.execute('''
+                UPDATE machine_positions
+                SET zone_id = COALESCE(@zid, zone_id),
+                    x_position = @x,
+                    y_position = @y,
+                    width = COALESCE(@w, width),
+                    height = COALESCE(@h, height),
+                    status_color = COALESCE(@color, status_color),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE position_id = @id
+              ''', params: {
+                'id': existingPos['position_id'],
+                'zid': zoneId,
+                'x': (map['x_position'] as num?)?.toDouble() ?? (map['x'] as num?)?.toDouble() ?? 0.0,
+                'y': (map['y_position'] as num?)?.toDouble() ?? (map['y'] as num?)?.toDouble() ?? 0.0,
+                'w': (map['width'] as num?)?.toDouble() ?? 40.0,
+                'h': (map['height'] as num?)?.toDouble() ?? 40.0,
+                'color': map['status_color'] ?? '#4CAF50',
+              });
+            } else {
+              await DbHelper.execute('''
+                INSERT INTO machine_positions (
+                  position_id, layout_id, machine_id, zone_id, x_position, y_position, width, height, status_color, updated_at
+                ) VALUES (
+                  @id, @lid, @mid, @zid, @x, @y, @w, @h, @color, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'id': const Uuid().v4(),
+                'lid': layoutId,
+                'mid': machineId,
+                'zid': zoneId,
+                'x': (map['x_position'] as num?)?.toDouble() ?? (map['x'] as num?)?.toDouble() ?? 0.0,
+                'y': (map['y_position'] as num?)?.toDouble() ?? (map['y'] as num?)?.toDouble() ?? 0.0,
+                'w': (map['width'] as num?)?.toDouble() ?? 40.0,
+                'h': (map['height'] as num?)?.toDouble() ?? 40.0,
+                'color': map['status_color'] ?? '#4CAF50',
+              });
+            }
+            count++;
+            positionedMachines.add(machineNo);
+          }
+        },
+      );
+
+      if (count == 0 && posList.isNotEmpty) {
+        final firstMap = (posList.first is Map) ? (posList.first as Map) : {};
+        final firstIdent = firstMap['machine_identifier'] ?? firstMap['machine_no'] ?? '';
+        return jsonEncode({'error': 'ไม่พบเครื่องจักร "$firstIdent"'});
+      }
+
       return jsonEncode({
         'status': 'success',
-        'machine_no': machine['machine_no'],
-        'message': 'กำหนดตำแหน่งพิกัดเครื่องจักร ${machine["machine_no"]} บนผังสำเร็จ',
+        'layout_id': layoutId,
+        'count': count,
+        'machines': positionedMachines,
+        'warnings': batchResult.warnings,
+        'message': 'กำหนดตำแหน่งพิกัดเครื่องจักร ($count เครื่อง) บนผังโรงงานสำเร็จ',
       });
     }
 
@@ -1147,7 +1408,10 @@ class AiToolHandler {
 
   // ── 3. PM/AM MASTER PLANS CRUD (manage_pm_plans) ───────────────────────────
 
-  static Future<String> _managePmPlans(Map<String, dynamic> args) async {
+  static Future<String> _managePmPlans(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_plan';
 
     if (action == 'delete_plan' || action == 'delete' || action == 'delete_all' || action == 'clear_all') {
@@ -1301,76 +1565,84 @@ class AiToolHandler {
       int totalTasks = 0;
       final createdCodes = <String>[];
 
-      for (final p in rawPlans) {
-        if (p is! Map) continue;
-        final pMap = Map<String, dynamic>.from(p);
-        final mcIdentifier = (pMap['machine_identifier'] ?? pMap['machine_no'] ?? pMap['machine_id'])?.toString().trim() ?? '';
-        if (mcIdentifier.isEmpty) continue;
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: rawPlans,
+        chunkSize: 10,
+        entityName: 'แผนแม่บท PM/AM',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final p in chunk) {
+            if (p is! Map) continue;
+            final pMap = Map<String, dynamic>.from(p);
+            final mcIdentifier = (pMap['machine_identifier'] ?? pMap['machine_no'] ?? pMap['machine_id'])?.toString().trim() ?? '';
+            if (mcIdentifier.isEmpty) continue;
 
-        final machine = await _findMachine(mcIdentifier);
-        if (machine == null) continue;
+            final machine = await _findMachine(mcIdentifier);
+            if (machine == null) continue;
 
-        final machineId = machine['machine_id'].toString();
-        final machineNo = machine['machine_no'].toString();
-        final pType = (pMap['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
-        final pName = pMap['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษา $pType $machineNo';
-        final freqDays = (pMap['frequency_days'] as num?)?.toInt() ?? (pType == 'AM' ? 1 : 30);
-        final pTasks = pMap['tasks'];
+            final machineId = machine['machine_id'].toString();
+            final machineNo = machine['machine_no'].toString();
+            final pType = (pMap['plan_type']?.toString().trim().toUpperCase() == 'AM') ? 'AM' : 'PM';
+            final pName = pMap['plan_name']?.toString().trim() ?? 'แผนบำรุงรักษา $pType $machineNo';
+            final freqDays = (pMap['frequency_days'] as num?)?.toInt() ?? (pType == 'AM' ? 1 : 30);
+            final pTasks = pMap['tasks'];
 
-        final planId = const Uuid().v4();
-        final planCode = '$pType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
-
-        await DbHelper.execute('''
-          INSERT INTO pm_am_plans (
-            plan_id, machine_id, plan_type, plan_code, plan_name,
-            frequency_days, status, created_at, updated_at
-          ) VALUES (
-            @id, @mid, @type, @code, @name,
-            @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-          )
-        ''', params: {
-          'id': planId,
-          'mid': machineId,
-          'type': pType,
-          'code': planCode,
-          'name': pName,
-          'freq': freqDays,
-        });
-        createdPlans++;
-        createdCodes.add(planCode);
-
-        if (pTasks is List && pTasks.isNotEmpty) {
-          for (int i = 0; i < pTasks.length; i++) {
-            final t = pTasks[i];
-            final taskName = (t is Map ? t['task_name'] : t)?.toString().trim() ?? '';
-            if (taskName.isEmpty) continue;
-            final taskType = (t is Map ? t['task_type']?.toString() : null) ?? 'inspect';
-            final isCritical = (t is Map && t['is_critical'] == true) ? 1 : 0;
+            final planId = const Uuid().v4();
+            final planCode = '$pType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
 
             await DbHelper.execute('''
-              INSERT INTO pm_am_tasks (
-                task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+              INSERT INTO pm_am_plans (
+                plan_id, machine_id, plan_type, plan_code, plan_name,
+                frequency_days, status, created_at, updated_at
               ) VALUES (
-                @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+                @id, @mid, @type, @code, @name,
+                @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
               )
             ''', params: {
-              'tid': const Uuid().v4(),
-              'pid': planId,
-              'order': i + 1,
-              'name': taskName,
-              'type': taskType,
-              'crit': isCritical,
+              'id': planId,
+              'mid': machineId,
+              'type': pType,
+              'code': planCode,
+              'name': pName,
+              'freq': freqDays,
             });
-            totalTasks++;
+            createdPlans++;
+            createdCodes.add(planCode);
+
+            if (pTasks is List && pTasks.isNotEmpty) {
+              for (int i = 0; i < pTasks.length; i++) {
+                final t = pTasks[i];
+                final taskMap = t is Map ? SubagentBatchWorker.normalizePmTask(t.cast<String, dynamic>()) : {'task_name': t.toString(), 'task_type': 'inspect', 'is_critical': false};
+                final taskName = taskMap['task_name']?.toString().trim() ?? '';
+                if (taskName.isEmpty) continue;
+
+                await DbHelper.execute('''
+                  INSERT INTO pm_am_tasks (
+                    task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+                  ) VALUES (
+                    @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+                  )
+                ''', params: {
+                  'tid': const Uuid().v4(),
+                  'pid': planId,
+                  'order': i + 1,
+                  'name': taskName,
+                  'type': taskMap['task_type'],
+                  'crit': taskMap['is_critical'] == true ? 1 : 0,
+                });
+                totalTasks++;
+              }
+            }
           }
-        }
-      }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
         'plans_created': createdPlans,
         'tasks_created': totalTasks,
         'plan_codes': createdCodes,
+        'warnings': batchResult.warnings,
         'message': 'สร้างแผนแม่บท PM/AM สำเร็จ $createdPlans แผน (รวมรายการตรวจเช็ค $totalTasks รายการ)',
       });
     }
@@ -1388,74 +1660,83 @@ class AiToolHandler {
       final frequencyDays = (args['frequency_days'] as num?)?.toInt() ?? (planType == 'AM' ? 1 : 30);
       final tasks = args['tasks'];
 
-      for (int i = 0; i < machineList.length; i++) {
-        final mcIdentifier = machineList[i];
-        final machine = await _findMachine(mcIdentifier);
-        if (machine == null) continue;
+      final batchResult = await SubagentBatchWorker.processInChunks<String>(
+        items: machineList,
+        chunkSize: 10,
+        entityName: 'แผนแม่บทเครื่องจักร',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (int i = 0; i < chunk.length; i++) {
+            final mcIdentifier = chunk[i];
+            final machine = await _findMachine(mcIdentifier);
+            if (machine == null) continue;
 
-        final machineId = machine['machine_id'].toString();
-        final machineNo = machine['machine_no'].toString();
-        final pName = (i < rawPlanNames.length && rawPlanNames[i].isNotEmpty)
-            ? rawPlanNames[i]
-            : (args['plan_name'] is String && (args['plan_name'] as String).isNotEmpty && !args['plan_name'].toString().startsWith('[')
-                ? '${args['plan_name']} - $machineNo'
-                : 'แผนบำรุงรักษา $planType $machineNo');
+            final machineId = machine['machine_id'].toString();
+            final machineNo = machine['machine_no'].toString();
+            final globalIdx = chunkIdx * 10 + i;
+            final pName = (globalIdx < rawPlanNames.length && rawPlanNames[globalIdx].isNotEmpty)
+                ? rawPlanNames[globalIdx]
+                : (args['plan_name'] is String && (args['plan_name'] as String).isNotEmpty && !args['plan_name'].toString().startsWith('[')
+                    ? '${args['plan_name']} - $machineNo'
+                    : 'แผนบำรุงรักษา $planType $machineNo');
 
-        final planId = const Uuid().v4();
-        final planCode = '$planType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
-
-        await DbHelper.execute('''
-          INSERT INTO pm_am_plans (
-            plan_id, machine_id, plan_type, plan_code, plan_name,
-            frequency_days, status, created_at, updated_at
-          ) VALUES (
-            @id, @mid, @type, @code, @name,
-            @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-          )
-        ''', params: {
-          'id': planId,
-          'mid': machineId,
-          'type': planType,
-          'code': planCode,
-          'name': pName,
-          'freq': frequencyDays,
-        });
-        createdPlans++;
-        planCodes.add(planCode);
-
-        if (tasks is List && tasks.isNotEmpty) {
-          for (int tIdx = 0; tIdx < tasks.length; tIdx++) {
-            final t = tasks[tIdx];
-            final taskName = (t is Map ? t['task_name'] : t)?.toString().trim() ?? '';
-            if (taskName.isEmpty) continue;
-            final taskType = (t is Map ? t['task_type']?.toString() : null) ?? 'inspect';
-            final isCritical = (t is Map && t['is_critical'] == true) ? 1 : 0;
+            final planId = const Uuid().v4();
+            final planCode = '$planType-$machineNo-${DateTime.now().millisecondsSinceEpoch % 10000}';
 
             await DbHelper.execute('''
-              INSERT INTO pm_am_tasks (
-                task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+              INSERT INTO pm_am_plans (
+                plan_id, machine_id, plan_type, plan_code, plan_name,
+                frequency_days, status, created_at, updated_at
               ) VALUES (
-                @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+                @id, @mid, @type, @code, @name,
+                @freq, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
               )
             ''', params: {
-              'tid': const Uuid().v4(),
-              'pid': planId,
-              'order': tIdx + 1,
-              'name': taskName,
-              'type': taskType,
-              'crit': isCritical,
+              'id': planId,
+              'mid': machineId,
+              'type': planType,
+              'code': planCode,
+              'name': pName,
+              'freq': frequencyDays,
             });
-            totalTasks++;
+            createdPlans++;
+            planCodes.add(planCode);
+
+            if (tasks is List && tasks.isNotEmpty) {
+              for (int tIdx = 0; tIdx < tasks.length; tIdx++) {
+                final t = tasks[tIdx];
+                final taskMap = t is Map ? SubagentBatchWorker.normalizePmTask(t.cast<String, dynamic>()) : {'task_name': t.toString(), 'task_type': 'inspect', 'is_critical': false};
+                final taskName = taskMap['task_name']?.toString().trim() ?? '';
+                if (taskName.isEmpty) continue;
+
+                await DbHelper.execute('''
+                  INSERT INTO pm_am_tasks (
+                    task_id, plan_id, task_order, task_name, task_type, is_critical, created_at
+                  ) VALUES (
+                    @tid, @pid, @order, @name, @type, @crit, CURRENT_TIMESTAMP
+                  )
+                ''', params: {
+                  'tid': const Uuid().v4(),
+                  'pid': planId,
+                  'order': tIdx + 1,
+                  'name': taskName,
+                  'type': taskMap['task_type'],
+                  'crit': taskMap['is_critical'] == true ? 1 : 0,
+                });
+                totalTasks++;
+              }
+            }
           }
-        }
-      }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
         'plans_created': createdPlans,
         'tasks_created': totalTasks,
         'plan_codes': planCodes,
-        'message': 'สร้างแผนแม่บท $planType สำเร็จ $createdPlans แผน (รวมรายการตรวจเช็ค $totalTasks รายการ)',
+        'warnings': batchResult.warnings,
+        'message': 'สร้างแผนแม่บท PM/AM สำเร็จ $createdPlans แผน (รวมรายการตรวจเช็ค $totalTasks รายการ)',
       });
     }
 
@@ -1840,97 +2121,107 @@ class AiToolHandler {
 
   // ── 6. OUTSOURCE VENDORS & CONTRACTORS CRUD (manage_contractors) ───────────
 
-  static Future<String> _manageContractors(Map<String, dynamic> args) async {
+  static Future<String> _manageContractors(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_contractor';
 
-    // Bulk registration / Bulk update
+    // Bulk registration / Bulk update via Subagent Batch Worker
     final rawList = args['contractors'] ?? args['suppliers'] ?? args['items'];
     if (rawList is List && rawList.isNotEmpty) {
       int inserted = 0;
       int updated = 0;
       final processedNames = <String>[];
 
-      for (final item in rawList) {
-        if (item is! Map) continue;
-        final map = item.cast<String, dynamic>();
-        final name = (map['name'] ?? map['supplier_name'] ?? map['part_name'])?.toString().trim() ?? '';
-        final code = (map['supplier_code'] ?? map['contractor_identifier'] ?? map['code'] ?? map['part_identifier'])?.toString().trim() ?? '';
-        if (name.isEmpty && code.isEmpty) continue;
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: rawList,
+        chunkSize: 15,
+        entityName: 'ผู้รับเหมา/คู่ค้า',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final item in chunk) {
+            if (item is! Map) continue;
+            final map = item.cast<String, dynamic>();
+            final name = (map['name'] ?? map['supplier_name'] ?? map['part_name'])?.toString().trim() ?? '';
+            final code = (map['supplier_code'] ?? map['contractor_identifier'] ?? map['code'] ?? map['part_identifier'])?.toString().trim() ?? '';
+            if (name.isEmpty && code.isEmpty) continue;
 
-        final contactName = (map['contact_name'] ?? map['contact'])?.toString().trim();
-        final phone = map['phone']?.toString().trim();
-        final email = map['email']?.toString().trim();
-        final address = map['address']?.toString().trim();
-        final scope = (map['service_scope'] ?? map['remarks'])?.toString().trim();
-        final vendorType = (map['vendor_type'] ?? map['category'] ?? 'supplier')?.toString().trim();
-        final isApproved = map['is_approved'] == true ? 1 : 0;
+            final contactName = (map['contact_name'] ?? map['contact'])?.toString().trim();
+            final phone = map['phone']?.toString().trim();
+            final email = map['email']?.toString().trim();
+            final address = map['address']?.toString().trim();
+            final scope = (map['service_scope'] ?? map['remarks'])?.toString().trim();
+            final vendorType = (map['vendor_type'] ?? map['category'] ?? 'supplier')?.toString().trim();
+            final isApproved = map['is_approved'] == true ? 1 : 0;
 
-        // Check if exists
-        final existing = await DbHelper.queryOne('''
-          SELECT supplier_id, supplier_code, name FROM suppliers
-          WHERE (supplier_code = @code AND @code != '')
-             OR (supplier_id = @code AND @code != '')
-             OR (name = @name AND @name != '')
-             OR (name LIKE @likeName AND @likeName != '')
-          LIMIT 1
-        ''', params: {
-          'code': code,
-          'name': name,
-          'likeName': name.isNotEmpty ? '%$name%' : '',
-        });
+            final existing = await DbHelper.queryOne('''
+              SELECT supplier_id, supplier_code, name FROM suppliers
+              WHERE (supplier_code = @code AND @code != '')
+                 OR (supplier_id = @code AND @code != '')
+                 OR (name = @name AND @name != '')
+                 OR (name LIKE @likeName AND @likeName != '')
+              LIMIT 1
+            ''', params: {
+              'code': code,
+              'name': name,
+              'likeName': name.isNotEmpty ? '%$name%' : '',
+            });
 
-        if (existing != null) {
-          final sId = existing['supplier_id'].toString();
-          await DbHelper.execute('''
-            UPDATE suppliers
-            SET name = CASE WHEN @name != '' THEN @name ELSE name END,
-                contact_name = COALESCE(@contact, contact_name),
-                phone = COALESCE(@phone, phone),
-                email = COALESCE(@email, email),
-                address = COALESCE(@addr, address),
-                service_scope = COALESCE(@scope, service_scope),
-                vendor_type = COALESCE(@type, vendor_type),
-                is_active = 1
-            WHERE supplier_id = @id
-          ''', params: {
-            'id': sId,
-            'name': name,
-            'contact': contactName,
-            'phone': phone,
-            'email': email,
-            'addr': address,
-            'scope': scope,
-            'type': vendorType,
-          });
-          updated++;
-          processedNames.add(name.isNotEmpty ? name : code);
-        } else {
-          final sId = const Uuid().v4();
-          final finalCode = code.isNotEmpty ? code : 'VEN-${DateTime.now().millisecondsSinceEpoch % 100000}';
-          await DbHelper.execute('''
-            INSERT INTO suppliers (
-              supplier_id, supplier_code, name, contact_name, phone, email,
-              address, is_outsource_vendor, service_scope, vendor_type, is_approved, is_active, created_at
-            ) VALUES (
-              @id, @code, @name, @contact, @phone, @email,
-              @addr, 1, @scope, @type, @approved, 1, CURRENT_TIMESTAMP
-            )
-          ''', params: {
-            'id': sId,
-            'code': finalCode,
-            'name': name.isNotEmpty ? name : finalCode,
-            'contact': contactName,
-            'phone': phone,
-            'email': email,
-            'addr': address,
-            'scope': scope,
-            'type': vendorType,
-            'approved': isApproved,
-          });
-          inserted++;
-          processedNames.add(name.isNotEmpty ? name : finalCode);
-        }
-      }
+            if (existing != null) {
+              final sId = existing['supplier_id'].toString();
+              await DbHelper.execute('''
+                UPDATE suppliers
+                SET name = CASE WHEN @name != '' THEN @name ELSE name END,
+                    contact_name = COALESCE(@contact, contact_name),
+                    phone = COALESCE(@phone, phone),
+                    email = COALESCE(@email, email),
+                    address = COALESCE(@addr, address),
+                    service_scope = COALESCE(@scope, service_scope),
+                    vendor_type = COALESCE(@type, vendor_type),
+                    is_active = 1
+                WHERE supplier_id = @id
+              ''', params: {
+                'id': sId,
+                'name': name,
+                'contact': contactName,
+                'phone': phone,
+                'email': email,
+                'addr': address,
+                'scope': scope,
+                'type': vendorType,
+              });
+              updated++;
+              processedNames.add(name.isNotEmpty ? name : code);
+            } else {
+              final sId = const Uuid().v4();
+              final finalCode = code.isNotEmpty ? code : 'VEN-${DateTime.now().millisecondsSinceEpoch % 100000}';
+              await DbHelper.execute('''
+                INSERT INTO suppliers (
+                  supplier_id, supplier_code, name, contact_name, phone, email,
+                  address, is_outsource_vendor, service_scope, vendor_type, is_approved, is_active, created_at
+                ) VALUES (
+                  @id, @code, @name, @contact, @phone, @email,
+                  @addr, 1, @scope, @type, @approved, 1, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'id': sId,
+                'code': finalCode,
+                'name': name.isNotEmpty ? name : finalCode,
+                'contact': contactName,
+                'phone': phone,
+                'email': email,
+                'addr': address,
+                'scope': scope,
+                'type': vendorType,
+                'approved': isApproved,
+              });
+              inserted++;
+              processedNames.add(name.isNotEmpty ? name : finalCode);
+            }
+          }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
@@ -1939,6 +2230,7 @@ class AiToolHandler {
         'updated_count': updated,
         'total_processed': inserted + updated,
         'contractors': processedNames,
+        'warnings': batchResult.warnings,
         'message': 'บันทึก/อัปเดตข้อมูลผู้รับเหมาและซัพพลายเออร์สำเร็จ (เพิ่มใหม่ $inserted, อัปเดต $updated รายการ)',
       });
     }
@@ -2160,10 +2452,13 @@ class AiToolHandler {
 
   // ── 8. SPARE PARTS & STOCK MOVEMENTS CRUD (manage_spare_parts) ────────────
 
-  static Future<String> _manageSpareParts(Map<String, dynamic> args) async {
+  static Future<String> _manageSpareParts(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_part';
 
-    // Bulk registration
+    // Bulk registration via Subagent Batch Worker
     if (args['parts'] is List && (args['parts'] as List).isNotEmpty) {
       final rawParts = args['parts'] as List;
       final machineIdentifier = args['machine_identifier']?.toString().trim();
@@ -2176,71 +2471,81 @@ class AiToolHandler {
       int inserted = 0;
       final partNames = <String>[];
 
-      for (final item in rawParts) {
-        if (item is! Map) continue;
-        final map = item.cast<String, dynamic>();
-        final partCode = map['part_code']?.toString().trim() ?? 'PART-${DateTime.now().millisecondsSinceEpoch % 100000}';
-        final partName = map['part_name']?.toString().trim() ?? '';
-        if (partName.isEmpty) continue;
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: rawParts,
+        chunkSize: 15,
+        entityName: 'รายการอะไหล่',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final item in chunk) {
+            if (item is! Map) continue;
+            final normalized = SubagentBatchWorker.normalizeSparePart(item.cast<String, dynamic>());
+            final map = item.cast<String, dynamic>();
+            final partCode = (map['part_code'] ?? normalized['part_no'])?.toString().trim() ?? 'PART-${DateTime.now().millisecondsSinceEpoch % 100000}';
+            final partName = (map['part_name'] ?? normalized['part_name'])?.toString().trim() ?? '';
+            if (partName.isEmpty) continue;
 
-        final category = map['category']?.toString().trim();
-        final unitCost = (map['unit_cost'] as num?)?.toDouble() ?? 0.0;
-        final reorderLevel = (map['reorder_level'] as num?)?.toInt() ?? 5;
-        final initialQty = (map['initial_quantity'] as num?)?.toInt() ?? 0;
+            final category = (map['category'] ?? normalized['category'])?.toString().trim();
+            final unitCost = (map['unit_cost'] as num?)?.toDouble() ?? (normalized['unit_cost'] as num?)?.toDouble() ?? 0.0;
+            final reorderLevel = (map['reorder_level'] as num?)?.toInt() ?? 5;
+            final initialQty = (map['initial_quantity'] as num?)?.toInt() ?? (normalized['current_stock'] as num?)?.toInt() ?? 0;
 
-        final existing = await DbHelper.queryOne('SELECT part_id FROM spare_parts WHERE part_code = @code LIMIT 1', params: {'code': partCode});
-        String partId;
-        if (existing != null) {
-          partId = existing['part_id'].toString();
-        } else {
-          partId = const Uuid().v4();
-          await DbHelper.execute('''
-            INSERT INTO spare_parts (
-              part_id, part_code, part_name, category, unit_cost, reorder_level, is_active, created_at
-            ) VALUES (
-              @id, @code, @name, @cat, @cost, @reorder, 1, CURRENT_TIMESTAMP
-            )
-          ''', params: {
-            'id': partId,
-            'code': partCode,
-            'name': partName,
-            'cat': category,
-            'cost': unitCost,
-            'reorder': reorderLevel,
-          });
+            final existing = await DbHelper.queryOne('SELECT part_id FROM spare_parts WHERE part_code = @code LIMIT 1', params: {'code': partCode});
+            String partId;
+            if (existing != null) {
+              partId = existing['part_id'].toString();
+            } else {
+              partId = const Uuid().v4();
+              await DbHelper.execute('''
+                INSERT INTO spare_parts (
+                  part_id, part_code, part_name, category, unit_cost, reorder_level, is_active, created_at
+                ) VALUES (
+                  @id, @code, @name, @cat, @cost, @reorder, 1, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'id': partId,
+                'code': partCode,
+                'name': partName,
+                'cat': category,
+                'cost': unitCost,
+                'reorder': reorderLevel,
+              });
 
-          await DbHelper.execute('''
-            INSERT OR IGNORE INTO spare_parts_inventory (
-              inventory_id, part_id, quantity_on_hand, quantity_reserved, updated_at
-            ) VALUES (
-              @invid, @pid, @qty, 0, CURRENT_TIMESTAMP
-            )
-          ''', params: {
-            'invid': const Uuid().v4(),
-            'pid': partId,
-            'qty': initialQty,
-          });
-          inserted++;
-        }
+              await DbHelper.execute('''
+                INSERT OR IGNORE INTO spare_parts_inventory (
+                  inventory_id, part_id, quantity_on_hand, quantity_reserved, updated_at
+                ) VALUES (
+                  @invid, @pid, @qty, 0, CURRENT_TIMESTAMP
+                )
+              ''', params: {
+                'invid': const Uuid().v4(),
+                'pid': partId,
+                'qty': initialQty,
+              });
+              inserted++;
+            }
 
-        if (linkedMachineId != null) {
-          await DbHelper.execute('''
-            INSERT OR IGNORE INTO part_machine_map (map_id, part_id, machine_id, quantity)
-            VALUES (@mid, @pid, @machid, 1)
-          ''', params: {
-            'mid': const Uuid().v4(),
-            'pid': partId,
-            'machid': linkedMachineId,
-          });
-        }
-        VectorDbService.syncSparePart(partId);
-        partNames.add('$partCode: $partName');
-      }
+            if (linkedMachineId != null) {
+              await DbHelper.execute('''
+                INSERT OR IGNORE INTO part_machine_map (map_id, part_id, machine_id, quantity)
+                VALUES (@mid, @pid, @machid, 1)
+              ''', params: {
+                'mid': const Uuid().v4(),
+                'pid': partId,
+                'machid': linkedMachineId,
+              });
+            }
+            VectorDbService.syncSparePart(partId);
+            partNames.add('$partCode: $partName');
+          }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
         'inserted_count': inserted,
         'parts': partNames,
+        'warnings': batchResult.warnings,
         'message': 'บันทึกรายการอะไหล่สำเร็จ $inserted รายการ',
       });
     }
@@ -2439,8 +2744,61 @@ class AiToolHandler {
 
   // ── 9. TOOLS & EQUIPMENT CRUD (manage_tools) ──────────────────────────────
 
-  static Future<String> _manageTools(Map<String, dynamic> args) async {
+  static Future<String> _manageTools(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_tool';
+
+    // Bulk tools support via Subagent Batch Worker
+    final rawTools = args['tools'] ?? args['items'];
+    if (rawTools is List && rawTools.isNotEmpty) {
+      int inserted = 0;
+      final toolNames = <String>[];
+
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: rawTools,
+        chunkSize: 15,
+        entityName: 'เครื่องมือช่าง',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final item in chunk) {
+            if (item is! Map) continue;
+            final map = item.cast<String, dynamic>();
+            final toolCode = (map['tool_code'] ?? map['code'])?.toString().trim() ?? 'TOOL-${DateTime.now().millisecondsSinceEpoch % 100000}';
+            final toolName = (map['tool_name'] ?? map['name'])?.toString().trim() ?? 'เครื่องมือช่าง';
+            final toolId = const Uuid().v4();
+
+            await DbHelper.execute('''
+              INSERT OR REPLACE INTO tools (
+                tool_id, tool_code, tool_name, category, status, price, notes, is_active, created_at
+              ) VALUES (
+                @id, @code, @name, @cat, @status, @price, @notes, 1, CURRENT_TIMESTAMP
+              )
+            ''', params: {
+              'id': toolId,
+              'code': toolCode,
+              'name': toolName,
+              'cat': map['category'] ?? 'hand_tools',
+              'status': map['status'] ?? 'available',
+              'price': (map['price'] as num?)?.toDouble() ?? 0.0,
+              'notes': map['notes'],
+            });
+            VectorDbService.syncTool(toolId);
+            inserted++;
+            toolNames.add('$toolCode: $toolName');
+          }
+        },
+      );
+
+      return jsonEncode({
+        'status': 'success',
+        'inserted_count': inserted,
+        'tools': toolNames,
+        'warnings': batchResult.warnings,
+        'message': 'บันทึกข้อมูลเครื่องมือช่างสำเร็จ $inserted รายการ',
+      });
+    }
 
     if (action == 'delete_tool' || action == 'delete') {
       final identifier = (args['tool_identifier'] ?? args['tool_code'])?.toString().trim() ?? '';
@@ -3518,117 +3876,132 @@ class AiToolHandler {
       .replaceAll('\r', '\\r');
 
   // ── WORK PROCESSES & SOP / JSA CRUD (manage_work_processes) ────────────────
-  static Future<String> _manageWorkProcesses(Map<String, dynamic> args) async {
+  static Future<String> _manageWorkProcesses(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_process';
 
-    // 1. Bulk import SOP / JSA for multiple machines
+    // 1. Bulk import SOP / JSA for multiple machines via Subagent Batch Worker
     if (action == 'import_sop_bulk' || (args['processes'] is List && (args['processes'] as List).isNotEmpty)) {
       final list = args['processes'] as List;
       int imported = 0;
+      int totalSteps = 0;
       final results = <Map<String, dynamic>>[];
 
-      for (final raw in list) {
-        if (raw is! Map) continue;
-        final p = Map<String, dynamic>.from(raw);
-        final mcId = p['machine_identifier']?.toString() ?? '';
-        final mc = await _findMachine(mcId);
-        final machineId = mc?['machine_id']?.toString();
-        final machineNo = mc?['machine_no']?.toString() ?? mcId;
+      final batchResult = await SubagentBatchWorker.processInChunks<dynamic>(
+        items: list,
+        chunkSize: 10,
+        entityName: 'ขั้นตอนการทำงาน SOP/JSA',
+        onProgress: onProgress,
+        processChunk: (chunk, chunkIdx, totalChunks, detailsAcc, warningsAcc) async {
+          for (final raw in chunk) {
+            if (raw is! Map) continue;
+            final p = Map<String, dynamic>.from(raw);
+            final mcId = (p['machine_identifier'] ?? p['machine_no'] ?? '')?.toString() ?? '';
+            final mc = await _findMachine(mcId);
+            final machineId = mc?['machine_id']?.toString();
+            final machineNo = mc?['machine_no']?.toString() ?? mcId;
 
-        final processId = const Uuid().v4();
-        final now = DateTime.now();
-        final processNo = p['process_no']?.toString().trim().isNotEmpty == true
-            ? p['process_no']!.toString().trim()
-            : (machineNo.isNotEmpty ? 'SOP-${machineNo.replaceAll(RegExp(r'[\s\-_]+'), '')}' : 'SOP-${DateFormat('yyMMdd-HHmm').format(now)}');
-        final title = p['title']?.toString().trim().isNotEmpty == true
-            ? p['title']!.toString().trim()
-            : 'ขั้นตอนการปฏิบัติงานและความปลอดภัย (SOP/JSA) $machineNo';
-
-        await DbHelper.execute('''
-          INSERT OR REPLACE INTO work_processes (
-            process_id, process_no, title, company, factory, department,
-            method_type, work_type, machine_id, prepared_by, prepared_date,
-            approved_by, approved_date, notes, status, created_at, updated_at
-          ) VALUES (
-            @id, @no, @title, @co, @fac, @dept,
-            @method, @work_type, @mid, @prep_by, @prep_date,
-            @appr_by, @appr_date, @notes, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-          )
-        ''', params: {
-          'id': processId,
-          'no': processNo,
-          'title': title,
-          'co': p['company']?.toString() ?? '',
-          'fac': p['factory']?.toString() ?? '',
-          'dept': p['department']?.toString() ?? '',
-          'method': p['method_type']?.toString() ?? 'current',
-          'work_type': p['work_type']?.toString() ?? 'standard',
-          'mid': machineId,
-          'prep_by': p['prepared_by']?.toString() ?? 'AI Assistant',
-          'prep_date': DateFormat('yyyy-MM-dd').format(now),
-          'appr_by': p['approved_by']?.toString(),
-          'appr_date': p['approved_date']?.toString(),
-          'notes': p['notes']?.toString(),
-        });
-
-        // Insert steps
-        final rawSteps = p['steps'];
-        int stepCount = 0;
-        if (rawSteps is List) {
-          for (int sIdx = 0; sIdx < rawSteps.length; sIdx++) {
-            final st = rawSteps[sIdx];
-            if (st is! Map) continue;
-            final stMap = Map<String, dynamic>.from(st);
-            final stepId = const Uuid().v4();
-            final stepNo = (stMap['step_no'] as num?)?.toInt() ?? (sIdx + 1);
-            final desc = stMap['description']?.toString().trim() ?? '';
-            if (desc.isEmpty) continue;
-
-            final duration = (stMap['duration_minutes'] as num?)?.toDouble() ?? 5.0;
-            final valType = stMap['value_type']?.toString() ?? 'va';
-            final problemCause = stMap['problem_cause']?.toString() ?? stMap['hazard_risk']?.toString();
-            final improvementIdea = stMap['improvement_idea']?.toString() ?? stMap['safety_control']?.toString();
+            final processId = const Uuid().v4();
+            final now = DateTime.now();
+            final processNo = p['process_no']?.toString().trim().isNotEmpty == true
+                ? p['process_no']!.toString().trim()
+                : (machineNo.isNotEmpty ? 'SOP-${machineNo.replaceAll(RegExp(r'[\s\-_]+'), '')}' : 'SOP-${DateFormat('yyMMdd-HHmm').format(now)}');
+            final title = p['title']?.toString().trim().isNotEmpty == true
+                ? p['title']!.toString().trim()
+                : 'ขั้นตอนการปฏิบัติงานและความปลอดภัย (SOP/JSA) $machineNo';
 
             await DbHelper.execute('''
-              INSERT INTO work_process_steps (
-                step_id, process_id, step_no, description, event_type,
-                duration_minutes, distance_meters, tools_used,
-                value_type, problem_cause, improvement_idea, created_at
+              INSERT OR REPLACE INTO work_processes (
+                process_id, process_no, title, company, factory, department,
+                method_type, work_type, machine_id, prepared_by, prepared_date,
+                approved_by, approved_date, notes, status, created_at, updated_at
               ) VALUES (
-                @sid, @pid, @sno, @desc, 'operation',
-                @dur, 0.0, @tools,
-                @val_type, @prob, @imp, CURRENT_TIMESTAMP
+                @id, @no, @title, @co, @fac, @dept,
+                @method, @work_type, @mid, @prep_by, @prep_date,
+                @appr_by, @appr_date, @notes, 'active', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
               )
             ''', params: {
-              'sid': stepId,
-              'pid': processId,
-              'sno': stepNo,
-              'desc': desc,
-              'dur': duration,
-              'tools': stMap['tools_used']?.toString(),
-              'val_type': valType,
-              'prob': problemCause,
-              'imp': improvementIdea,
+              'id': processId,
+              'no': processNo,
+              'title': title,
+              'co': p['company']?.toString() ?? '',
+              'fac': p['factory']?.toString() ?? '',
+              'dept': p['department']?.toString() ?? '',
+              'method': p['method_type']?.toString() ?? 'current',
+              'work_type': p['work_type']?.toString() ?? 'standard',
+              'mid': machineId,
+              'prep_by': p['prepared_by']?.toString() ?? 'AI Assistant',
+              'prep_date': DateFormat('yyyy-MM-dd').format(now),
+              'appr_by': p['approved_by']?.toString(),
+              'appr_date': p['approved_date']?.toString(),
+              'notes': p['notes']?.toString(),
             });
-            stepCount++;
-          }
-        }
 
-        VectorDbService.syncWorkProcess(processId);
-        imported++;
-        results.add({
-          'machine_no': machineNo,
-          'process_no': processNo,
-          'title': title,
-          'steps_count': stepCount,
-        });
-      }
+            // Insert steps
+            final rawSteps = p['steps'];
+            int stepCount = 0;
+            if (rawSteps is List) {
+              for (int sIdx = 0; sIdx < rawSteps.length; sIdx++) {
+                final st = rawSteps[sIdx];
+                if (st is! Map) continue;
+                final stMap = Map<String, dynamic>.from(st);
+                final stepId = const Uuid().v4();
+                final stepNo = (stMap['step_no'] as num?)?.toInt() ?? (sIdx + 1);
+                final desc = (stMap['description'] ?? stMap['step_name'] ?? stMap['task_name'])?.toString().trim() ?? '';
+                if (desc.isEmpty) continue;
+
+                final duration = (stMap['duration_minutes'] as num?)?.toDouble() ?? 5.0;
+                final valType = stMap['value_type']?.toString() ?? 'va';
+                final problemCause = stMap['problem_cause']?.toString() ?? stMap['hazard_risk']?.toString();
+                final improvementIdea = stMap['improvement_idea']?.toString() ?? stMap['safety_control']?.toString();
+
+                await DbHelper.execute('''
+                  INSERT INTO work_process_steps (
+                    step_id, process_id, step_no, description, event_type,
+                    duration_minutes, distance_meters, tools_used,
+                    value_type, problem_cause, improvement_idea, created_at
+                  ) VALUES (
+                    @sid, @pid, @sno, @desc, 'operation',
+                    @dur, 0.0, @tools,
+                    @val_type, @prob, @imp, CURRENT_TIMESTAMP
+                  )
+                ''', params: {
+                  'sid': stepId,
+                  'pid': processId,
+                  'sno': stepNo,
+                  'desc': desc,
+                  'dur': duration,
+                  'tools': stMap['tools_used']?.toString(),
+                  'val_type': valType,
+                  'prob': problemCause,
+                  'imp': improvementIdea,
+                });
+                stepCount++;
+                totalSteps++;
+              }
+            }
+
+            VectorDbService.syncWorkProcess(processId);
+            imported++;
+            results.add({
+              'machine_no': machineNo,
+              'process_no': processNo,
+              'title': title,
+              'steps_count': stepCount,
+            });
+          }
+        },
+      );
 
       return jsonEncode({
         'status': 'success',
         'imported_count': imported,
+        'total_steps': totalSteps,
         'processes': results,
-        'message': 'บันทึกขั้นตอนการทำงาน SOP/JSA สำเร็จทั้งหมด $imported เครื่อง',
+        'warnings': batchResult.warnings,
+        'message': 'บันทึกขั้นตอนการทำงาน SOP/JSA สำเร็จทั้งหมด $imported เครื่อง (รวม $totalSteps ขั้นตอน)',
       });
     }
 

@@ -28,18 +28,30 @@ class ToolItem {
   });
 
   factory ToolItem.fromMap(Map<String, dynamic> map) {
+    DateTime parseDate(dynamic val) {
+      if (val == null) return DateTime.now();
+      if (val is DateTime) return val;
+      return DateTime.tryParse(val.toString()) ?? DateTime.now();
+    }
+
+    DateTime? parseNullableDate(dynamic val) {
+      if (val == null) return null;
+      if (val is DateTime) return val;
+      return DateTime.tryParse(val.toString());
+    }
+
     return ToolItem(
-      toolId: map['tool_id'] as String,
-      toolCode: map['tool_code'] as String,
-      toolName: map['tool_name'] as String,
-      category: map['category'] as String?,
-      imagePath: map['image_path'] as String?,
-      status: map['status'] as String? ?? 'available',
-      purchaseDate: map['purchase_date'] != null ? DateTime.parse(map['purchase_date'] as String) : null,
-      price: map['price'] != null ? (map['price'] as num).toDouble() : null,
-      notes: map['notes'] as String?,
-      createdAt: DateTime.parse(map['created_at'] as String),
-      isActive: (map['is_active'] as int? ?? 1) == 1,
+      toolId: map['tool_id']?.toString() ?? '',
+      toolCode: map['tool_code']?.toString() ?? '',
+      toolName: map['tool_name']?.toString() ?? '',
+      category: map['category']?.toString(),
+      imagePath: map['image_path']?.toString(),
+      status: map['status']?.toString() ?? 'available',
+      purchaseDate: parseNullableDate(map['purchase_date']),
+      price: (map['price'] as num?)?.toDouble(),
+      notes: map['notes']?.toString(),
+      createdAt: parseDate(map['created_at']),
+      isActive: (map['is_active'] == 1 || map['is_active'] == true || map['is_active'] == null),
     );
   }
 

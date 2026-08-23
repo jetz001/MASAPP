@@ -20,6 +20,7 @@ import '../../core/ai/ai_tool_handler.dart';
 import '../../core/ai/rag_document_service.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../features/auth/auth_provider.dart';
+import '../tools_equipment/tool_provider.dart';
 import 'ai_chat_provider.dart';
 import 'widgets/chat_history_dialog.dart';
 
@@ -1138,16 +1139,15 @@ class _AiChatScreenState extends ConsumerState<AiChatScreen> {
               ),
               const SizedBox(width: AppSpacing.sm),
               if (_sending)
-                FilledButton.icon(
+                FilledButton(
                   onPressed: _stopGenerating,
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.red.shade600,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: const CircleBorder(),
+                    padding: const EdgeInsets.all(14),
                   ),
-                  icon: const Icon(Icons.stop_rounded, size: 20),
-                  label: const Text('หยุด (Stop)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  child: const Icon(Icons.stop_rounded, size: 24),
                 )
               else
                 FilledButton(
@@ -2712,6 +2712,7 @@ class _ActionConfirmationCardState
       });
 
       if (mounted) {
+        ref.invalidate(toolsProvider);
         await ref.read(aiChatProvider.notifier).addAssistantMessage(
           '✅ ดำเนินการ **${widget.data.title}** เรียบร้อยแล้วครับ\n$message',
           userId: user?.userId,
