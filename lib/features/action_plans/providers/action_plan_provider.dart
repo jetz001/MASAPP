@@ -42,9 +42,8 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     return _fetchRecords();
   }
 
-  Future<List<ActionPlanRecord>> _fetchRecords() async {
+  Future<void> _ensureTable() async {
     try {
-      // Ensure table exists
       await DbHelper.execute('''
         CREATE TABLE IF NOT EXISTS problem_solving_records (
           rca_id TEXT PRIMARY KEY,
@@ -77,6 +76,48 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       ''');
+
+      final info = await DbHelper.query('PRAGMA table_info(problem_solving_records)');
+      final existingCols = info.map((c) => c['name']?.toString().toLowerCase()).toSet();
+      final requiredCols = {
+        'why_1': 'TEXT',
+        'why_2': 'TEXT',
+        'why_3': 'TEXT',
+        'why_4': 'TEXT',
+        'why_5': 'TEXT',
+        'root_cause': 'TEXT',
+        'fishbone_man': 'TEXT',
+        'fishbone_machine': 'TEXT',
+        'fishbone_material': 'TEXT',
+        'fishbone_method': 'TEXT',
+        'fishbone_env': 'TEXT',
+        'action_steps_json': 'TEXT',
+        'target_metric': 'TEXT',
+        'before_value': 'REAL',
+        'target_value': 'REAL',
+        'actual_value': 'REAL',
+        'metric_unit': 'TEXT',
+        'verified_by': 'TEXT',
+        'verification_date': 'TEXT',
+        'verification_result': 'TEXT',
+        'standardization_notes': 'TEXT',
+        'status': "TEXT DEFAULT 'in_progress'",
+        'updated_at': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+      };
+
+      for (final entry in requiredCols.entries) {
+        if (!existingCols.contains(entry.key.toLowerCase())) {
+          try {
+            await DbHelper.execute('ALTER TABLE problem_solving_records ADD COLUMN ${entry.key} ${entry.value}');
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<List<ActionPlanRecord>> _fetchRecords() async {
+    try {
+      await _ensureTable();
 
       // Fetch all records
       final rows = await DbHelper.query('''
@@ -165,6 +206,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     String status = 'in_progress',
   }) async {
     try {
+      await _ensureTable();
       final allDone = actionSteps.isNotEmpty && actionSteps.every((s) => s.status == 'completed');
       final finalStatus = allDone ? 'completed' : status;
       final stepsJson = jsonEncode(actionSteps.map((s) => s.toJson()).toList());
@@ -230,6 +272,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     String newStatus,
   ) async {
     try {
+      await _ensureTable();
       final currentList = state.valueOrNull ?? [];
       final plan = currentList.firstWhereOrNull((p) => p.rcaId == rcaId);
       List<ActionStepItem> steps = [];
@@ -280,6 +323,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
 
   Future<void> updatePlanStatus(String rcaId, String newStatus) async {
     try {
+      await _ensureTable();
       await DbHelper.execute('''
         UPDATE problem_solving_records
         SET status = @status,
@@ -310,6 +354,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     String? standardizationNotes,
   }) async {
     try {
+      await _ensureTable();
       await DbHelper.execute('''
         UPDATE problem_solving_records
         SET target_metric = @tmetric,

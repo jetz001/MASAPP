@@ -343,6 +343,43 @@ class DbInitializer {
           ''');
           await db.execute('CREATE INDEX IF NOT EXISTS idx_rca_source ON problem_solving_records(source_type, source_id)');
           await db.execute('CREATE INDEX IF NOT EXISTS idx_rca_status ON problem_solving_records(status)');
+        } else {
+          final rcaTableInfo = await db.rawQuery('PRAGMA table_info(problem_solving_records)');
+          final existingCols = rcaTableInfo.map((c) => c['name']?.toString().toLowerCase()).toSet();
+          final requiredCols = {
+            'why_1': 'TEXT',
+            'why_2': 'TEXT',
+            'why_3': 'TEXT',
+            'why_4': 'TEXT',
+            'why_5': 'TEXT',
+            'root_cause': 'TEXT',
+            'fishbone_man': 'TEXT',
+            'fishbone_machine': 'TEXT',
+            'fishbone_material': 'TEXT',
+            'fishbone_method': 'TEXT',
+            'fishbone_env': 'TEXT',
+            'action_steps_json': 'TEXT',
+            'target_metric': 'TEXT',
+            'before_value': 'REAL',
+            'target_value': 'REAL',
+            'actual_value': 'REAL',
+            'metric_unit': 'TEXT',
+            'verified_by': 'TEXT',
+            'verification_date': 'TEXT',
+            'verification_result': 'TEXT',
+            'standardization_notes': 'TEXT',
+            'status': "TEXT DEFAULT 'in_progress'",
+            'updated_at': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
+          };
+
+          for (final entry in requiredCols.entries) {
+            if (!existingCols.contains(entry.key.toLowerCase())) {
+              try {
+                _log.i('Migration: Adding column ${entry.key} to problem_solving_records...');
+                await db.execute('ALTER TABLE problem_solving_records ADD COLUMN ${entry.key} ${entry.value}');
+              } catch (_) {}
+            }
+          }
         }
 
         // 9. Check for work_order_outsource (Added 2026-08)
