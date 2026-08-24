@@ -45,7 +45,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
     for (int i = 0; i < lineState.stations.length; i++) {
       final s = lineState.stations[i];
 
-      // 1. If station has buffer/waiting time, prepend a delay step
+      // 1. If station has buffer/waiting time, prepend a delay step (WIP Buffer)
       if (s.waitingTimeSec > 0) {
         steps.add(
           WorkProcessStep(
@@ -53,7 +53,7 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
             processId: lineState.lineId,
             stepNo: steps.length + 1,
             description:
-                'รอคอย/สต็อกคั่นหน้าสถานี ${s.name} ${s.bufferQuantity > 0 ? "(${s.bufferQuantity} ชิ้น)" : ""}',
+                'WIP Buffer/รอคอย หน้าสถานี ${s.name} ${s.bufferQuantity > 0 ? "(${s.bufferQuantity} ชิ้น)" : ""}',
             eventType: ProcessEventType.delay,
             durationMinutes: s.waitingTimeSec / 60.0,
             valueType: LeanValueType.nva,
@@ -64,57 +64,28 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
         );
       }
 
-      // 2. Find matching WorkProcess with actual sub-steps for this station's machine
-      WorkProcess? matchingProcess;
-      if (s.machineId != null && s.machineId!.isNotEmpty) {
-        matchingProcess = allProcesses.firstWhereOrNull((p) => p.machineId == s.machineId);
-      }
-      if (matchingProcess == null && s.machineName != null && s.machineName!.isNotEmpty) {
-        matchingProcess = allProcesses.firstWhereOrNull((p) =>
-            p.title.contains(s.machineName!) ||
-            (p.processNo.isNotEmpty && s.name.contains(p.processNo)));
-      }
-
-      if (matchingProcess != null && matchingProcess.steps.isNotEmpty) {
-        // Expand each actual sub-step of the machine!
-        for (final st in matchingProcess.steps) {
-          steps.add(
-            WorkProcessStep(
-              stepId: st.stepId,
-              processId: matchingProcess.processId,
-              stepNo: steps.length + 1,
-              description: '[${s.name}] ${st.description}',
-              eventType: st.eventType,
-              distanceMeters: st.distanceMeters,
-              partsQuantity: st.partsQuantity ?? '${s.workers} คน',
-              toolsUsed: st.toolsUsed ?? s.machineName,
-              durationMinutes: st.durationMinutes > 0
-                  ? st.durationMinutes
-                  : (s.cycleTime / matchingProcess.steps.length / 60.0),
-              valueType: st.valueType,
-              problemCause: st.problemCause,
-              improvementIdea: st.improvementIdea,
-              createdAt: st.createdAt,
-            ),
-          );
-        }
-      } else {
-        // Fallback: If no SOP sub-steps created yet, show station single step
-        steps.add(
-          WorkProcessStep(
-            stepId: s.id,
-            processId: lineState.lineId,
-            stepNo: steps.length + 1,
-            description: 'สถานีที่ ${i + 1}: ${s.name}${s.machineName != null ? " [${s.machineName}]" : ""} (ยังไม่มีขั้นตอนย่อย SOP)',
-            eventType: ProcessEventType.fromCode(s.eventType),
-            durationMinutes: s.cycleTime / 60.0,
-            valueType: LeanValueType.fromCode(s.valueType),
-            toolsUsed: s.machineName,
-            partsQuantity: '${s.workers} คน',
-            createdAt: DateTime.now(),
-          ),
-        );
-      }
+      // 2. Map station 1-to-1 as a Workstation Process Node in VSM (Exact 1:1 sync with Line Balancing)
+      final isBottleneck = lineState.taktTimeSec > 0 && s.cycleTime > lineState.taktTimeSec;
+      steps.add(
+        WorkProcessStep(
+          stepId: s.id,
+          processId: lineState.lineId,
+          stepNo: steps.length + 1,
+          description: s.name,
+          eventType: ProcessEventType.fromCode(s.eventType),
+          durationMinutes: s.cycleTime / 60.0,
+          valueType: LeanValueType.fromCode(s.valueType),
+          toolsUsed: s.machineName ?? s.name,
+          partsQuantity: '${s.workers} คน',
+          problemCause: isBottleneck
+              ? 'คอขวด (Cycle Time ${(s.cycleTime / 60).toStringAsFixed(1)} นาที > Takt Time ${(lineState.taktTimeSec / 60).toStringAsFixed(1)} นาที)'
+              : null,
+          improvementIdea: isBottleneck
+              ? 'เกลี่ยงาน/เพิ่มกำลังคนเพื่อปรับสมดุลสายการผลิต'
+              : null,
+          createdAt: DateTime.now(),
+        ),
+      );
     }
 
     final now = DateTime.now();
