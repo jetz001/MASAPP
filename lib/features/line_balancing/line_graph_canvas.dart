@@ -222,6 +222,42 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
                     ],
                   ),
                 ),
+
+                // 4. Empty State Banner
+                if (state.stations.isEmpty)
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                      decoration: BoxDecoration(
+                        color: (isDark ? const Color(0xFF1E1E24) : Colors.white).withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.account_tree_outlined, size: 48, color: Colors.orange.shade400),
+                          const SizedBox(height: 12),
+                          Text(
+                            'ยังไม่มีสถานีงานในสายการผลิตนี้',
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'กดปุ่ม "+ เพิ่มสถานี" ด้านบน หรือให้ AI Assistant ช่วยจัดผังสายการผลิต',
+                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

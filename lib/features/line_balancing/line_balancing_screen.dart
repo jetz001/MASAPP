@@ -245,6 +245,40 @@ class LineBalancingScreen extends ConsumerWidget {
                     ),
                   ),
 
+                  // Empty State Banner for Empty Line
+                  if (state.stations.isEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 24),
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                      ),
+                      child: Center(
+                        child: Column(
+                          children: [
+                            Icon(Icons.precision_manufacturing_outlined, size: 48, color: theme.colorScheme.primary),
+                            const SizedBox(height: 12),
+                            Text('สายการผลิตนี้ยังไม่มีสถานีงาน', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            Text('กดปุ่ม "+ เพิ่มสถานี" มุมบนขวา หรือใช้ AI Assistant ช่วยออกแบบผังสายการผลิตตามเครื่องจักรจริง', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text('เพิ่มสถานีแรก'),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => AddStationDialog(notifier: notifier),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                   // KPI Row 1
                   Row(
                     children: [

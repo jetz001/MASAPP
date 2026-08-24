@@ -15,7 +15,9 @@ MASAPP (Maintenance & Asset System Application) เป็นแอป Flutter �
 
 - จัดการทะเบียนเครื่องจักรและกระบวนการรับมอบเครื่อง
 - เปิด/แนบรูปและ PDF ใน 4 โมดูลหลัก: เครื่องจักร, งานซ่อม, อะไหล่, เครื่องมือ
-- แสดงผล AI chat ได้ทั้งข้อความ, code block, table, image, PDF card และ `timeline`
+- **Slide Presentation Studio & Landscape PDF Export**: สร้างสไลด์นำเสนอ A4 แนวนอนอัตโนมัติ พร้อมปุ่มเปิดดู PDF ทันทีใน 1 คลิก (`[เปิด PDF ทันที]`) รองรับทั้ง KPI Cards, Fishbone 4M1E, 5-Why, 8D Report, Data Table และสถิติกราฟ
+- **Line Balancing & Production Line Design**: ผังจัดสมดุลสายการผลิตแบบ Interactive Canvas พร้อมคำนวณ Takt Time, Bottleneck, Line Efficiency, Lead Time และต้นทุนแบบ Real-time (Pure clean state ปลอดภัยสำหรับ Production)
+- แสดงผล AI chat ได้ทั้งข้อความ, code block, table, image, PDF card, `slides` deck และ `timeline`
 - รองรับ AI หลายเจ้า เช่น Gemini, OpenAI, Claude, DeepSeek, Grok, Mistral และ Ollama
 - รองรับ external search และ image search โดยยึดหลัก DB-first
 

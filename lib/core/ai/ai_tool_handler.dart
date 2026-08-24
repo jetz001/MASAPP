@@ -4432,6 +4432,13 @@ class AiToolHandler {
 
     final deckJsonString = jsonEncode(deckData);
 
+    final pdfCardData = {
+      'title': title,
+      'path': pdfPath,
+      'pages': slideList.length,
+    };
+    final pdfCardJsonString = jsonEncode(pdfCardData);
+
     return jsonEncode({
       'status': 'success',
       'title': title,
@@ -4439,7 +4446,8 @@ class AiToolHandler {
       'total_slides': slideList.length,
       'sources_count': sourceRefs.length,
       'slides_block': '```slides\n$deckJsonString\n```',
-      'message': 'สร้างสไลด์นำเสนอ "$title" (${slideList.length} สไลด์) พร้อมส่งออกเป็น PDF แนวนอนเรียบร้อยแล้วที่ $pdfPath สามารถดูตัวอย่างและสั่งพิมพ์หรือดาวน์โหลดได้ทันที',
+      'pdf_card_block': '```pdfcard\n$pdfCardJsonString\n```',
+      'message': 'สร้างสไลด์นำเสนอ "$title" (${slideList.length} สไลด์) พร้อมส่งออกเป็น PDF แนวนอนเรียบร้อยแล้วที่ $pdfPath สามารถกดปุ่มเปิดดูไฟล์ PDF หรือสั่งพิมพ์ได้ทันที',
     });
   }
 

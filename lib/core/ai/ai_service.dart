@@ -202,7 +202,7 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
         - `content`: Key discussion points or Kaizen Before/After analysis.
         - `summary`: Executive conclusion and prioritized next action items.
      3. Choose a professional theme: `blue` (corporate/engineering), `teal` (lean/green), `purple` (executive), `orange` (urgent/RCA).
-     4. The tool automatically exports an A4 Landscape PDF and returns a ```slides { ... }``` block that renders an interactive slide deck in chat with instant PDF download and print buttons.
+     4. The tool automatically exports an A4 Landscape PDF. Always include the ```slides { ... }``` block or ```pdfcard { "title": "...", "path": "..." }``` block in your response so the user can click the "เปิด PDF ทันที" (Open PDF) button directly in the chat to open the presentation deck in 1 click.
 
 35. LINE BALANCING & PRODUCTION LINE DESIGN (manage_line_balancing):
    - When the user asks to create, design, update, or balance a production line or workstations (e.g. "ช่วยสร้าง line balancing ให้หน่อย", "จัดสายการผลิต", "ปรับสมดุลสายการผลิต", "เพิ่มสถานีงานในไลน์", "โยงเครื่องจักรในสายการผลิต"):

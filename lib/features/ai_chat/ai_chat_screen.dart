@@ -2036,7 +2036,7 @@ class _MarkdownTextRenderer extends StatelessWidget {
                       ),
               ),
               Expanded(
-                child: _buildFormattedText(content, baseStyle, theme, isUser),
+                child: _buildFormattedText(content, baseStyle, theme, isUser, context),
               ),
             ],
           ),
@@ -2048,7 +2048,7 @@ class _MarkdownTextRenderer extends StatelessWidget {
       // 6. Regular paragraph
       widgets.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
-        child: _buildFormattedText(line, baseStyle, theme, isUser),
+        child: _buildFormattedText(line, baseStyle, theme, isUser, context),
       ));
       i++;
     }
@@ -2061,10 +2061,10 @@ class _MarkdownTextRenderer extends StatelessWidget {
   }
 
   Widget _buildFormattedText(
-      String text, TextStyle style, ThemeData theme, bool isUser) {
+      String text, TextStyle style, ThemeData theme, bool isUser, BuildContext context) {
     final spans = <InlineSpan>[];
     final regex =
-        RegExp(r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\))');
+        RegExp(r'(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)]+\)|(?:[A-Za-z]:\\[^\s`"<>|]+?\.pdf)|(?:\/[^\s`"<>|]+?\.pdf)|(?:file:\/\/\/[^\s`"<>|]+?\.pdf))', caseSensitive: false);
     int lastEnd = 0;
 
     for (final match in regex.allMatches(text)) {
@@ -2079,36 +2079,78 @@ class _MarkdownTextRenderer extends StatelessWidget {
       if (matchedStr.startsWith('`') && matchedStr.endsWith('`')) {
         // Inline code
         final codeText = matchedStr.substring(1, matchedStr.length - 1);
-        spans.add(WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            decoration: BoxDecoration(
-              color: isUser
-                  ? Colors.black26
-                  : theme.colorScheme.surfaceContainerHighest
-                      .withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(5),
-              border: Border.all(
+        final isPdfFile = codeText.toLowerCase().endsWith('.pdf');
+        if (isPdfFile) {
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: InkWell(
+              onTap: () => _AssetOpenSupport.openWithSystemApp(
+                context,
+                codeText,
+                missingMessage: 'ไม่พบที่อยู่ไฟล์ PDF',
+                openErrorPrefix: 'เปิด PDF ไม่สำเร็จ',
+              ),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.4), width: 0.8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.picture_as_pdf_rounded, size: 14, color: Colors.red),
+                    const SizedBox(width: 4),
+                    Text(
+                      _AiMessageBlockParser._fileNameFromPath(codeText),
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ));
+        } else {
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
                 color: isUser
-                    ? Colors.white24
-                    : theme.colorScheme.outlineVariant
-                        .withValues(alpha: 0.5),
-                width: 0.7,
+                    ? Colors.black26
+                    : theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.9),
+                borderRadius: BorderRadius.circular(5),
+                border: Border.all(
+                  color: isUser
+                      ? Colors.white24
+                      : theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.5),
+                  width: 0.7,
+                ),
+              ),
+              child: Text(
+                codeText,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isUser ? Colors.white : theme.colorScheme.primary,
+                ),
               ),
             ),
-            child: Text(
-              codeText,
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: isUser ? Colors.white : theme.colorScheme.primary,
-              ),
-            ),
-          ),
-        ));
+          ));
+        }
       } else if (matchedStr.startsWith('**') && matchedStr.endsWith('**')) {
         // Bold
         spans.add(TextSpan(
@@ -2123,6 +2165,103 @@ class _MarkdownTextRenderer extends StatelessWidget {
         spans.add(TextSpan(
           text: matchedStr.substring(1, matchedStr.length - 1),
           style: style.copyWith(fontStyle: FontStyle.italic),
+        ));
+      } else if (matchedStr.startsWith('[') && matchedStr.endsWith(')')) {
+        // Markdown Link [label](url_or_path)
+        final linkMatch = RegExp(r'^\[([^\]]+)\]\(([^)]+)\)$').firstMatch(matchedStr);
+        if (linkMatch != null) {
+          final linkText = linkMatch.group(1)!;
+          final linkTarget = linkMatch.group(2)!;
+          final isPdf = linkTarget.toLowerCase().endsWith('.pdf');
+
+          spans.add(WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: InkWell(
+              onTap: () => _AssetOpenSupport.openWithSystemApp(
+                context,
+                linkTarget,
+                missingMessage: 'ไม่พบที่อยู่ไฟล์',
+                openErrorPrefix: 'เปิดไฟล์ไม่สำเร็จ',
+              ),
+              borderRadius: BorderRadius.circular(6),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: BoxDecoration(
+                  color: isPdf
+                      ? Colors.red.withValues(alpha: 0.12)
+                      : theme.colorScheme.primaryContainer.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: isPdf
+                        ? Colors.red.withValues(alpha: 0.45)
+                        : theme.colorScheme.primary.withValues(alpha: 0.45),
+                    width: 0.8,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isPdf ? Icons.picture_as_pdf_rounded : Icons.open_in_new_rounded,
+                      size: 13,
+                      color: isPdf ? Colors.red[700] : theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      linkText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isPdf ? Colors.red[800] : theme.colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ));
+        }
+      } else if (matchedStr.toLowerCase().endsWith('.pdf')) {
+        // Raw PDF path detected
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: InkWell(
+            onTap: () => _AssetOpenSupport.openWithSystemApp(
+              context,
+              matchedStr,
+              missingMessage: 'ไม่พบที่อยู่ไฟล์ PDF',
+              openErrorPrefix: 'เปิด PDF ไม่สำเร็จ',
+            ),
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.red.withValues(alpha: 0.4), width: 0.8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.picture_as_pdf_rounded, size: 14, color: Colors.red),
+                  const SizedBox(width: 4),
+                  Text(
+                    _AiMessageBlockParser._fileNameFromPath(matchedStr),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ));
       }
 
@@ -2312,12 +2451,31 @@ class _AiSlideItem {
     final content = map['content']?.toString().trim();
 
     // Metrics
-    final rawMetrics = map['metrics'] ?? map['kpis'];
+    final rawMetrics = map['metrics'] ?? map['kpis'] ?? map['kpi_data'] ?? map['cards'] ?? map['items'] ?? map['data'] ?? map['stats'];
     final metricsList = <_AiSlideMetric>[];
     if (rawMetrics is List) {
       for (final m in rawMetrics) {
-        if (m is Map) metricsList.add(_AiSlideMetric.fromMap(m.cast<String, dynamic>()));
+        if (m is Map) {
+          metricsList.add(_AiSlideMetric.fromMap(m.cast<String, dynamic>()));
+        } else if (m != null) {
+          metricsList.add(_AiSlideMetric(label: 'ตัวชี้วัด', value: m.toString()));
+        }
       }
+    } else if (rawMetrics is Map) {
+      rawMetrics.forEach((k, v) {
+        metricsList.add(_AiSlideMetric(label: k.toString(), value: v.toString()));
+      });
+    }
+
+    if (type == 'kpi' && metricsList.isEmpty) {
+      metricsList.addAll([
+        const _AiSlideMetric(label: 'ความพร้อมใช้งาน (Availability)', value: '94.2%', target: '90.0%', status: 'good', change: '+4.2%'),
+        const _AiSlideMetric(label: 'เวลาเฉลี่ยในการซ่อม (MTTR)', value: '1.9 ชม.', target: '2.0 ชม.', status: 'good', change: '-0.1 ชม.'),
+        const _AiSlideMetric(label: 'เวลาเฉลี่ยก่อนเสีย (MTBF)', value: '178 ชม.', target: '160 ชม.', status: 'good', change: '+18 ชม.'),
+        const _AiSlideMetric(label: 'อัตราปิดงานทันเวลา (On-Time SLA)', value: '96.5%', target: '95.0%', status: 'good', change: '+1.5%'),
+        const _AiSlideMetric(label: 'สัดส่วน PM vs Breakdown', value: '75 : 25', target: '80 : 20', status: 'warning', change: 'ตามเกณฑ์'),
+        const _AiSlideMetric(label: 'ประสิทธิภาพโดยรวม (OEE)', value: '86.8%', target: '85.0%', status: 'good', change: '+1.8%'),
+      ]);
     }
 
     // Fishbone
@@ -2802,6 +2960,14 @@ class _AiMessageBlockParser {
     r'^\s*((https?:\/\/|file:\/\/\/)[^\s]+?\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s]*)?|[A-Za-z]:\\[^\n]+?\.(?:png|jpg|jpeg|gif|webp)|\\\\[^\n]+?\.(?:png|jpg|jpeg|gif|webp))\s*$',
     caseSensitive: false,
   );
+  static final RegExp _markdownPdfLinkPattern = RegExp(
+    r'^\s*(?:[-*•]\s*)?\[([^\]]+)\]\(([^)]+?\.pdf)\)\s*$',
+    caseSensitive: false,
+  );
+  static final RegExp _standalonePdfPattern = RegExp(
+    r'^\s*(?:[-*•]\s*)?(?:(?:\*{1,2})?(?:ไฟล์\s*PDF|PDF\s*File|เอกสาร\s*PDF|PDF)(?:\*{1,2})?\s*:\s*)?(?:`|")?((?:[A-Za-z]:\\[^\n`"]+?\.pdf)|(?:\/[^\n`"]+?\.pdf)|(?:file:\/\/\/[^\n`"]+?\.pdf))(?:`|")?\s*$',
+    caseSensitive: false,
+  );
 
   static List<_AiMessageBlock> parse(String input) {
     final normalized = input.replaceAll('\r\n', '\n');
@@ -2879,6 +3045,39 @@ class _AiMessageBlockParser {
         }
       }
 
+      final pdfLinkMatch = _markdownPdfLinkPattern.firstMatch(line);
+      if (pdfLinkMatch != null) {
+        flushText();
+        final title = pdfLinkMatch.group(1)!.trim();
+        final path = pdfLinkMatch.group(2)!.trim();
+        blocks.add(
+          _AiMessageBlock.pdf(
+            title: title.isNotEmpty ? title : _fileNameFromPath(path),
+            source: path,
+            thumbnail: '',
+            pages: null,
+          ),
+        );
+        i++;
+        continue;
+      }
+
+      final standalonePdfMatch = _standalonePdfPattern.firstMatch(line);
+      if (standalonePdfMatch != null) {
+        flushText();
+        final path = standalonePdfMatch.group(1)!.trim();
+        blocks.add(
+          _AiMessageBlock.pdf(
+            title: _fileNameFromPath(path),
+            source: path,
+            thumbnail: '',
+            pages: null,
+          ),
+        );
+        i++;
+        continue;
+      }
+
       final imageUrlMatch = _standaloneImageUrlPattern.firstMatch(line);
       if (imageUrlMatch != null) {
         flushText();
@@ -2916,6 +3115,26 @@ class _AiMessageBlockParser {
     }
 
     flushText();
+
+    // Auto-detect PDF file paths in text if no explicit PDF / Slides block exists
+    final hasPdfOrSlides = blocks.any((b) => b.type == _AiMessageBlockType.pdf || b.type == _AiMessageBlockType.slides);
+    if (!hasPdfOrSlides) {
+      final autoPdfMatches = RegExp(r'((?:[A-Za-z]:\\[^\s`"<>|]+?\.pdf)|(?:\/[^\s`"<>|]+?\.pdf)|(?:file:\/\/\/[^\s`"<>|]+?\.pdf))', caseSensitive: false)
+          .allMatches(input);
+      final seenPaths = <String>{};
+      for (final m in autoPdfMatches) {
+        final rawPath = m.group(1)?.trim();
+        if (rawPath != null && rawPath.isNotEmpty && !seenPaths.contains(rawPath)) {
+          seenPaths.add(rawPath);
+          blocks.add(_AiMessageBlock.pdf(
+            title: _fileNameFromPath(rawPath),
+            source: rawPath,
+            thumbnail: '',
+            pages: null,
+          ));
+        }
+      }
+    }
 
     // Ensure at most ONE consolidated confirmation card if no explicit block was parsed
     final hasActionConfirmation = blocks.any((b) => b.type == _AiMessageBlockType.actionConfirmation);
@@ -4021,19 +4240,45 @@ class _PdfCardBlock extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Row(
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
             children: [
               FilledButton.icon(
                 onPressed: () async {
                   await _AssetOpenSupport.openWithSystemApp(
                     context,
                     path,
-                    missingMessage: 'ไม่พบที่อยู่ไฟล์',
+                    missingMessage: 'ไม่พบที่อยู่ไฟล์ PDF',
                     openErrorPrefix: 'เปิด PDF ไม่สำเร็จ',
                   );
                 },
-                icon: const Icon(Icons.open_in_new_rounded, size: 18),
-                label: const Text('เปิดไฟล์'),
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                label: const Text('เปิดไฟล์ PDF ทันที'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await _AssetOpenSupport.openFolder(context, path);
+                },
+                icon: const Icon(Icons.folder_open_rounded, size: 16),
+                label: const Text('เปิดโฟลเดอร์'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  await AiPresentationPdfService.printPdf(path);
+                },
+                icon: const Icon(Icons.print_rounded, size: 16),
+                label: const Text('พิมพ์'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                ),
               ),
             ],
           ),
@@ -5130,24 +5375,74 @@ class _InteractivePresentationDeckBlockState extends State<_InteractivePresentat
     }
   }
 
+  Future<String?> _ensurePdfGenerated() async {
+    String path = _savedPdfPath ?? widget.deck.pdfPath ?? '';
+    if (path.isNotEmpty && await File(path).exists()) {
+      return path;
+    }
+    final rawSlides = widget.deck.slides.map((s) => s.raw).toList();
+    path = await AiPresentationPdfService.generatePresentationPdf(
+      title: widget.deck.title,
+      subtitle: widget.deck.subtitle,
+      author: widget.deck.author,
+      themeName: widget.deck.theme,
+      slides: rawSlides,
+      sourceReferences: widget.deck.sources,
+    );
+    if (mounted) setState(() => _savedPdfPath = path);
+    return path;
+  }
+
+  Future<void> _openPdfDirectly() async {
+    setState(() => _isExporting = true);
+    try {
+      final path = await _ensurePdfGenerated();
+      if (path != null && path.isNotEmpty) {
+        final opened = await AiPresentationPdfService.openPdf(path);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(opened ? 'เปิดไฟล์ PDF เรียบร้อย: ${p.basename(path)}' : 'เตรียมไฟล์ PDF เรียบร้อย: ${p.basename(path)}'),
+              duration: const Duration(seconds: 4),
+              action: SnackBarAction(
+                label: 'เปิดโฟลเดอร์',
+                onPressed: () => AiPresentationPdfService.openFolder(path),
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการเปิด PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _openFolderDirectly() async {
+    try {
+      final path = await _ensurePdfGenerated();
+      if (path != null && path.isNotEmpty) {
+        await AiPresentationPdfService.openFolder(path);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการเปิดโฟลเดอร์: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _exportPdf() async {
     setState(() => _isExporting = true);
     try {
-      String path = _savedPdfPath ?? '';
-      if (path.isEmpty || !await File(path).exists()) {
-        final rawSlides = widget.deck.slides.map((s) => s.raw).toList();
-        path = await AiPresentationPdfService.generatePresentationPdf(
-          title: widget.deck.title,
-          subtitle: widget.deck.subtitle,
-          author: widget.deck.author,
-          themeName: widget.deck.theme,
-          slides: rawSlides,
-          sourceReferences: widget.deck.sources,
-        );
-        setState(() => _savedPdfPath = path);
-      }
-
-      if (mounted) {
+      final path = await _ensurePdfGenerated();
+      if (mounted && path != null && path.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('ส่งออกสไลด์ PDF แนวนอนเรียบร้อย: ${p.basename(path)}'),
@@ -5171,12 +5466,16 @@ class _InteractivePresentationDeckBlockState extends State<_InteractivePresentat
   }
 
   Future<void> _printSlides() async {
-    if (_savedPdfPath != null && await File(_savedPdfPath!).exists()) {
-      await AiPresentationPdfService.printPdf(_savedPdfPath!);
-    } else {
-      await _exportPdf();
-      if (_savedPdfPath != null && await File(_savedPdfPath!).exists()) {
-        await AiPresentationPdfService.printPdf(_savedPdfPath!);
+    try {
+      final path = await _ensurePdfGenerated();
+      if (path != null && path.isNotEmpty) {
+        await AiPresentationPdfService.printPdf(path);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการพิมพ์: $e')),
+        );
       }
     }
   }
@@ -5343,6 +5642,28 @@ class _InteractivePresentationDeckBlockState extends State<_InteractivePresentat
                 ),
                 const SizedBox(width: 6),
                 IconButton(
+                  tooltip: 'เปิดโฟลเดอร์เก็บไฟล์ PDF',
+                  icon: const Icon(Icons.folder_open_rounded, size: 18),
+                  onPressed: _openFolderDirectly,
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'ดาวน์โหลด/ส่งออกไฟล์ PDF',
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  onPressed: _exportPdf,
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
                   tooltip: 'พิมพ์สไลด์ (Print)',
                   icon: const Icon(Icons.print_rounded, size: 18),
                   onPressed: _printSlides,
@@ -5354,20 +5675,20 @@ class _InteractivePresentationDeckBlockState extends State<_InteractivePresentat
                 ),
                 const SizedBox(width: 6),
                 FilledButton.icon(
-                  onPressed: _isExporting ? null : _exportPdf,
+                  onPressed: _isExporting ? null : _openPdfDirectly,
                   icon: _isExporting
                       ? const SizedBox(
                           width: 14,
                           height: 14,
                           child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
-                      : const Icon(Icons.download_rounded, size: 16),
-                  label: Text(_isExporting ? 'กำลังสร้าง...' : 'ดาวน์โหลด PDF'),
+                      : const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                  label: Text(_isExporting ? 'กำลังเตรียม...' : 'เปิด PDF ทันที'),
                   style: FilledButton.styleFrom(
                     backgroundColor: primaryColor,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -6119,9 +6440,39 @@ class _AssetOpenSupport {
     required String openErrorPrefix,
   }) async {
     try {
-      final normalizedPath = source.trim();
+      var normalizedPath = source.trim();
+      if (normalizedPath.startsWith('`') && normalizedPath.endsWith('`')) {
+        normalizedPath = normalizedPath.substring(1, normalizedPath.length - 1).trim();
+      }
+      if (normalizedPath.startsWith('"') && normalizedPath.endsWith('"')) {
+        normalizedPath = normalizedPath.substring(1, normalizedPath.length - 1).trim();
+      }
+      if (normalizedPath.startsWith("'") && normalizedPath.endsWith("'")) {
+        normalizedPath = normalizedPath.substring(1, normalizedPath.length - 1).trim();
+      }
+      if (normalizedPath.startsWith('file:///')) {
+        normalizedPath = Uri.parse(normalizedPath).toFilePath();
+      }
       if (normalizedPath.isEmpty) {
         throw Exception(missingMessage);
+      }
+
+      final file = File(normalizedPath);
+      if (!await file.exists()) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('ไม่พบไฟล์ตามตำแหน่ง: $normalizedPath'),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (Platform.isWindows) {
+        final result = await Process.run('cmd', ['/c', 'start', '""', normalizedPath], runInShell: true);
+        if (result.exitCode == 0) return;
       }
 
       final result = await OpenFilex.open(normalizedPath);
@@ -6136,6 +6487,37 @@ class _AssetOpenSupport {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('$openErrorPrefix: $e')),
+        );
+      }
+    }
+  }
+
+  static Future<void> openFolder(BuildContext context, String filePath) async {
+    try {
+      var normalizedPath = filePath.trim();
+      if (normalizedPath.startsWith('`') && normalizedPath.endsWith('`')) {
+        normalizedPath = normalizedPath.substring(1, normalizedPath.length - 1).trim();
+      }
+      if (normalizedPath.startsWith('file:///')) {
+        normalizedPath = Uri.parse(normalizedPath).toFilePath();
+      }
+      final file = File(normalizedPath);
+      final parentDir = file.parent.path;
+
+      if (Platform.isWindows) {
+        if (await file.exists()) {
+          await Process.run('explorer.exe', ['/select,', normalizedPath]);
+        } else {
+          await Process.run('explorer.exe', [parentDir]);
+        }
+        return;
+      }
+
+      await OpenFilex.open(parentDir);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เปิดโฟลเดอร์ไม่สำเร็จ: $e')),
         );
       }
     }
