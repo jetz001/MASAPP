@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:collection/collection.dart';
 import 'package:logger/logger.dart';
 import '../../../core/database/db_helper.dart';
 import '../../../core/storage/attachment_storage_service.dart';
@@ -115,6 +116,114 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     state = await AsyncValue.guard(() => _fetchRecords());
   }
 
+  Future<ActionPlanRecord?> getById(String rcaId) async {
+    try {
+      final rows = await DbHelper.query(
+        'SELECT * FROM problem_solving_records WHERE rca_id = @id',
+        params: {'id': rcaId},
+      );
+      if (rows.isEmpty) return null;
+
+      final assetRows = await DbHelper.query(
+        "SELECT * FROM file_assets WHERE module_type = 'action_plan' AND entity_id = @id",
+        params: {'id': rcaId},
+      );
+
+      return ActionPlanRecord.fromMap(rows.first, attachments: assetRows);
+    } catch (e) {
+      _log.e('Error fetching plan by ID: $e');
+      return null;
+    }
+  }
+
+  Future<void> savePlan({
+    required String rcaId,
+    required String problemTitle,
+    required String sourceType,
+    String? sourceId,
+    String? rootCause,
+    String? why1,
+    String? why2,
+    String? why3,
+    String? why4,
+    String? why5,
+    String? fishboneMan,
+    String? fishboneMachine,
+    String? fishboneMaterial,
+    String? fishboneMethod,
+    String? fishboneEnv,
+    required List<ActionStepItem> actionSteps,
+    String? targetMetric,
+    double? beforeValue,
+    double? targetValue,
+    double? actualValue,
+    String? metricUnit,
+    String? verifiedBy,
+    String? verificationDate,
+    String? verificationResult,
+    String? standardizationNotes,
+    String status = 'in_progress',
+  }) async {
+    try {
+      final allDone = actionSteps.isNotEmpty && actionSteps.every((s) => s.status == 'completed');
+      final finalStatus = allDone ? 'completed' : status;
+      final stepsJson = jsonEncode(actionSteps.map((s) => s.toJson()).toList());
+
+      await DbHelper.execute('''
+        INSERT OR REPLACE INTO problem_solving_records (
+          rca_id, source_type, source_id, problem_title,
+          why_1, why_2, why_3, why_4, why_5,
+          root_cause, fishbone_man, fishbone_machine, fishbone_material, fishbone_method, fishbone_env,
+          action_steps_json, target_metric, before_value, target_value, actual_value, metric_unit,
+          verified_by, verification_date, verification_result, standardization_notes,
+          status, updated_at
+        ) VALUES (
+          @id, @stype, @sid, @title,
+          @w1, @w2, @w3, @w4, @w5,
+          @rc, @fman, @fmach, @fmat, @fmet, @fenv,
+          @sjson, @tmetric, @bval, @tval, @aval, @munit,
+          @vby, @vdate, @vres, @snotes,
+          @status, CURRENT_TIMESTAMP
+        )
+      ''', params: {
+        'id': rcaId,
+        'stype': sourceType,
+        'sid': sourceId,
+        'title': problemTitle,
+        'w1': why1,
+        'w2': why2,
+        'w3': why3,
+        'w4': why4,
+        'w5': why5,
+        'rc': rootCause,
+        'fman': fishboneMan,
+        'fmach': fishboneMachine,
+        'fmat': fishboneMaterial,
+        'fmet': fishboneMethod,
+        'fenv': fishboneEnv,
+        'sjson': stepsJson,
+        'tmetric': targetMetric,
+        'bval': beforeValue,
+        'tval': targetValue,
+        'aval': actualValue,
+        'munit': metricUnit,
+        'vby': verifiedBy,
+        'vdate': verificationDate,
+        'vres': verificationResult,
+        'snotes': standardizationNotes,
+        'status': finalStatus,
+      });
+
+      // Auto-sync to Vector DB
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+
+      await reload();
+    } catch (e) {
+      _log.e('Error saving action plan: $e');
+      rethrow;
+    }
+  }
+
   Future<void> updateStepStatus(
     String rcaId,
     String stepId,
@@ -122,18 +231,31 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
   ) async {
     try {
       final currentList = state.valueOrNull ?? [];
-      final plan = currentList.firstWhere((p) => p.rcaId == rcaId);
+      final plan = currentList.firstWhereOrNull((p) => p.rcaId == rcaId);
+      List<ActionStepItem> steps = [];
 
-      for (final step in plan.actionSteps) {
-        if (step.id == stepId) {
-          step.status = newStatus;
+      if (plan != null) {
+        steps = plan.actionSteps;
+        for (final step in steps) {
+          if (step.id == stepId) {
+            step.status = newStatus;
+          }
+        }
+      } else {
+        final r = await getById(rcaId);
+        if (r != null) {
+          steps = r.actionSteps;
+          for (final step in steps) {
+            if (step.id == stepId) {
+              step.status = newStatus;
+            }
+          }
         }
       }
 
-      final allCompleted = plan.actionSteps.isNotEmpty &&
-          plan.actionSteps.every((s) => s.status == 'completed');
+      final allCompleted = steps.isNotEmpty && steps.every((s) => s.status == 'completed');
       final newPlanStatus = allCompleted ? 'completed' : 'in_progress';
-      final stepsJson = jsonEncode(plan.actionSteps.map((s) => s.toJson()).toList());
+      final stepsJson = jsonEncode(steps.map((s) => s.toJson()).toList());
 
       await DbHelper.execute('''
         UPDATE problem_solving_records
@@ -172,6 +294,53 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
       await reload();
     } catch (e) {
       _log.e('Error updating plan status: $e');
+    }
+  }
+
+  Future<void> updateVerification({
+    required String rcaId,
+    required String targetMetric,
+    double? beforeValue,
+    double? targetValue,
+    double? actualValue,
+    String? metricUnit,
+    String? verifiedBy,
+    String? verificationDate,
+    String? verificationResult,
+    String? standardizationNotes,
+  }) async {
+    try {
+      await DbHelper.execute('''
+        UPDATE problem_solving_records
+        SET target_metric = @tmetric,
+            before_value = @bval,
+            target_value = @tval,
+            actual_value = @aval,
+            metric_unit = @munit,
+            verified_by = @vby,
+            verification_date = @vdate,
+            verification_result = @vres,
+            standardization_notes = @snotes,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE rca_id = @id
+      ''', params: {
+        'tmetric': targetMetric,
+        'bval': beforeValue,
+        'tval': targetValue,
+        'aval': actualValue,
+        'munit': metricUnit,
+        'vby': verifiedBy,
+        'vdate': verificationDate,
+        'vres': verificationResult,
+        'snotes': standardizationNotes,
+        'id': rcaId,
+      });
+
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+      await reload();
+    } catch (e) {
+      _log.e('Error updating verification: $e');
+      rethrow;
     }
   }
 
@@ -228,6 +397,13 @@ final actionPlanListProvider =
     AsyncNotifierProvider<ActionPlanNotifier, List<ActionPlanRecord>>(
   ActionPlanNotifier.new,
 );
+
+final actionPlanDetailProvider =
+    FutureProvider.family<ActionPlanRecord?, String>((ref, rcaId) async {
+  // Watch actionPlanListProvider to automatically re-fetch when list updates
+  ref.watch(actionPlanListProvider);
+  return ref.read(actionPlanListProvider.notifier).getById(rcaId);
+});
 
 final filteredActionPlanListProvider = Provider<List<ActionPlanRecord>>((ref) {
   final allPlans = ref.watch(actionPlanListProvider).valueOrNull ?? [];

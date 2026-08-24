@@ -34,6 +34,8 @@ import '../../features/work_processes/screens/work_process_form_screen.dart';
 import '../../features/lean_analysis/screens/lean_analysis_screen.dart';
 import '../../features/problem_solving/screens/problem_solving_screen.dart';
 import '../../features/action_plans/screens/action_plan_list_screen.dart';
+import '../../features/action_plans/screens/action_plan_detail_screen.dart';
+import '../../features/action_plans/screens/action_plan_form_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -241,6 +243,20 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/action-plans',
             builder: (context, state) => const ActionPlanListScreen(),
+            routes: [
+              GoRoute(
+                path: 'new',
+                builder: (context, state) => ActionPlanFormScreen(
+                  initialData: state.extra as Map<String, dynamic>?,
+                ),
+              ),
+              GoRoute(
+                path: ':id',
+                builder: (context, state) => ActionPlanDetailScreen(
+                  rcaId: state.pathParameters['id']!,
+                ),
+              ),
+            ],
           ),
           // Workforce
           GoRoute(
