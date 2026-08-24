@@ -1385,16 +1385,45 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
                     const SizedBox(width: 12),
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _verificationResult,
                         decoration: const InputDecoration(
                           labelText: 'ผลการประเมิน (Result)',
                           border: OutlineInputBorder(),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'achieved', child: Text('✅ สำเร็จตามเป้าหมาย (Achieved)')),
-                          DropdownMenuItem(value: 'partial', child: Text('🔄 ดีขึ้นแต่ยังไม่ถึงเป้า (Partial)')),
-                          DropdownMenuItem(value: 'pending', child: Text('⏳ อยู่ระหว่างตรวจวัด (In Progress)')),
-                          DropdownMenuItem(value: 'failed', child: Text('⚠️ ไม่สำเร็จ/ต้องทบทวนใหม่ (Failed)')),
+                          DropdownMenuItem(
+                            value: 'achieved',
+                            child: Text(
+                              '✅ สำเร็จตามเป้าหมาย (Achieved)',
+                              style: TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'partial',
+                            child: Text(
+                              '🔄 ดีขึ้นแต่ยังไม่ถึงเป้า (Partial)',
+                              style: TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'pending',
+                            child: Text(
+                              '⏳ อยู่ระหว่างตรวจวัด (In Progress)',
+                              style: TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'failed',
+                            child: Text(
+                              '⚠️ ไม่สำเร็จ/ต้องทบทวนใหม่ (Failed)',
+                              style: TextStyle(fontSize: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                         onChanged: (val) {
                           if (val != null) setState(() => _verificationResult = val);
@@ -1535,6 +1564,7 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
               Expanded(
                 flex: 2,
                 child: DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: step.status,
                   decoration: const InputDecoration(
                     labelText: 'สถานะ',
