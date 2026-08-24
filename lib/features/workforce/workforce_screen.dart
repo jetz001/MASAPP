@@ -22,6 +22,8 @@ class TechnicianProfile {
   final bool isActive;
   final List<String> skills;
   final int openWorkOrders;
+  final int kaizenPoints;
+  final int completedWorkOrders;
 
   const TechnicianProfile({
     required this.userId,
@@ -34,6 +36,8 @@ class TechnicianProfile {
     required this.isActive,
     required this.skills,
     required this.openWorkOrders,
+    this.kaizenPoints = 0,
+    this.completedWorkOrders = 0,
   });
 }
 
@@ -68,9 +72,14 @@ final workforceProvider =
       params: params,
     );
 
+    // Fetch all Action Plans for real point computation
+    final planRows = await DbHelper.query('SELECT * FROM problem_solving_records');
+
     final profiles = <TechnicianProfile>[];
     for (final row in rows) {
       final uid = row['user_id'] as String;
+      final fullName = row['full_name'] as String;
+      final empNo = row['employee_no'] as String? ?? '';
 
       // Get skills
       final skillRows = await DbHelper.query(
@@ -81,23 +90,55 @@ final workforceProvider =
           skillRows.map((s) => s['skill_name'] as String).toList();
 
       // Open WO count
-      final woResult = await DbHelper.queryOne(
+      final openWoResult = await DbHelper.queryOne(
         '''SELECT COUNT(*) as c FROM work_orders
            WHERE assigned_to = @uid AND status NOT IN ('completed','cancelled')''',
         params: {'uid': uid},
       );
+      final openWos = openWoResult?['c'] as int? ?? 0;
+
+      // Completed WO count
+      final doneWoResult = await DbHelper.queryOne(
+        '''SELECT COUNT(*) as c FROM work_orders
+           WHERE assigned_to = @uid AND status = 'completed' ''',
+        params: {'uid': uid},
+      );
+      final doneWos = doneWoResult?['c'] as int? ?? 0;
+
+      // Real Kaizen Points Calculation from DB
+      int kPoints = (doneWos * 20) + (skills.length * 15);
+      for (final pRow in planRows) {
+        final stepsJson = pRow['action_steps_json']?.toString() ?? '';
+        final verifiedBy = pRow['verified_by']?.toString() ?? '';
+        final status = pRow['status']?.toString() ?? '';
+        final vRes = pRow['verification_result']?.toString() ?? '';
+
+        final isAssignee = stepsJson.contains(fullName) || (empNo.isNotEmpty && stepsJson.contains(empNo));
+        final isVerifier = verifiedBy.contains(fullName);
+
+        if (isAssignee || isVerifier) {
+          if (status == 'completed' || status == 'closed') {
+            kPoints += 100;
+          }
+          if (vRes == 'achieved') {
+            kPoints += 200;
+          }
+        }
+      }
 
       profiles.add(TechnicianProfile(
         userId: uid,
-        employeeNo: row['employee_no'] as String? ?? '-',
-        fullName: row['full_name'] as String,
+        employeeNo: empNo.isEmpty ? '-' : empNo,
+        fullName: fullName,
         role: row['role'] as String,
         deptName: row['dept_name'] as String?,
         email: row['email'] as String?,
         phone: row['phone'] as String?,
         isActive: row['is_active'] == 1,
         skills: skills,
-        openWorkOrders: woResult?['c'] as int? ?? 0,
+        openWorkOrders: openWos,
+        completedWorkOrders: doneWos,
+        kaizenPoints: kPoints,
       ));
     }
 
@@ -204,7 +245,8 @@ class WorkforceScreen extends ConsumerWidget {
   }
 
   Widget _buildLeaderboardBanner(BuildContext context, List<TechnicianProfile> staff) {
-    final topStaff = staff.take(3).toList();
+    final sortedStaff = [...staff]..sort((a, b) => b.kaizenPoints.compareTo(a.kaizenPoints));
+    final topStaff = sortedStaff.take(3).toList();
     final medals = ['🥇 อันดับ 1', '🥈 อันดับ 2', '🥉 อันดับ 3'];
     final medalColors = [Colors.amber.shade700, Colors.blueGrey.shade600, Colors.brown.shade600];
     final medalBgs = [Colors.amber.shade50, Colors.blueGrey.shade50, Colors.brown.shade50];
@@ -234,7 +276,7 @@ class WorkforceScreen extends ConsumerWidget {
                   color: Colors.amber.shade100,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text('คะแนนสะสม Action Plan & แก้ปัญหา', style: TextStyle(fontSize: 11, color: Colors.amber.shade900)),
+                child: Text('คำนวณจากผลงานและ Action Plan จริงในระบบ', style: TextStyle(fontSize: 11, color: Colors.amber.shade900)),
               ),
             ],
           ),
@@ -255,7 +297,7 @@ class WorkforceScreen extends ConsumerWidget {
                     border: Border.all(color: medalColors[idx].withValues(alpha: 0.5), width: isFirst ? 1.5 : 1),
                   ),
                   child: InkWell(
-                    onTap: () => context.push('/technicians/${p.userId}'),
+                    onTap: () => context.push('/workforce/${p.userId}'),
                     child: Row(
                       children: [
                         CircleAvatar(
@@ -277,8 +319,21 @@ class WorkforceScreen extends ConsumerWidget {
                                     medals[idx],
                                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: medalColors[idx]),
                                   ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: medalColors[idx].withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      '${p.kaizenPoints} แต้ม',
+                                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: medalColors[idx]),
+                                    ),
+                                  ),
                                 ],
                               ),
+                              const SizedBox(height: 2),
                               Text(
                                 p.fullName,
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
@@ -286,7 +341,7 @@ class WorkforceScreen extends ConsumerWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                '${p.role} · ${p.employeeNo}',
+                                '${p.role} · ซ่อมสำเร็จ ${p.completedWorkOrders} งาน',
                                 style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
                               ),
                             ],
