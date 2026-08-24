@@ -269,7 +269,7 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
     }
   }
 
-  Future<void> _saveAndNavigateToActionPlan() async {
+  Future<void> _saveAndNavigateToActionPlan(String method) async {
     final problemDesc = _problemTitleCtrl.text.trim();
     if (problemDesc.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -308,12 +308,12 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
           rca_id, source_type, source_id, problem_title,
           why_1, why_2, why_3, why_4, why_5, root_cause,
           fishbone_man, fishbone_machine, fishbone_material, fishbone_method, fishbone_env,
-          status, updated_at
+          status, rca_method, updated_at
         ) VALUES (
           @id, @stype, @sid, @title,
           @w1, @w2, @w3, @w4, @w5, @rc,
           @fman, @fmach, @fmat, @fmet, @fenv,
-          'in_progress', CURRENT_TIMESTAMP
+          'in_progress', @rmethod, CURRENT_TIMESTAMP
         )
       ''', params: {
         'id': rcaId,
@@ -331,6 +331,7 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
         'fmat': _fishboneMaterialCtrl.text.trim(),
         'fmet': _fishboneMethodCtrl.text.trim(),
         'fenv': _fishboneEnvCtrl.text.trim(),
+        'rmethod': method,
       });
 
       // 2. If Work Order, also update work_order_rca
@@ -381,8 +382,8 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('บันทึกผลวิเคราะห์ RCA สำเร็จ! กำลังนำไปยังการสร้าง Action Plan...'),
+          SnackBar(
+            content: Text('บันทึกผลวิเคราะห์ด้วย ${method == "5why" ? "5-Why" : "ผังก้างปลา"} สำเร็จ! กำลังนำไปยัง Action Plan...'),
             backgroundColor: Colors.teal,
           ),
         );
@@ -394,6 +395,7 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
           'source_type': sourceType,
           'source_id': sourceId,
           'root_cause': rootCause,
+          'rca_method': method,
           'why_1': _why1Ctrl.text.trim(),
           'why_2': _why2Ctrl.text.trim(),
           'why_3': _why3Ctrl.text.trim(),
@@ -735,11 +737,11 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
                       backgroundColor: Colors.blue.shade700,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     ),
-                    onPressed: _isSaving ? null : _saveAndNavigateToActionPlan,
+                    onPressed: _isSaving ? null : () => _saveAndNavigateToActionPlan('5why'),
                     icon: _isSaving
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Icon(Icons.playlist_add_check_circle_rounded, size: 20),
-                    label: const Text('💾 วางแผนดำเนินการ (สร้าง Action Plan)', style: TextStyle(fontSize: 14)),
+                    label: const Text('💾 วางแผนดำเนินการด้วย 5-Why (สร้าง Action Plan)', style: TextStyle(fontSize: 14)),
                   ),
                 ),
               ],
@@ -829,11 +831,11 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
                       backgroundColor: Colors.blue.shade700,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     ),
-                    onPressed: _isSaving ? null : _saveAndNavigateToActionPlan,
+                    onPressed: _isSaving ? null : () => _saveAndNavigateToActionPlan('fishbone'),
                     icon: _isSaving
                         ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                         : const Icon(Icons.playlist_add_check_circle_rounded, size: 20),
-                    label: const Text('💾 วางแผนดำเนินการ (สร้าง Action Plan)', style: TextStyle(fontSize: 14)),
+                    label: const Text('💾 วางแผนดำเนินการด้วย ผังก้างปลา (สร้าง Action Plan)', style: TextStyle(fontSize: 14)),
                   ),
                 ),
               ],

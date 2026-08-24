@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 class ActionStepItem {
@@ -53,6 +53,7 @@ class ActionPlanRecord {
   final String? fishboneMaterial;
   final String? fishboneMethod;
   final String? fishboneEnv;
+  final String rcaMethod; // '5why', 'fishbone', or 'both'
   final List<ActionStepItem> actionSteps;
   final String? targetMetric;
   final double? beforeValue;
@@ -84,6 +85,7 @@ class ActionPlanRecord {
     this.fishboneMaterial,
     this.fishboneMethod,
     this.fishboneEnv,
+    this.rcaMethod = '5why',
     required this.actionSteps,
     this.targetMetric,
     this.beforeValue,
@@ -150,6 +152,15 @@ class ActionPlanRecord {
       fishboneMaterial: map['fishbone_material']?.toString(),
       fishboneMethod: map['fishbone_method']?.toString(),
       fishboneEnv: map['fishbone_env']?.toString(),
+      rcaMethod: map['rca_method']?.toString() ??
+          ((map['fishbone_man']?.toString().isNotEmpty == true ||
+                  map['fishbone_machine']?.toString().isNotEmpty == true ||
+                  map['fishbone_material']?.toString().isNotEmpty == true ||
+                  map['fishbone_method']?.toString().isNotEmpty == true ||
+                  map['fishbone_env']?.toString().isNotEmpty == true) &&
+                  (map['why_1'] == null || map['why_1'].toString().isEmpty)
+              ? 'fishbone'
+              : '5why'),
       actionSteps: steps,
       targetMetric: map['target_metric']?.toString(),
       beforeValue: map['before_value'] != null

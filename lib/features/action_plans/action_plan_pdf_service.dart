@@ -255,37 +255,8 @@ class ActionPlanPdfService {
             ),
             pw.SizedBox(height: 8),
 
-            // 3. 5-Why Analysis Drill-down Table (Structured View)
-            if (has5Why) ...[
-              pw.Text(
-                'การวิเคราะห์สาเหตุเชิงลึก (5-Why Analysis)',
-                style: pw.TextStyle(font: boldFont, fontSize: 10, color: PdfColors.blueGrey900),
-              ),
-              pw.SizedBox(height: 3),
-              pw.Table(
-                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-                columnWidths: const {
-                  0: pw.FixedColumnWidth(60),
-                  1: pw.FlexColumnWidth(1),
-                },
-                children: [
-                  if (plan.why1 != null && plan.why1!.isNotEmpty)
-                    _buildWhyPdfRow('Why #1', plan.why1!, regularFont, boldFont, PdfColors.blue50),
-                  if (plan.why2 != null && plan.why2!.isNotEmpty)
-                    _buildWhyPdfRow('Why #2', plan.why2!, regularFont, boldFont, PdfColors.white),
-                  if (plan.why3 != null && plan.why3!.isNotEmpty)
-                    _buildWhyPdfRow('Why #3', plan.why3!, regularFont, boldFont, PdfColors.blue50),
-                  if (plan.why4 != null && plan.why4!.isNotEmpty)
-                    _buildWhyPdfRow('Why #4', plan.why4!, regularFont, boldFont, PdfColors.white),
-                  if (plan.why5 != null && plan.why5!.isNotEmpty)
-                    _buildWhyPdfRow('Why #5 (Root)', plan.why5!, regularFont, boldFont, PdfColors.red50),
-                ],
-              ),
-              pw.SizedBox(height: 8),
-            ],
-
-            // 4. Ishikawa 4M1E Factors Table (If present)
-            if (has4M1E) ...[
+            // 3. Render ONLY the chosen RCA Method: 5-Why OR Fishbone 4M1E
+            if (plan.rcaMethod == 'fishbone' && has4M1E) ...[
               pw.Text(
                 'การวิเคราะห์ผังก้างปลา (Ishikawa Diagram - 4M1E)',
                 style: pw.TextStyle(font: boldFont, fontSize: 10, color: PdfColors.blueGrey900),
@@ -308,6 +279,32 @@ class ActionPlanPdfService {
                     _build4mPdfRow('วิธีการ/คู่มือ (Method)', plan.fishboneMethod!, regularFont, boldFont),
                   if (plan.fishboneEnv != null && plan.fishboneEnv!.isNotEmpty)
                     _build4mPdfRow('สภาพแวดล้อม (Environment)', plan.fishboneEnv!, regularFont, boldFont),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+            ] else if (has5Why) ...[
+              pw.Text(
+                'การวิเคราะห์สาเหตุเชิงลึก (5-Why Analysis)',
+                style: pw.TextStyle(font: boldFont, fontSize: 10, color: PdfColors.blueGrey900),
+              ),
+              pw.SizedBox(height: 3),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                columnWidths: const {
+                  0: pw.FixedColumnWidth(60),
+                  1: pw.FlexColumnWidth(1),
+                },
+                children: [
+                  if (plan.why1 != null && plan.why1!.isNotEmpty)
+                    _buildWhyPdfRow('Why #1', plan.why1!, regularFont, boldFont, PdfColors.blue50),
+                  if (plan.why2 != null && plan.why2!.isNotEmpty)
+                    _buildWhyPdfRow('Why #2', plan.why2!, regularFont, boldFont, PdfColors.white),
+                  if (plan.why3 != null && plan.why3!.isNotEmpty)
+                    _buildWhyPdfRow('Why #3', plan.why3!, regularFont, boldFont, PdfColors.blue50),
+                  if (plan.why4 != null && plan.why4!.isNotEmpty)
+                    _buildWhyPdfRow('Why #4', plan.why4!, regularFont, boldFont, PdfColors.white),
+                  if (plan.why5 != null && plan.why5!.isNotEmpty)
+                    _buildWhyPdfRow('Why #5 (Root)', plan.why5!, regularFont, boldFont, PdfColors.red50),
                 ],
               ),
               pw.SizedBox(height: 8),

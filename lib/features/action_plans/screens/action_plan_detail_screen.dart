@@ -25,6 +25,7 @@ class ActionPlanDetailScreen extends ConsumerStatefulWidget {
 class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen> {
   bool _isGeneratingAiSteps = false;
   bool _isExportingPdf = false;
+  String? _activeRcaMethod;
 
   Future<void> _exportPdf(ActionPlanRecord plan) async {
     setState(() => _isExportingPdf = true);
@@ -230,6 +231,8 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
         (plan.fishboneMethod != null && plan.fishboneMethod!.isNotEmpty) ||
         (plan.fishboneEnv != null && plan.fishboneEnv!.isNotEmpty);
 
+    final effectiveMethod = _activeRcaMethod ?? (has5Why && plan.rcaMethod == '5why' ? '5why' : (has4M1E ? 'fishbone' : '5why'));
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(
@@ -257,6 +260,30 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const Spacer(),
+                if (has5Why && has4M1E) ...[
+                  SegmentedButton<String>(
+                    showSelectedIcon: false,
+                    style: SegmentedButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    segments: const [
+                      ButtonSegment(
+                        value: '5why',
+                        label: Text('5-Why Analysis', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                      ButtonSegment(
+                        value: 'fishbone',
+                        label: Text('ผังก้างปลา (4M1E)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                    selected: {effectiveMethod},
+                    onSelectionChanged: (val) {
+                      setState(() => _activeRcaMethod = val.first);
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                ],
                 if (plan.createdAt != null)
                   Text(
                     'บันทึกเมื่อ: ${plan.createdAt}',
@@ -333,14 +360,17 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
               ),
             ],
 
-            // 5-Why Analysis Structured Flow
-            if (has5Why) ...[
+            // Display ONLY the chosen RCA Method: 5-Why OR Fishbone 4M1E
+            if (effectiveMethod == '5why' && has5Why) ...[
               const SizedBox(height: 14),
               _build5WhyTimeline(theme, plan),
-            ],
-
-            // Fishbone 4M1E Breakdown Grid
-            if (has4M1E) ...[
+            ] else if (effectiveMethod == 'fishbone' && has4M1E) ...[
+              const SizedBox(height: 14),
+              _build4M1EGrid(theme, plan),
+            ] else if (has5Why) ...[
+              const SizedBox(height: 14),
+              _build5WhyTimeline(theme, plan),
+            ] else if (has4M1E) ...[
               const SizedBox(height: 14),
               _build4M1EGrid(theme, plan),
             ],

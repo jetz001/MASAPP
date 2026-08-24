@@ -102,6 +102,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
         'verification_result': 'TEXT',
         'standardization_notes': 'TEXT',
         'status': "TEXT DEFAULT 'in_progress'",
+        'rca_method': "TEXT DEFAULT '5why'",
         'updated_at': 'DATETIME DEFAULT CURRENT_TIMESTAMP',
       };
 
@@ -193,6 +194,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
     String? fishboneMaterial,
     String? fishboneMethod,
     String? fishboneEnv,
+    String rcaMethod = '5why',
     required List<ActionStepItem> actionSteps,
     String? targetMetric,
     double? beforeValue,
@@ -218,14 +220,14 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
           root_cause, fishbone_man, fishbone_machine, fishbone_material, fishbone_method, fishbone_env,
           action_steps_json, target_metric, before_value, target_value, actual_value, metric_unit,
           verified_by, verification_date, verification_result, standardization_notes,
-          status, updated_at
+          status, rca_method, updated_at
         ) VALUES (
           @id, @stype, @sid, @title,
           @w1, @w2, @w3, @w4, @w5,
           @rc, @fman, @fmach, @fmat, @fmet, @fenv,
           @sjson, @tmetric, @bval, @tval, @aval, @munit,
           @vby, @vdate, @vres, @snotes,
-          @status, CURRENT_TIMESTAMP
+          @status, @rmethod, CURRENT_TIMESTAMP
         )
       ''', params: {
         'id': rcaId,
@@ -254,6 +256,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
         'vres': verificationResult,
         'snotes': standardizationNotes,
         'status': finalStatus,
+        'rmethod': rcaMethod,
       });
 
       // Auto-sync to Vector DB
