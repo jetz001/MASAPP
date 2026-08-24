@@ -425,11 +425,13 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
                     Row(
                       children: [
                         if (plan.rootCause != null && plan.rootCause!.isNotEmpty) ...[
-                          Text(
-                            'สาเหตุ: ${plan.rootCause}',
-                            style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          Flexible(
+                            child: Text(
+                              'สาเหตุ: ${plan.rootCause}',
+                              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Text('•', style: TextStyle(color: Colors.grey.shade400)),
