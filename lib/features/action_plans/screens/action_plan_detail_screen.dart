@@ -220,6 +220,16 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
   }
 
   Widget _buildOverviewCard(ThemeData theme, ActionPlanRecord plan) {
+    final has5Why = (plan.why1 != null && plan.why1!.isNotEmpty) ||
+        (plan.why2 != null && plan.why2!.isNotEmpty) ||
+        (plan.why3 != null && plan.why3!.isNotEmpty);
+
+    final has4M1E = (plan.fishboneMan != null && plan.fishboneMan!.isNotEmpty) ||
+        (plan.fishboneMachine != null && plan.fishboneMachine!.isNotEmpty) ||
+        (plan.fishboneMaterial != null && plan.fishboneMaterial!.isNotEmpty) ||
+        (plan.fishboneMethod != null && plan.fishboneMethod!.isNotEmpty) ||
+        (plan.fishboneEnv != null && plan.fishboneEnv!.isNotEmpty);
+
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(
@@ -233,10 +243,17 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
           children: [
             Row(
               children: [
-                const Icon(Icons.info_outline_rounded, size: 18, color: Colors.blueAccent),
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.troubleshoot_rounded, size: 18, color: Colors.blueAccent),
+                ),
                 const SizedBox(width: 8),
                 const Text(
-                  'ข้อมูลปัญหาและการวิเคราะห์สาเหตุ (RCA Overview)',
+                  'ข้อมูลปัญหาและการวิเคราะห์สาเหตุ (Root Cause Analysis)',
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 const Spacer(),
@@ -248,50 +265,241 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
               ],
             ),
             const Divider(height: 20),
-            Text(
-              'หัวข้อปัญหา: ${plan.problemTitle}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-            ),
-            if (plan.rootCause != null && plan.rootCause!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.25)),
+
+            // Problem Title
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'หัวข้อปัญหา: ',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
-                child: Row(
+                Expanded(
+                  child: Text(
+                    plan.problemTitle,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+
+            // Root Cause Banner
+            if (plan.rootCause != null && plan.rootCause!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade300),
+                ),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.crisis_alert_rounded, color: Colors.redAccent, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'สาเหตุรากเหง้า (Root Cause):',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.redAccent),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade700,
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          const SizedBox(height: 2),
-                          Text(plan.rootCause!, style: const TextStyle(fontSize: 13)),
-                        ],
-                      ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.crisis_alert_rounded, color: Colors.white, size: 13),
+                              SizedBox(width: 4),
+                              Text(
+                                'สาเหตุรากเหง้าที่แท้จริง (Root Cause)',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      plan.rootCause!,
+                      style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: Colors.black87),
                     ),
                   ],
                 ),
               ),
             ],
-            if (plan.why1 != null && plan.why1!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '5-Why Analysis: 1. ${plan.why1 ?? "-"} ➔ 2. ${plan.why2 ?? "-"} ➔ 3. ${plan.why3 ?? "-"} ➔ 4. ${plan.why4 ?? "-"} ➔ 5. ${plan.why5 ?? "-"}',
-                style: TextStyle(fontSize: 11.5, color: Colors.grey.shade700),
-              ),
+
+            // 5-Why Analysis Structured Flow
+            if (has5Why) ...[
+              const SizedBox(height: 14),
+              _build5WhyTimeline(theme, plan),
+            ],
+
+            // Fishbone 4M1E Breakdown Grid
+            if (has4M1E) ...[
+              const SizedBox(height: 14),
+              _build4M1EGrid(theme, plan),
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _build5WhyTimeline(ThemeData theme, ActionPlanRecord plan) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.help_outline_rounded, size: 16, color: Colors.indigo),
+              const SizedBox(width: 6),
+              const Text(
+                'การวิเคราะห์เจาะลึก 5-Why Analysis',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.indigo),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (plan.why1 != null && plan.why1!.isNotEmpty)
+            _buildWhyStepItem(1, 'ปรากฏการณ์หน้างาน', plan.why1!, Colors.blue, false),
+          if (plan.why2 != null && plan.why2!.isNotEmpty)
+            _buildWhyStepItem(2, 'ทำไมต่อเนื่อง #2', plan.why2!, Colors.indigo, false),
+          if (plan.why3 != null && plan.why3!.isNotEmpty)
+            _buildWhyStepItem(3, 'ทำไมต่อเนื่อง #3', plan.why3!, Colors.teal, false),
+          if (plan.why4 != null && plan.why4!.isNotEmpty)
+            _buildWhyStepItem(4, 'ทำไมต่อเนื่อง #4', plan.why4!, Colors.orange, false),
+          if (plan.why5 != null && plan.why5!.isNotEmpty)
+            _buildWhyStepItem(5, 'สาเหตุรากเหง้า (Root Cause)', plan.why5!, Colors.red, true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWhyStepItem(int step, String label, String text, Color color, bool isLast) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 11,
+                backgroundColor: color,
+                child: Text(
+                  '$step',
+                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Why #$step ($label):',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      text,
+                      style: const TextStyle(fontSize: 12.5, color: Colors.black87),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (!isLast)
+            Padding(
+              padding: const EdgeInsets.only(left: 10, top: 2, bottom: 2),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Icon(Icons.arrow_downward_rounded, size: 14, color: Colors.grey.shade400),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _build4M1EGrid(ThemeData theme, ActionPlanRecord plan) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.alt_route_rounded, size: 16, color: Colors.deepOrange),
+              SizedBox(width: 6),
+              Text(
+                'การวิเคราะห์ผังก้างปลา (Fishbone 4M1E)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.deepOrange),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (plan.fishboneMan != null && plan.fishboneMan!.isNotEmpty)
+                _build4M1ECard('👨 คน / ช่าง (Man)', plan.fishboneMan!, Colors.blue),
+              if (plan.fishboneMachine != null && plan.fishboneMachine!.isNotEmpty)
+                _build4M1ECard('⚙️ เครื่องจักร (Machine)', plan.fishboneMachine!, Colors.orange),
+              if (plan.fishboneMaterial != null && plan.fishboneMaterial!.isNotEmpty)
+                _build4M1ECard('📦 วัตถุดิบ/อะไหล่ (Material)', plan.fishboneMaterial!, Colors.teal),
+              if (plan.fishboneMethod != null && plan.fishboneMethod!.isNotEmpty)
+                _build4M1ECard('📋 วิธีการ/คู่มือ (Method)', plan.fishboneMethod!, Colors.purple),
+              if (plan.fishboneEnv != null && plan.fishboneEnv!.isNotEmpty)
+                _build4M1ECard('🌡️ สภาพแวดล้อม (Environment)', plan.fishboneEnv!, Colors.green),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _build4M1ECard(String label, String content, Color color) {
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            content,
+            style: const TextStyle(fontSize: 11.5, color: Colors.black87),
+          ),
+        ],
       ),
     );
   }
