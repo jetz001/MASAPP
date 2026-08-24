@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:hugeicons/hugeicons.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
@@ -155,33 +154,153 @@ class WorkforceScreen extends ConsumerWidget {
           ),
         ),
 
-        // Cards grid
+        // Main Content
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xxl, 0, AppSpacing.xxl, AppSpacing.xxl),
-            child: workforceAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Error: $e')),
-              data: (staff) => staff.isEmpty
-                  ? const Center(child: Text('ไม่มีข้อมูลทีมช่าง'))
-                  : GridView.builder(
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 340,
-                        mainAxisSpacing: AppSpacing.lg,
-                        crossAxisSpacing: AppSpacing.lg,
-                        childAspectRatio: 1.2,
-                      ),
-                      itemCount: staff.length,
-                      itemBuilder: (ctx, i) =>
-                          _TechCard(profile: staff[i]),
+          child: workforceAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (e, _) => Center(child: Text('Error: $e')),
+            data: (staff) {
+              if (staff.isEmpty) {
+                return const Center(child: Text('ไม่มีข้อมูลทีมช่าง'));
+              }
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(AppSpacing.xxl, 0, AppSpacing.xxl, AppSpacing.xxl),
+                children: [
+                  // 1. Leaderboard & Innovators Banner
+                  _buildLeaderboardBanner(context, staff),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  // 2. Section Title
+                  Row(
+                    children: [
+                      const Icon(Icons.badge_rounded, size: 20, color: AppColors.primary),
+                      const SizedBox(width: 8),
+                      Text('รายชื่อบุคลากรทั้งหมด (${staff.length} ท่าน)', style: AppTextStyles.headlineSmall),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+
+                  // 3. Grid of cards
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 340,
+                      mainAxisSpacing: AppSpacing.lg,
+                      crossAxisSpacing: AppSpacing.lg,
+                      childAspectRatio: 1.2,
                     ),
-            ),
+                    itemCount: staff.length,
+                    itemBuilder: (ctx, i) => _TechCard(profile: staff[i]),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLeaderboardBanner(BuildContext context, List<TechnicianProfile> staff) {
+    final topStaff = staff.take(3).toList();
+    final medals = ['🥇 อันดับ 1', '🥈 อันดับ 2', '🥉 อันดับ 3'];
+    final medalColors = [Colors.amber.shade700, Colors.blueGrey.shade600, Colors.brown.shade600];
+    final medalBgs = [Colors.amber.shade50, Colors.blueGrey.shade50, Colors.brown.shade50];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.amber.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 24),
+              const SizedBox(width: 8),
+              Text(
+                '🏆 ทำเนียบช่างดีเด่น & Kaizen Leaderboard ประจำเดือน',
+                style: AppTextStyles.headlineSmall.copyWith(color: Colors.amber.shade900),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('คะแนนสะสม Action Plan & แก้ปัญหา', style: TextStyle(fontSize: 11, color: Colors.amber.shade900)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: topStaff.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final p = entry.value;
+              final isFirst = idx == 0;
+
+              return Expanded(
+                child: Container(
+                  margin: EdgeInsets.only(right: idx < topStaff.length - 1 ? 10 : 0),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: medalBgs[idx],
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: medalColors[idx].withValues(alpha: 0.5), width: isFirst ? 1.5 : 1),
+                  ),
+                  child: InkWell(
+                    onTap: () => context.push('/technicians/${p.userId}'),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: medalColors[idx].withValues(alpha: 0.2),
+                          child: Text(
+                            p.fullName.substring(0, 1),
+                            style: TextStyle(fontWeight: FontWeight.bold, color: medalColors[idx]),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    medals[idx],
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: medalColors[idx]),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                p.fullName,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                '${p.role} · ${p.employeeNo}',
+                                style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 }

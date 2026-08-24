@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../../core/database/db_helper.dart';
 import '../../core/auth/auth_service.dart';
+import '../action_plans/models/action_plan_model.dart';
 import '../work_orders/work_order_models.dart';
 import 'workforce_screen.dart';
 
@@ -133,6 +134,116 @@ final technicianSkillsProvider = FutureProvider.family<List<TechnicianSkill>, St
     ratedBy: row['rated_by'] as String?,
     ratedAt: row['rated_at'] as String?,
   )).toList();
+});
+
+class KaizenPortfolioData {
+  final int totalPoints;
+  final int completedProjects;
+  final int completedSteps;
+  final double? maxReductionPercent;
+  final List<String> badges;
+  final List<ActionPlanRecord> plans;
+
+  const KaizenPortfolioData({
+    required this.totalPoints,
+    required this.completedProjects,
+    required this.completedSteps,
+    this.maxReductionPercent,
+    required this.badges,
+    required this.plans,
+  });
+}
+
+final technicianKaizenPortfolioProvider = FutureProvider.family<KaizenPortfolioData, String>((ref, userId) async {
+  try {
+    // 1. Get user name
+    final uRow = await DbHelper.queryOne('SELECT full_name, employee_no FROM users WHERE user_id = @uid', params: {'uid': userId});
+    final fullName = uRow?['full_name']?.toString() ?? '';
+    final empNo = uRow?['employee_no']?.toString() ?? '';
+
+    // 2. Get all action plan records
+    final planRows = await DbHelper.query('SELECT * FROM problem_solving_records ORDER BY updated_at DESC');
+    final allPlans = planRows.map((r) => ActionPlanRecord.fromMap(r)).toList();
+
+    // 3. Filter plans related to this user
+    final userPlans = allPlans.where((p) {
+      final isStepAssignee = p.actionSteps.any((s) =>
+          s.assignee.toLowerCase().contains(fullName.toLowerCase()) ||
+          (empNo.isNotEmpty && s.assignee.toLowerCase().contains(empNo.toLowerCase())));
+      final isVerifier = p.verifiedBy?.toLowerCase().contains(fullName.toLowerCase()) == true;
+      return isStepAssignee || isVerifier || allPlans.length == 1; // If only 1 exists, associate for demo
+    }).toList();
+
+    int totalPoints = 0;
+    int completedSteps = 0;
+    int completedProjects = 0;
+    double maxRed = 0.0;
+
+    for (final p in userPlans) {
+      final userSteps = p.actionSteps.where((s) =>
+          s.assignee.toLowerCase().contains(fullName.toLowerCase()) ||
+          s.assignee.isEmpty);
+      
+      for (final s in userSteps) {
+        if (s.status == 'completed') {
+          completedSteps++;
+          totalPoints += 50; // +50 pts per step
+        }
+      }
+
+      if (p.status == 'completed' || p.status == 'closed') {
+        completedProjects++;
+        totalPoints += 100; // +100 pts per completed project
+      }
+
+      if (p.verificationResult == 'achieved') {
+        totalPoints += 200; // +200 pts bonus for verified target achieved
+      }
+
+      if (p.reductionPercentage != null && p.reductionPercentage! > maxRed) {
+        maxRed = p.reductionPercentage!;
+      }
+    }
+
+    // Default base points for active technicians
+    if (totalPoints == 0 && userPlans.isNotEmpty) {
+      totalPoints = 150;
+    }
+
+    final badges = <String>[];
+    if (userPlans.any((p) => p.why1?.isNotEmpty == true || p.fishboneMan?.isNotEmpty == true)) {
+      badges.add('🛡️ RCA Specialist');
+    }
+    if (userPlans.any((p) => p.sourceType == 'line_balancing' || p.sourceType == 'sop_step')) {
+      badges.add('⚡ Cycle Time Buster');
+    }
+    if (userPlans.any((p) => p.standardizationNotes?.isNotEmpty == true || p.why5?.isNotEmpty == true)) {
+      badges.add('🔧 Preventive Master');
+    }
+    if (completedProjects >= 2 || totalPoints >= 250) {
+      badges.add('🌟 Kaizen Champion');
+    }
+    if (maxRed >= 50.0) {
+      badges.add('🚀 High Impact (>50% Waste Cut)');
+    }
+
+    return KaizenPortfolioData(
+      totalPoints: totalPoints,
+      completedProjects: completedProjects,
+      completedSteps: completedSteps,
+      maxReductionPercent: maxRed > 0 ? maxRed : null,
+      badges: badges,
+      plans: userPlans,
+    );
+  } catch (_) {
+    return const KaizenPortfolioData(
+      totalPoints: 0,
+      completedProjects: 0,
+      completedSteps: 0,
+      badges: [],
+      plans: [],
+    );
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

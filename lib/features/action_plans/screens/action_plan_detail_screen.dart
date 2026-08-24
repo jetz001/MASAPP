@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/ai/ai_service.dart';
 import '../action_plan_pdf_service.dart';
+import '../kaizen_certificate_pdf_service.dart';
 import '../models/action_plan_model.dart';
 import '../providers/action_plan_provider.dart';
 
@@ -25,6 +26,7 @@ class ActionPlanDetailScreen extends ConsumerStatefulWidget {
 class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen> {
   bool _isGeneratingAiSteps = false;
   bool _isExportingPdf = false;
+  bool _isExportingCert = false;
   String? _activeRcaMethod;
 
   Future<void> _exportPdf(ActionPlanRecord plan) async {
@@ -39,6 +41,21 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
       }
     } finally {
       if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
+  Future<void> _exportCertificate(ActionPlanRecord plan) async {
+    setState(() => _isExportingCert = true);
+    try {
+      await KaizenCertificatePdfService.generateAndOpen(plan: plan);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้างใบประกาศนียบัตร: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingCert = false);
     }
   }
 
@@ -103,6 +120,24 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
             actions: [
               _buildStatusDropdown(plan),
               const SizedBox(width: 8),
+              if (plan.status == 'completed' || plan.status == 'closed' || plan.verificationResult == 'achieved') ...[
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.amber.shade800,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: _isExportingCert
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.workspace_premium_rounded, size: 18),
+                  label: Text(_isExportingCert ? 'กำลังสร้างใบประกาศ...' : '📜 ใบประกาศ (Cert)'),
+                  onPressed: _isExportingCert ? null : () => _exportCertificate(plan),
+                ),
+                const SizedBox(width: 8),
+              ],
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   backgroundColor: Colors.red.shade700,

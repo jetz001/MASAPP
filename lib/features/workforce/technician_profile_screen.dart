@@ -4,14 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:hugeicons/hugeicons.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path/path.dart' as p;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/auth/auth_service.dart';
 import '../../features/auth/auth_provider.dart';
 import '../work_orders/work_order_models.dart';
+import 'technician_portfolio_pdf_service.dart';
+import 'workforce_screen.dart';
 import 'technician_profile_provider.dart';
 
 class TechnicianProfileScreen extends ConsumerStatefulWidget {
@@ -24,12 +24,13 @@ class TechnicianProfileScreen extends ConsumerStatefulWidget {
 
 class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  bool _isExportingPortfolio = false;
 
   @override
   void initState() {
     super.initState();
-    // 4 tabs: Overview, History, Documents, Skills
-    _tabController = TabController(length: 4, vsync: this);
+    // 5 tabs: Overview, History, Kaizen Portfolio, Documents, Skills
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -42,9 +43,30 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
     return ['engineer', 'admin', 'executive', 'safety', 'manager'].contains(role);
   }
 
+  Future<void> _exportPortfolio(TechnicianProfile profile, KaizenPortfolioData portfolio) async {
+    setState(() => _isExportingPortfolio = true);
+    try {
+      await TechnicianPortfolioPdfService.generateAndOpen(
+        profile: profile,
+        plans: portfolio.plans,
+        kaizenPoints: portfolio.totalPoints,
+        badges: portfolio.badges,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้างเอกสาร Portfolio: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPortfolio = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final profileAsync = ref.watch(technicianDetailsProvider(widget.userId));
+    final portfolioAsync = ref.watch(technicianKaizenPortfolioProvider(widget.userId));
     final currentUser = ref.watch(authProvider);
 
     return Scaffold(
@@ -53,7 +75,29 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
         ),
-        title: const Text('โปรไฟล์บุคลากร'),
+        title: const Text('โปรไฟล์บุคลากร & ผลงาน'),
+        actions: [
+          if (profileAsync.valueOrNull != null && portfolioAsync.valueOrNull != null) ...[
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+              ),
+              icon: _isExportingPortfolio
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.picture_as_pdf_rounded, size: 18),
+              label: Text(_isExportingPortfolio ? 'กำลังพิมพ์...' : '📄 พิมพ์ Portfolio (PDF)'),
+              onPressed: _isExportingPortfolio
+                  ? null
+                  : () => _exportPortfolio(profileAsync.valueOrNull!, portfolioAsync.valueOrNull!),
+            ),
+            const SizedBox(width: 16),
+          ],
+        ],
       ),
       body: profileAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -62,11 +106,10 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
           if (profile == null) return const Center(child: Text('ไม่พบข้อมูลช่าง'));
 
           final isSuper = currentUser != null && _isSupervisor(currentUser.role);
-          // If not supervisor and looking at own profile, they shouldn't see skills tab
           final showSkills = isSuper;
 
-          if (!showSkills && _tabController.length == 4) {
-             _tabController = TabController(length: 3, vsync: this);
+          if (!showSkills && _tabController.length == 5) {
+             _tabController = TabController(length: 4, vsync: this);
           }
 
           return Column(
@@ -82,6 +125,7 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
                 tabs: [
                   const Tab(text: 'ภาระงานปัจจุบัน'),
                   const Tab(text: 'ประวัติงานซ่อม'),
+                  const Tab(text: '🏆 ผลงาน Kaizen & Action Plan'),
                   const Tab(text: 'เอกสารและคู่มือ'),
                   if (showSkills) const Tab(text: 'ทักษะและการประเมิน'),
                 ],
@@ -94,6 +138,7 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
                   children: [
                     _buildCurrentTasksTab(),
                     _buildHistoryTab(),
+                    _buildKaizenPortfolioTab(profile),
                     _buildDocumentsTab(),
                     if (showSkills) _buildSkillsTab(),
                   ],
@@ -106,7 +151,7 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
     );
   }
 
-  Widget _buildHeader(profile) {
+  Widget _buildHeader(TechnicianProfile profile) {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.xxl),
       color: Theme.of(context).colorScheme.surface,
@@ -196,6 +241,164 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
           },
         );
       },
+    );
+  }
+
+  Widget _buildKaizenPortfolioTab(TechnicianProfile profile) {
+    final portfolioAsync = ref.watch(technicianKaizenPortfolioProvider(widget.userId));
+    return portfolioAsync.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (portfolio) {
+        final plans = portfolio.plans;
+
+        return ListView(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          children: [
+            // 1. KPI Stats Summary Banner
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  _buildPortfolioStatItem('🏆 คะแนน Kaizen', '${portfolio.totalPoints}', 'แต้ม', Colors.amber.shade700, Colors.amber.shade50),
+                  const SizedBox(width: 12),
+                  _buildPortfolioStatItem('🎯 แผนงานสำเร็จ', '${portfolio.completedProjects}', 'โครงการ', Colors.green.shade700, Colors.green.shade50),
+                  const SizedBox(width: 12),
+                  _buildPortfolioStatItem('⚡ ขั้นตอนที่ปฏิบัติการ', '${portfolio.completedSteps}', 'ขั้นตอน', Colors.blue.shade700, Colors.blue.shade50),
+                  const SizedBox(width: 12),
+                  _buildPortfolioStatItem('🚀 ลดสูญเปล่าสูงสุด', portfolio.maxReductionPercent != null ? '${portfolio.maxReductionPercent!.toStringAsFixed(1)}%' : '-', '', Colors.purple.shade700, Colors.purple.shade50),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+
+            // 2. Badges Section
+            Text('🎖️ เหรียญเกียรติยศและทักษะความเชี่ยวชาญ (Earned Badges)', style: AppTextStyles.headlineSmall),
+            const SizedBox(height: AppSpacing.sm),
+            if (portfolio.badges.isEmpty)
+              const Text('กำลังสะสมผลงานการแก้ปัญหา', style: TextStyle(color: AppColors.textSecondary, fontSize: 13))
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: portfolio.badges.map((b) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.blue.shade300),
+                    ),
+                    child: Text(
+                      b,
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.blue.shade900),
+                    ),
+                  );
+                }).toList(),
+              ),
+            const SizedBox(height: AppSpacing.xl),
+
+            // 3. Projects List
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('📋 ประวัติโครงการ Action Plan & การแก้ปัญหา (${plans.length})', style: AppTextStyles.headlineSmall),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            if (plans.isEmpty)
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                ),
+                child: const Center(
+                  child: Text('ยังไม่มีประวัติการร่วมดำเนินการใน Action Plan', style: TextStyle(color: AppColors.textSecondary)),
+                ),
+              )
+            else
+              ...plans.map((p) {
+                final isDone = p.status == 'completed' || p.status == 'closed';
+                final redStr = p.reductionPercentage != null ? '${p.reductionPercentage!.toStringAsFixed(1)}%' : null;
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(color: isDone ? Colors.green.withValues(alpha: 0.3) : Theme.of(context).dividerColor),
+                  ),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: CircleAvatar(
+                      backgroundColor: isDone ? Colors.green.shade100 : Colors.blue.shade100,
+                      child: Icon(
+                        isDone ? Icons.task_alt_rounded : Icons.pending_actions_rounded,
+                        color: isDone ? Colors.green.shade800 : Colors.blue.shade800,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      p.problemTitle,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (p.rootCause != null && p.rootCause!.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text('สาเหตุ: ${p.rootCause}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ],
+                        if (redStr != null) ...[
+                          const SizedBox(height: 2),
+                          Text('ผลลัพธ์ลดได้จริง: $redStr', style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.teal)),
+                        ],
+                      ],
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => context.push('/action-plans/${p.rcaId}'),
+                  ),
+                );
+              }),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPortfolioStatItem(String title, String val, String unit, Color textColor, Color bgColor) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: textColor.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor)),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(val, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
+                if (unit.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  Text(unit, style: TextStyle(fontSize: 10.5, color: textColor.withValues(alpha: 0.8))),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
