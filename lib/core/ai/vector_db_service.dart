@@ -773,11 +773,59 @@ class VectorDbService {
         "SELECT COUNT(*) as c FROM work_orders WHERE assigned_to = @id AND status = 'completed'",
         params: {'id': userId},
       );
-      final completedWo = woDoneCount?['c'] ?? 0;
+      final completedWo = (woDoneCount?['c'] as int?) ?? 0;
+
+      // 4. Calculate real Kaizen points, projects & badges from DB
+      final planRows = await DbHelper.query('SELECT * FROM problem_solving_records');
+      int kPoints = (completedWo * 20) + (sRows.length * 15);
+      int completedProjects = 0;
+      final badges = <String>[];
+      bool hasRca = false;
+      bool hasCycleTime = false;
+      bool hasPreventive = false;
+      double maxRed = 0.0;
+
+      for (final pRow in planRows) {
+        final stepsJson = pRow['action_steps_json']?.toString() ?? '';
+        final verifiedBy = pRow['verified_by']?.toString() ?? '';
+        final status = pRow['status']?.toString() ?? '';
+        final vRes = pRow['verification_result']?.toString() ?? '';
+        final srcType = pRow['source_type']?.toString() ?? '';
+        final why1 = pRow['why_1']?.toString() ?? '';
+        final fMan = pRow['fishbone_man']?.toString() ?? '';
+        final stdNotes = pRow['standardization_notes']?.toString() ?? '';
+        final red = (pRow['reduction_percentage'] as num?)?.toDouble() ?? 0.0;
+
+        final isAssignee = stepsJson.contains(name) || (empNo.isNotEmpty && stepsJson.contains(empNo));
+        final isVerifier = verifiedBy.contains(name);
+
+        if (isAssignee || isVerifier) {
+          if (why1.isNotEmpty || fMan.isNotEmpty) hasRca = true;
+          if (srcType == 'line_balancing' || srcType == 'sop_step') hasCycleTime = true;
+          if (stdNotes.isNotEmpty) hasPreventive = true;
+          if (red > maxRed) maxRed = red;
+
+          if (status == 'completed' || status == 'closed') {
+            completedProjects++;
+            kPoints += 100;
+          }
+          if (vRes == 'achieved') {
+            kPoints += 200;
+          }
+        }
+      }
+
+      if (hasRca) badges.add('🛡️ RCA Specialist');
+      if (hasCycleTime) badges.add('⚡ Cycle Time Buster');
+      if (hasPreventive) badges.add('🔧 Preventive Master');
+      if (completedProjects >= 2 || kPoints >= 250) badges.add('🌟 Kaizen Champion');
+      if (maxRed >= 50.0) badges.add('🚀 High Impact (>50% Waste Cut)');
 
       final chunk = 'ข้อมูลบุคลากร & ทักษะความสามารถ: $empNo - $name ($role)\n'
           'แผนก: $dept\n'
           'ทักษะความชำนาญ (Skill Matrix): ${skillText.isEmpty ? 'ยังไม่ระบุ' : skillText}\n'
+          'คะแนน Kaizen สะสม: $kPoints แต้ม | โครงการ Action Plan ที่ปิดสำเร็จ: $completedProjects โครงการ\n'
+          'เหรียญเกียรติยศที่ได้รับ: ${badges.isEmpty ? 'กำลังสะสมผลงาน' : badges.join(', ')}\n'
           'ใบประกาศนียบัตร/ใบเซอร์: ${certText.isEmpty ? 'ไม่มีเอกสารแนบ' : certText}\n'
           'สถิติงานซ่อมบำรุงที่ปิดสำเร็จ: $completedWo งาน';
 
@@ -796,6 +844,9 @@ class VectorDbService {
             'employee_no': empNo,
             'full_name': name,
             'role': role,
+            'kaizen_points': kPoints,
+            'completed_projects': completedProjects,
+            'badges': badges,
             'skills': sRows.map((s) => s['skill_name']).toList(),
           },
         );
