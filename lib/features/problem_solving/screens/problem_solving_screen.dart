@@ -464,24 +464,6 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
             const Text('Problem Solving & RCA (การแก้ปัญหา & วิเคราะห์สาเหตุ)'),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.checklist_rounded),
-            tooltip: 'ไปที่ ทะเบียนแผนปฏิบัติการ (Action Plan)',
-            onPressed: () => context.push('/action-plans'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            tooltip: 'กลับไปที่หน้า Lean & VSM Analysis',
-            onPressed: () => context.push('/lean-analysis'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.account_tree_outlined),
-            tooltip: 'ไปที่ Line Balancing',
-            onPressed: () => context.push('/line_balancing'),
-          ),
-          const SizedBox(width: 12),
-        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

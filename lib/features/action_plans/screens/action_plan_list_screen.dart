@@ -56,18 +56,7 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () => ref.read(actionPlanListProvider.notifier).reload(),
           ),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.troubleshoot_rounded, size: 16, color: Colors.purple),
-            label: const Text('Problem Solving (RCA)', style: TextStyle(color: Colors.purple)),
-            onPressed: () => context.push('/problem-solving'),
-          ),
           const SizedBox(width: 8),
-          FilledButton.icon(
-            icon: const Icon(Icons.add_task_rounded, size: 18),
-            label: const Text('+ สร้าง Action Plan ใหม่'),
-            onPressed: () => context.push('/action-plans/new'),
-          ),
-          const SizedBox(width: 12),
         ],
       ),
       body: plansAsync.when(
@@ -79,14 +68,6 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
           final completedCount = allPlans.where((p) => p.status == 'completed' || p.status == 'closed').length;
           final verifiedCount = allPlans.where((p) => p.verificationResult != null && p.verificationResult!.isNotEmpty).length;
 
-          int totalSteps = 0;
-          int completedSteps = 0;
-          for (final p in allPlans) {
-            totalSteps += p.totalStepsCount;
-            completedSteps += p.completedStepsCount;
-          }
-          final overallProgress = totalSteps > 0 ? (completedSteps / totalSteps) : 0.0;
-
           return Column(
             children: [
               // 1. KPI Metric Summary Cards
@@ -96,9 +77,6 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
                 inProgressCount: inProgressCount,
                 completedCount: completedCount,
                 verifiedCount: verifiedCount,
-                overallProgress: overallProgress,
-                completedSteps: completedSteps,
-                totalSteps: totalSteps,
               ),
 
               // 2. Search and Filter Bar
@@ -121,11 +99,6 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.add_task_rounded),
-        label: const Text('สร้าง Action Plan ใหม่'),
-        onPressed: () => context.push('/action-plans/new'),
-      ),
     );
   }
 
@@ -135,9 +108,6 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
     required int inProgressCount,
     required int completedCount,
     required int verifiedCount,
-    required double overallProgress,
-    required int completedSteps,
-    required int totalSteps,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -154,53 +124,6 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
           _buildStatBox('เสร็จสมบูรณ์ / ปิดแผน', '$completedCount', 'แผน', Icons.task_alt_rounded, Colors.green),
           const SizedBox(width: 12),
           _buildStatBox('สอบทานผลแล้ว (V&V)', '$verifiedCount', 'รายการ', Icons.verified_outlined, Colors.purple),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: theme.dividerColor.withValues(alpha: 0.5)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'ความคืบหน้าขั้นตอนรวม',
-                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        '$completedSteps/$totalSteps ขั้นตอน (${(overallProgress * 100).toStringAsFixed(0)}%)',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.bold,
-                          color: overallProgress >= 1.0 ? Colors.green : Colors.blueAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: overallProgress,
-                      minHeight: 8,
-                      backgroundColor: Colors.grey.shade200,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        overallProgress >= 1.0 ? Colors.green : (overallProgress > 0 ? Colors.blue : Colors.orange),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -371,15 +294,9 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
           const SizedBox(height: 6),
           Text(
             total == 0
-                ? 'คุณสามารถสร้าง Action Plan ใหม่ หรือส่งต่อมาจากหน้า Problem Solving & RCA ได้'
+                ? 'แผนปฏิบัติการจะถูกสร้างและส่งต่อมาจากโมดูล Problem Solving & RCA'
                 : 'ลองเปลี่ยนคำค้นหาหรือตัวกรองสถานะด้านบน',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
-          ),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('สร้าง Action Plan ใหม่'),
-            onPressed: () => context.push('/action-plans/new'),
           ),
         ],
       ),

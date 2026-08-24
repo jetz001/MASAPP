@@ -151,31 +151,6 @@ class _LeanAnalysisScreenState extends ConsumerState<LeanAnalysisScreen> {
             const Text('การวิเคราะห์ Lean & Value Stream Mapping (VSM)'),
           ],
         ),
-        actions: [
-          FilledButton.tonalIcon(
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red.withValues(alpha: 0.12),
-              foregroundColor: Colors.redAccent,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              visualDensity: VisualDensity.compact,
-            ),
-            icon: const Icon(Icons.troubleshoot_rounded, size: 16),
-            label: const Text('Problem Solving (RCA)', style: TextStyle(fontSize: 12)),
-            onPressed: () => context.push('/problem-solving'),
-          ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.account_tree_rounded),
-            tooltip: 'ไปที่หน้า Line Balancing',
-            onPressed: () => context.push('/line_balancing'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.format_list_bulleted_rounded),
-            tooltip: 'ไปที่รายการขั้นตอนการทำงาน SOP',
-            onPressed: () => context.push('/work-processes'),
-          ),
-          const SizedBox(width: 16),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.lg),
