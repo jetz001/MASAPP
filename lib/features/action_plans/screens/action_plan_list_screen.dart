@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_spacing.dart';
+import '../action_plan_pdf_service.dart';
 import '../models/action_plan_model.dart';
 import '../providers/action_plan_provider.dart';
 
@@ -545,6 +546,12 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
               // Status badge
               _buildStatusPill(plan.status),
               const SizedBox(width: 8),
+
+              IconButton(
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 18, color: Colors.redAccent),
+                tooltip: 'ออกรายงาน (PDF / Browser)',
+                onPressed: () => ActionPlanPdfService.generateAndOpen(plan: plan),
+              ),
 
               const Icon(Icons.chevron_right_rounded, color: Colors.grey),
             ],

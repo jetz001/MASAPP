@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/ai/ai_service.dart';
+import '../action_plan_pdf_service.dart';
 import '../models/action_plan_model.dart';
 import '../providers/action_plan_provider.dart';
 
@@ -23,6 +24,22 @@ class ActionPlanDetailScreen extends ConsumerStatefulWidget {
 
 class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen> {
   bool _isGeneratingAiSteps = false;
+  bool _isExportingPdf = false;
+
+  Future<void> _exportPdf(ActionPlanRecord plan) async {
+    setState(() => _isExportingPdf = true);
+    try {
+      await ActionPlanPdfService.generateAndOpen(plan: plan);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้างเอกสาร PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,17 +48,17 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
 
     return planAsync.when(
       loading: () => Scaffold(
-        appBar: AppBar(title: const Text('รายละเอียดแผนปฏิบัติการ')),
+        appBar: AppBar(title: const Text('รายละเอียด Action Plan')),
         body: const Center(child: CircularProgressIndicator()),
       ),
       error: (err, _) => Scaffold(
-        appBar: AppBar(title: const Text('รายละเอียดแผนปฏิบัติการ')),
-        body: Center(child: Text('เกิดข้อผิดพลาด: $err')),
+        appBar: AppBar(title: const Text('รายละเอียด Action Plan')),
+        body: Center(child: Text('เกิดข้อผิดพลาดในการโหลด: $err')),
       ),
       data: (plan) {
         if (plan == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('รายละเอียดแผนปฏิบัติการ')),
+            appBar: AppBar(title: const Text('รายละเอียด Action Plan')),
             body: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -85,6 +102,22 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
             actions: [
               _buildStatusDropdown(plan),
               const SizedBox(width: 8),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.red.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                icon: _isExportingPdf
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                label: Text(_isExportingPdf ? 'กำลังสร้าง PDF...' : 'ออกรายงาน (PDF)'),
+                onPressed: _isExportingPdf ? null : () => _exportPdf(plan),
+              ),
+              const SizedBox(width: 8),
               FilledButton.tonalIcon(
                 icon: const Icon(Icons.edit_note_rounded, size: 18),
                 label: const Text('แก้ไขแผน'),
@@ -94,7 +127,9 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert_rounded),
                 onSelected: (val) async {
-                  if (val == 'open_rca') {
+                  if (val == 'export_pdf') {
+                    await _exportPdf(plan);
+                  } else if (val == 'open_rca') {
                     context.push('/problem-solving');
                   } else if (val == 'delete') {
                     final confirm = await showDialog<bool>(
@@ -121,6 +156,16 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
                   }
                 },
                 itemBuilder: (ctx) => const [
+                  PopupMenuItem(
+                    value: 'export_pdf',
+                    child: Row(
+                      children: [
+                        Icon(Icons.picture_as_pdf_rounded, size: 16, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('ออกรายงาน (PDF / Browser)', style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'open_rca',
                     child: Row(
