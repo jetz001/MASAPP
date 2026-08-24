@@ -118,6 +118,11 @@ class AiToolHandler {
         case 'update_line_balancing':
         case 'manage_production_lines':
           return await _manageLineBalancing(args, onProgress: onProgress);
+        case 'manage_action_plans':
+        case 'create_action_plan':
+        case 'update_action_plan':
+        case 'track_action_plans':
+          return await _manageActionPlans(args, onProgress: onProgress);
         default:
           return '{"error": "Unknown tool: $toolName"}';
       }
@@ -4846,6 +4851,222 @@ class AiToolHandler {
       }).toList(),
       'message': 'สร้างและปรับสมดุลสายการผลิต "$lineName" ($totalStations สถานี) สำเร็จ พร้อมจับคู่เครื่องจักรจริงในระบบ $totalStations เครื่อง และจัดวางผังแบบ Centered Grid ไม่มีตกขอบ (Efficiency: ${lineEfficiency.toStringAsFixed(1)}%, Takt: ${taktTimeSec.toStringAsFixed(1)}s)',
     });
+  }
+
+  // ── 27. ACTION PLANS & PROBLEM SOLVING MANAGEMENT (manage_action_plans) ──
+  static Future<String> _manageActionPlans(
+    Map<String, dynamic> args, {
+    void Function(String progressStep)? onProgress,
+  }) async {
+    final action = args['action']?.toString().toLowerCase().trim() ?? 'query';
+
+    // Ensure database table exists
+    try {
+      await DbHelper.execute('''
+        CREATE TABLE IF NOT EXISTS problem_solving_records (
+          rca_id                TEXT PRIMARY KEY,
+          source_type           TEXT NOT NULL,
+          source_id             TEXT,
+          problem_title         TEXT NOT NULL,
+          why_1                 TEXT,
+          why_2                 TEXT,
+          why_3                 TEXT,
+          why_4                 TEXT,
+          why_5                 TEXT,
+          root_cause            TEXT,
+          fishbone_man          TEXT,
+          fishbone_machine      TEXT,
+          fishbone_material     TEXT,
+          fishbone_method       TEXT,
+          fishbone_env          TEXT,
+          action_steps_json     TEXT,
+          target_metric         TEXT,
+          before_value          REAL,
+          target_value          REAL,
+          actual_value          REAL,
+          metric_unit           TEXT,
+          verified_by           TEXT,
+          verification_date     TEXT,
+          verification_result   TEXT,
+          standardization_notes TEXT,
+          status                TEXT DEFAULT 'in_progress',
+          created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+    } catch (_) {}
+
+    if (action == 'query' || action == 'list' || action == 'get_action_plans') {
+      final statusFilter = args['status']?.toString().toLowerCase().trim();
+      String query = 'SELECT * FROM problem_solving_records';
+      Map<String, dynamic> params = {};
+      if (statusFilter != null && statusFilter.isNotEmpty && statusFilter != 'all') {
+        query += ' WHERE status = @status';
+        params['status'] = statusFilter;
+      }
+      query += ' ORDER BY updated_at DESC, created_at DESC LIMIT 50';
+
+      final rows = await DbHelper.query(query, params: params);
+      final list = rows.map((r) {
+        List steps = [];
+        if (r['action_steps_json'] != null && r['action_steps_json'].toString().isNotEmpty) {
+          try {
+            steps = jsonDecode(r['action_steps_json'].toString()) as List;
+          } catch (_) {}
+        }
+        final completedSteps = steps.where((s) => s['status'] == 'completed').length;
+        final totalSteps = steps.length;
+        final progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100.0 : 0.0;
+
+        return {
+          'rca_id': r['rca_id'],
+          'problem_title': r['problem_title'],
+          'source_type': r['source_type'],
+          'source_id': r['source_id'],
+          'root_cause': r['root_cause'],
+          'status': r['status'],
+          'progress_pct': '${progress.toStringAsFixed(0)}%',
+          'completed_steps': '$completedSteps/$totalSteps',
+          'action_steps': steps,
+          'target_metric': r['target_metric'],
+          'before_value': r['before_value'],
+          'target_value': r['target_value'],
+          'actual_value': r['actual_value'],
+          'metric_unit': r['metric_unit'],
+          'verification_result': r['verification_result'],
+          'verified_by': r['verified_by'],
+          'standardization_notes': r['standardization_notes'],
+        };
+      }).toList();
+
+      return jsonEncode({
+        'status': 'success',
+        'total_count': list.length,
+        'action_plans': list,
+      });
+    }
+
+    if (action == 'create_action_plan' || action == 'insert') {
+      final rcaId = args['rca_id']?.toString() ?? 'rca_${const Uuid().v4().substring(0, 8)}';
+      final title = args['problem_title']?.toString() ?? args['title']?.toString() ?? 'Action Plan';
+      final sourceType = args['source_type']?.toString() ?? 'custom';
+      final sourceId = args['source_id']?.toString();
+      final rootCause = args['root_cause']?.toString() ?? '';
+      final targetMetric = args['target_metric']?.toString() ?? '';
+      final beforeVal = args['before_value'] != null ? double.tryParse(args['before_value'].toString()) : null;
+      final targetVal = args['target_value'] != null ? double.tryParse(args['target_value'].toString()) : null;
+      final actualVal = args['actual_value'] != null ? double.tryParse(args['actual_value'].toString()) : null;
+      final unit = args['metric_unit']?.toString() ?? '';
+      final verifiedBy = args['verified_by']?.toString() ?? '';
+      final vResult = args['verification_result']?.toString() ?? 'pending';
+
+      List steps = [];
+      if (args['action_steps'] is List) {
+        steps = (args['action_steps'] as List).map((s) {
+          if (s is Map) {
+            return {
+              'id': s['id'] ?? const Uuid().v4(),
+              'title': s['title'] ?? '',
+              'assignee': s['assignee'] ?? '',
+              'due_date': s['due_date'] ?? '',
+              'status': s['status'] ?? 'pending',
+            };
+          }
+          return {'id': const Uuid().v4(), 'title': s.toString(), 'status': 'pending'};
+        }).toList();
+      }
+
+      await DbHelper.execute('''
+        INSERT OR REPLACE INTO problem_solving_records (
+          rca_id, source_type, source_id, problem_title,
+          root_cause, action_steps_json, target_metric,
+          before_value, target_value, actual_value, metric_unit,
+          verified_by, verification_result, status, updated_at
+        ) VALUES (
+          @id, @stype, @sid, @title,
+          @rc, @sjson, @tmetric,
+          @bval, @tval, @aval, @munit,
+          @vby, @vres, 'in_progress', CURRENT_TIMESTAMP
+        )
+      ''', params: {
+        'id': rcaId,
+        'stype': sourceType,
+        'sid': sourceId,
+        'title': title,
+        'rc': rootCause,
+        'sjson': jsonEncode(steps),
+        'tmetric': targetMetric,
+        'bval': beforeVal,
+        'tval': targetVal,
+        'aval': actualVal,
+        'munit': unit,
+        'vby': verifiedBy,
+        'vres': vResult,
+      });
+
+      // Auto-sync to Vector DB
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+
+      return jsonEncode({
+        'status': 'success',
+        'rca_id': rcaId,
+        'problem_title': title,
+        'action_steps_count': steps.length,
+        'message': 'บันทึก Action Plan "$title" พร้อม ${steps.length} ขั้นตอนย่อยและซิงค์เข้า Vector DB สำเร็จ',
+      });
+    }
+
+    if (action == 'update_action_step') {
+      final rcaId = args['rca_id']?.toString() ?? '';
+      final stepId = args['step_id']?.toString() ?? '';
+      final stepStatus = args['status']?.toString() ?? 'completed';
+
+      final rows = await DbHelper.query(
+        'SELECT * FROM problem_solving_records WHERE rca_id = @id',
+        params: {'id': rcaId},
+      );
+      if (rows.isEmpty) {
+        return jsonEncode({'status': 'error', 'message': 'ไม่พบ Action Plan ID: $rcaId'});
+      }
+
+      List steps = [];
+      try {
+        steps = jsonDecode(rows.first['action_steps_json'].toString()) as List;
+      } catch (_) {}
+
+      for (var s in steps) {
+        if (s is Map && (s['id'] == stepId || s['title'] == stepId)) {
+          s['status'] = stepStatus;
+        }
+      }
+
+      final allDone = steps.isNotEmpty && steps.every((s) => s['status'] == 'completed');
+      final planStatus = allDone ? 'completed' : 'in_progress';
+
+      await DbHelper.execute('''
+        UPDATE problem_solving_records
+        SET action_steps_json = @sjson,
+            status = @pstatus,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE rca_id = @id
+      ''', params: {
+        'sjson': jsonEncode(steps),
+        'pstatus': planStatus,
+        'id': rcaId,
+      });
+
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+
+      return jsonEncode({
+        'status': 'success',
+        'rca_id': rcaId,
+        'step_status': stepStatus,
+        'plan_status': planStatus,
+        'message': 'อัปเดตสถานะขั้นตอนแผนปฏิบัติการเป็น "$stepStatus" สำเร็จ',
+      });
+    }
+
+    return jsonEncode({'status': 'error', 'message': 'ไม่รู้จัก action: $action'});
   }
 }
 

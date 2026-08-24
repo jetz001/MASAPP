@@ -301,6 +301,50 @@ class DbInitializer {
           await db.execute('CREATE INDEX IF NOT EXISTS idx_work_processes_method ON work_processes(method_type, parent_process_id)');
         }
 
+        // Check for problem_solving_records (Action Plans & RCA)
+        final rcaTable = await db.query(
+          'sqlite_master',
+          where: 'type = ? AND name = ?',
+          whereArgs: ['table', 'problem_solving_records'],
+        );
+        if (rcaTable.isEmpty) {
+          _log.i('Migration: Creating problem_solving_records table...');
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS problem_solving_records (
+              rca_id                TEXT PRIMARY KEY,
+              source_type           TEXT NOT NULL,
+              source_id             TEXT,
+              problem_title         TEXT NOT NULL,
+              why_1                 TEXT,
+              why_2                 TEXT,
+              why_3                 TEXT,
+              why_4                 TEXT,
+              why_5                 TEXT,
+              root_cause            TEXT,
+              fishbone_man          TEXT,
+              fishbone_machine      TEXT,
+              fishbone_material     TEXT,
+              fishbone_method       TEXT,
+              fishbone_env          TEXT,
+              action_steps_json     TEXT,
+              target_metric         TEXT,
+              before_value          REAL,
+              target_value          REAL,
+              actual_value          REAL,
+              metric_unit           TEXT,
+              verified_by           TEXT,
+              verification_date     TEXT,
+              verification_result   TEXT,
+              standardization_notes TEXT,
+              status                TEXT DEFAULT 'in_progress',
+              created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+              updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+          ''');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_rca_source ON problem_solving_records(source_type, source_id)');
+          await db.execute('CREATE INDEX IF NOT EXISTS idx_rca_status ON problem_solving_records(status)');
+        }
+
         // 9. Check for work_order_outsource (Added 2026-08)
         final outsourceTable = await db.query(
           'sqlite_master',

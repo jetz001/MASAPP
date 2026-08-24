@@ -647,6 +647,94 @@ class VectorDbService {
     }
   }
 
+  /// Automatically sync a Problem Solving / RCA / Action Plan to Vector DB
+  static Future<void> syncProblemSolvingAndActionPlan(String rcaId) async {
+    await ensureTable();
+    try {
+      final rows = await DbHelper.query(
+        'SELECT * FROM problem_solving_records WHERE rca_id = @id',
+        params: {'id': rcaId},
+      );
+      if (rows.isEmpty) return;
+
+      final r = rows.first;
+      final title = r['problem_title']?.toString() ?? 'Action Plan';
+      final rootCause = r['root_cause']?.toString() ?? '';
+      final w1 = r['why_1']?.toString() ?? '';
+      final w2 = r['why_2']?.toString() ?? '';
+      final w3 = r['why_3']?.toString() ?? '';
+      final w4 = r['why_4']?.toString() ?? '';
+      final w5 = r['why_5']?.toString() ?? '';
+      final fMan = r['fishbone_man']?.toString() ?? '';
+      final fMach = r['fishbone_machine']?.toString() ?? '';
+      final fMat = r['fishbone_material']?.toString() ?? '';
+      final fMet = r['fishbone_method']?.toString() ?? '';
+      final fEnv = r['fishbone_env']?.toString() ?? '';
+      final tMetric = r['target_metric']?.toString() ?? '';
+      final bVal = r['before_value']?.toString() ?? '';
+      final tVal = r['target_value']?.toString() ?? '';
+      final aVal = r['actual_value']?.toString() ?? '';
+      final unit = r['metric_unit']?.toString() ?? '';
+      final vBy = r['verified_by']?.toString() ?? '';
+      final vDate = r['verification_date']?.toString() ?? '';
+      final vRes = r['verification_result']?.toString() ?? '';
+      final sNotes = r['standardization_notes']?.toString() ?? '';
+      final status = r['status']?.toString() ?? 'in_progress';
+
+      String stepsText = '';
+      if (r['action_steps_json'] != null && r['action_steps_json'].toString().isNotEmpty) {
+        try {
+          final decoded = jsonDecode(r['action_steps_json'].toString());
+          if (decoded is List) {
+            stepsText = decoded.map((s) {
+              final st = s as Map<String, dynamic>;
+              final sTitle = st['title'] ?? '';
+              final sAssignee = st['assignee'] ?? '';
+              final sDue = st['due_date'] ?? '';
+              final sStatus = st['status'] ?? 'pending';
+              return '- $sTitle (ผู้รับผิดชอบ: $sAssignee, กำหนดเสร็จ: $sDue, สถานะ: $sStatus)';
+            }).join('\n');
+          }
+        } catch (_) {}
+      }
+
+      final chunk = 'แผนปฏิบัติการ & การแก้ปัญหา (Action Plan & RCA): $title\n'
+          'สถานะแผนงาน: $status\n'
+          'สาเหตุรากเหง้า (Root Cause): $rootCause\n'
+          'การวิเคราะห์ 5-Why: [W1: $w1 -> W2: $w2 -> W3: $w3 -> W4: $w4 -> W5: $w5]\n'
+          'ผังก้างปลา 4M1E: [คน: $fMan | เครื่องจักร: $fMach | วัตถุดิบ: $fMat | วิธีการ: $fMet | สิ่งแวดล้อม: $fEnv]\n'
+          'ขั้นตอนแผนปฏิบัติการ (Action Steps):\n$stepsText\n'
+          'การสอบทานผลสำเร็จ (Verification & Validation):\n'
+          'ตัวชี้วัด: $tMetric | ก่อน: $bVal $unit | เป้าหมาย: $tVal $unit | ผลจริง: $aVal $unit\n'
+          'ผลการประเมิน: $vRes โดย $vBy ($vDate)\n'
+          'แผนคงสภาพ/มาตรฐานใหม่ (Standardization): $sNotes';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_rca_$rcaId',
+          sourceType: 'action_plan',
+          sourceId: rcaId,
+          title: title,
+          category: 'action_plan',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'rca_id': rcaId,
+            'source_type': r['source_type'],
+            'source_id': r['source_id'],
+            'status': status,
+            'target_metric': tMetric,
+            'verification_result': vRes,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced Action Plan & RCA $title to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync Action Plan: $e');
+    }
+  }
+
   /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions), Machines, Spare Parts, Tools, and Lean Processes into Vector DB.
   static Future<int> indexHistoricalKnowledge() async {
     await ensureTable();
@@ -814,6 +902,16 @@ class VectorDbService {
         final lId = l['line_id']?.toString();
         if (lId != null && lId.isNotEmpty) {
           await syncLineBalancing(lId);
+          count++;
+        }
+      }
+
+      // 8. Index Problem Solving Records & Action Plans
+      final rcaRows = await DbHelper.query('SELECT rca_id FROM problem_solving_records');
+      for (final rca in rcaRows) {
+        final rId = rca['rca_id']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          await syncProblemSolvingAndActionPlan(rId);
           count++;
         }
       }

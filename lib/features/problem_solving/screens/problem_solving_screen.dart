@@ -6,12 +6,14 @@ import 'package:collection/collection.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import '../../../core/ai/ai_service.dart';
+import '../../../core/ai/vector_db_service.dart';
 import '../../../core/database/db_helper.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../work_processes/models/work_process_model.dart';
 import '../../work_processes/models/work_process_step_model.dart';
 import '../../work_processes/providers/work_process_provider.dart';
 import '../../line_balancing/line_balancing_provider.dart';
+import '../../action_plans/providers/action_plan_provider.dart';
 
 /// Item in a Multi-step Action Plan
 class ActionStepItem {
@@ -565,6 +567,10 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
         ref.invalidate(workProcessListProvider);
       }
 
+      // 5. Invalidate Action Plan Provider & Sync to Vector DB
+      ref.invalidate(actionPlanListProvider);
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -619,6 +625,11 @@ ${_selectedWo != null ? "ใบแจ้งซ่อม: ${_selectedWo!['wo_no']
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.checklist_rounded),
+            tooltip: 'ไปที่ ทะเบียนแผนปฏิบัติการ (Action Plan)',
+            onPressed: () => context.push('/action-plans'),
+          ),
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
             tooltip: 'กลับไปที่หน้า Lean & VSM Analysis',
