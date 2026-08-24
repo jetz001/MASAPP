@@ -804,8 +804,8 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
             spacing: 8,
             runSpacing: 8,
             children: plan.attachments.map((asset) {
-              final fileName = asset['file_name'] ?? 'เอกสารแนบ';
-              final filePath = asset['file_path'] ?? asset['storage_path'] ?? '';
+              final fileName = asset['display_name'] ?? asset['file_name'] ?? 'เอกสารแนบ';
+              final filePath = asset['storage_path'] ?? asset['source_path'] ?? asset['file_path'] ?? '';
               final isImg = fileName.toLowerCase().endsWith('.png') ||
                   fileName.toLowerCase().endsWith('.jpg') ||
                   fileName.toLowerCase().endsWith('.jpeg');

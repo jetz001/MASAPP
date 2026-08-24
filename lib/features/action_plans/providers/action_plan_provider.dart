@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:logger/logger.dart';
 import '../../../core/database/db_helper.dart';
@@ -85,7 +85,7 @@ class ActionPlanNotifier extends AsyncNotifier<List<ActionPlanRecord>> {
 
       // Fetch attachments for all action plans
       final assetRows = await DbHelper.query('''
-        SELECT asset_id, entity_id, file_name, file_path, storage_path, thumbnail_path,
+        SELECT asset_id, entity_id, display_name, source_path, storage_path, thumbnail_path,
                preview_path, file_size, mime_type, category, is_primary, created_at
         FROM file_assets
         WHERE module_type = 'action_plan'
