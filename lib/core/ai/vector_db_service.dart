@@ -735,6 +735,77 @@ class VectorDbService {
     }
   }
 
+  /// Automatically sync a Technician's Skills, Certificates & Kaizen Portfolio to Vector DB
+  static Future<void> syncTechnicianSkillAndPortfolio(String userId) async {
+    await ensureTable();
+    try {
+      final uRows = await DbHelper.query('''
+        SELECT u.user_id, u.employee_no, u.full_name, u.role, d.dept_name
+        FROM users u
+        LEFT JOIN departments d ON d.dept_id = u.dept_id
+        WHERE u.user_id = @id
+        LIMIT 1
+      ''', params: {'id': userId});
+      if (uRows.isEmpty) return;
+
+      final u = uRows.first;
+      final empNo = u['employee_no'] ?? '-';
+      final name = u['full_name'] ?? 'ช่างเทคนิค';
+      final role = u['role'] ?? 'technician';
+      final dept = u['dept_name'] ?? 'ฝ่ายซ่อมบำรุง';
+
+      // 1. Fetch skills
+      final sRows = await DbHelper.query(
+        'SELECT skill_name, proficiency_level, score FROM technician_skills WHERE technician_id = @id',
+        params: {'id': userId},
+      );
+      final skillText = sRows.map((s) => '${s['skill_name']} (ระดับ: ${s['proficiency_level']})').join(', ');
+
+      // 2. Fetch certificates
+      final certRows = await DbHelper.query(
+        "SELECT file_name, document_type FROM technician_attachments WHERE technician_id = @id AND document_type = 'certificate'",
+        params: {'id': userId},
+      );
+      final certText = certRows.map((c) => c['file_name']?.toString()).whereType<String>().join(', ');
+
+      // 3. Fetch completed Kaizen Action Plans & Work Orders
+      final woDoneCount = await DbHelper.queryOne(
+        "SELECT COUNT(*) as c FROM work_orders WHERE assigned_to = @id AND status = 'completed'",
+        params: {'id': userId},
+      );
+      final completedWo = woDoneCount?['c'] ?? 0;
+
+      final chunk = 'ข้อมูลบุคลากร & ทักษะความสามารถ: $empNo - $name ($role)\n'
+          'แผนก: $dept\n'
+          'ทักษะความชำนาญ (Skill Matrix): ${skillText.isEmpty ? 'ยังไม่ระบุ' : skillText}\n'
+          'ใบประกาศนียบัตร/ใบเซอร์: ${certText.isEmpty ? 'ไม่มีเอกสารแนบ' : certText}\n'
+          'สถิติงานซ่อมบำรุงที่ปิดสำเร็จ: $completedWo งาน';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_tech_$userId',
+          sourceType: 'technician_profile',
+          sourceId: userId,
+          title: '$empNo - $name ($role)',
+          category: 'workforce_skills',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'user_id': userId,
+            'employee_no': empNo,
+            'full_name': name,
+            'role': role,
+            'skills': sRows.map((s) => s['skill_name']).toList(),
+          },
+        );
+        _log.i('[VectorDB] Auto-synced Technician Profile & Skill Matrix for $name to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync technician profile: $e');
+    }
+  }
+
   /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions), Machines, Spare Parts, Tools, and Lean Processes into Vector DB.
   static Future<int> indexHistoricalKnowledge() async {
     await ensureTable();
@@ -912,6 +983,16 @@ class VectorDbService {
         final rId = rca['rca_id']?.toString();
         if (rId != null && rId.isNotEmpty) {
           await syncProblemSolvingAndActionPlan(rId);
+          count++;
+        }
+      }
+
+      // 9. Index Technician Profiles, Skill Matrix & Achievements
+      final userRows = await DbHelper.query('SELECT user_id FROM users WHERE is_active = 1');
+      for (final u in userRows) {
+        final uId = u['user_id']?.toString();
+        if (uId != null && uId.isNotEmpty) {
+          await syncTechnicianSkillAndPortfolio(uId);
           count++;
         }
       }
