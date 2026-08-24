@@ -206,10 +206,12 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
 
 35. LINE BALANCING & PRODUCTION LINE DESIGN (manage_line_balancing):
    - When the user asks to create, design, update, or balance a production line or workstations (e.g. "ช่วยสร้าง line balancing ให้หน่อย", "จัดสายการผลิต", "ปรับสมดุลสายการผลิต", "เพิ่มสถานีงานในไลน์", "โยงเครื่องจักรในสายการผลิต"):
-     1. MANDATORY - ALWAYS REUSE & LINK EXISTING MACHINES FROM DATABASE:
-        - You MUST query existing machines first (e.g. via `query_database` `SELECT machine_id, machine_no, machine_name, department, location FROM machines`) to find actual machine IDs in the factory.
-        - Pass the real `machine_identifier` (machine_no or machine_id) for each station so that `machine_id` and `machine_name` are properly linked to `production_line_stations`.
-        - NEVER invent fake machine names or leave `machine_id` empty. Linking real machines allows the Lean Analysis (VSM / SOP) module to recognize the machine steps and cycle times immediately!
+     1. MANDATORY - DYNAMIC MULTI-FACTORY MACHINE DISCOVERY (ห้าม FIX หรือ HARDCODE เครื่องจักรเด็ดขาด):
+        - The app may be deployed across different factories, companies, or new databases with entirely different machine inventories.
+        - NEVER assume or hardcode specific machine names/codes.
+        - ALWAYS dynamically query whatever machines exist in the current factory database via `query_database` (e.g. `SELECT machine_id, machine_no, machine_name, department, location, status FROM machines WHERE status != 'offline'`).
+        - If matching machines are found in the active database, pass their actual `machine_identifier` (machine_no or machine_id) so the station links to the real machine entity for Lean Analysis (VSM / SOP).
+        - If the database has no machines registered yet (e.g. fresh factory setup), create stations with descriptive task names without failing, allowing the plant engineer to bind machines later.
      2. AUTOMATIC CENTERED GRID LAYOUT (ZERO-OVERFLOW / ไม่ตกขอบ):
         - Always use `manage_line_balancing` tool. It automatically computes optimal centered relative coordinates `pos_x` and `pos_y` (e.g. horizontal layout `-450..450, 0` for 1-4 stations, or multi-row grid for 5+ stations).
         - DO NOT put large diagonal or arbitrary coordinate offsets (like 1600+ or 2000+) that cause station nodes to overflow or drop off the screen borders ("ตกขอบ").

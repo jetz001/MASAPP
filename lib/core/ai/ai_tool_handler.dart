@@ -4610,49 +4610,59 @@ class AiToolHandler {
       final stationName = st['station_name']?.toString() ?? 'สถานีที่ $stationNo';
       final stId = st['station_id']?.toString() ?? 'st_$stationNo';
 
-      // 1. Link real machine from DB
+      // 1. Dynamic machine linking from active factory database
       String? matchedMachineId = st['machine_id']?.toString();
       String? matchedMachineName = st['machine_name']?.toString();
 
       if ((matchedMachineId == null || matchedMachineId.isEmpty) && existingMachines.isNotEmpty) {
-        final lookupQuery = (st['machine_identifier'] ?? st['machine_no'] ?? stationName).toString().toLowerCase();
+        final lookupQuery = (st['machine_identifier'] ?? st['machine_no'] ?? '').toString().toLowerCase().trim();
         
-        // Find best machine match
         Map<String, dynamic>? bestMatch;
-        for (final mc in existingMachines) {
-          final mNo = mc['machine_no']?.toString().toLowerCase() ?? '';
-          final mName = mc['machine_name']?.toString().toLowerCase() ?? '';
-          final mId = mc['machine_id']?.toString().toLowerCase() ?? '';
 
-          if (lookupQuery.contains(mNo) || lookupQuery.contains(mName) || lookupQuery.contains(mId) ||
-              mNo.contains(lookupQuery) || mName.contains(lookupQuery)) {
-            bestMatch = mc;
-            break;
-          }
-        }
+        // A. Match by explicit user machine code/name if provided
+        if (lookupQuery.isNotEmpty) {
+          for (final mc in existingMachines) {
+            final mNo = mc['machine_no']?.toString().toLowerCase() ?? '';
+            final mName = mc['machine_name']?.toString().toLowerCase() ?? '';
+            final mId = mc['machine_id']?.toString().toLowerCase() ?? '';
 
-        // Functional keyword matching fallback
-        if (bestMatch == null) {
-          final keywords = ['cut', 'saw', 'ตัด', 'lathe', 'กลึง', 'cnc', 'milling', 'press', 'ปั๊ม', 'weld', 'เชื่อม', 'assemble', 'ประกอบ', 'qc', 'pack', 'ตรวจ', 'conveyor', 'สายพาน'];
-          for (final kw in keywords) {
-            if (stationName.toLowerCase().contains(kw)) {
-              for (final mc in existingMachines) {
-                final mName = mc['machine_name']?.toString().toLowerCase() ?? '';
-                if (mName.contains(kw)) {
-                  bestMatch = mc;
-                  break;
-                }
-              }
-              if (bestMatch != null) break;
+            if (lookupQuery == mNo || lookupQuery == mId || lookupQuery == mName ||
+                mNo.contains(lookupQuery) || mName.contains(lookupQuery)) {
+              bestMatch = mc;
+              break;
             }
           }
         }
 
-        // Sequential fallback assignment
-        bestMatch ??= existingMachines[i % existingMachines.length];
+        // B. Match by station functional keywords against machine name/type in the current database
+        if (bestMatch == null) {
+          final sNameLower = stationName.toLowerCase();
+          for (final mc in existingMachines) {
+            final mName = mc['machine_name']?.toString().toLowerCase() ?? '';
+            final mNo = mc['machine_no']?.toString().toLowerCase() ?? '';
+            final mLoc = mc['location']?.toString().toLowerCase() ?? '';
+            
+            // Check if words in machine name match station name
+            final mWords = mName.split(RegExp(r'[\s\-_\/]+')).where((w) => w.length > 2);
+            for (final word in mWords) {
+              if (sNameLower.contains(word)) {
+                bestMatch = mc;
+                break;
+              }
+            }
+            if (bestMatch != null) break;
+            
+            if (sNameLower.contains(mNo) || (mLoc.isNotEmpty && sNameLower.contains(mLoc))) {
+              bestMatch = mc;
+              break;
+            }
+          }
+        }
 
-        matchedMachineId = bestMatch['machine_id']?.toString();
-        matchedMachineName = '${bestMatch['machine_no']} - ${bestMatch['machine_name']}';
+        if (bestMatch != null) {
+          matchedMachineId = bestMatch['machine_id']?.toString();
+          matchedMachineName = '${bestMatch['machine_no']} - ${bestMatch['machine_name']}';
+        }
       }
 
       // 2. Calculate Centered Relative Coordinates (Guaranteed No Edge Overflow)
