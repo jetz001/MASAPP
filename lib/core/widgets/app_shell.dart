@@ -187,6 +187,13 @@ const _navItems = [
     route: '/machine-registry',
   ),
   _NavItem(
+    label: 'ทะเบียนพื้นที่โรงงาน',
+    icon: HugeIcons.strokeRoundedLayers01,
+    iconSelected: HugeIcons.strokeRoundedLayers01,
+    route: '/factory-layout/management',
+    roles: ['engineer', 'admin'],
+  ),
+  _NavItem(
     label: 'ใบแจ้งซ่อม',
     icon: HugeIcons.strokeRoundedTask01,
     iconSelected: HugeIcons.strokeRoundedTask01,
@@ -215,13 +222,6 @@ const _navItems = [
     icon: HugeIcons.strokeRoundedWrench01,
     iconSelected: HugeIcons.strokeRoundedWrench01,
     route: '/tools',
-  ),
-  _NavItem(
-    label: 'ทะเบียนพื้นที่โรงงาน',
-    icon: HugeIcons.strokeRoundedLayers01,
-    iconSelected: HugeIcons.strokeRoundedLayers01,
-    route: '/factory-layout/management',
-    roles: ['engineer', 'admin'],
   ),
   _NavItem(
     label: 'ทะเบียนผู้รับเหมา',
