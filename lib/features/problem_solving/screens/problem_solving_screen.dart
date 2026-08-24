@@ -83,11 +83,29 @@ class _ProblemSolvingScreenState extends ConsumerState<ProblemSolvingScreen>
       final rows = await DbHelper.query('''
         SELECT wo_id, wo_no, title, description, failure_symptom, machine_id, priority, status, created_at
         FROM work_orders
+        WHERE (
+          (title IS NULL OR (title NOT LIKE 'PM %' AND title NOT LIKE 'PM:%' AND title NOT LIKE 'PM -%' AND title NOT LIKE '%บำรุงรักษา%'))
+          AND (description IS NULL OR (description NOT LIKE 'PM %' AND description NOT LIKE 'PM:%' AND description NOT LIKE 'PM -%'))
+        )
         ORDER BY created_at DESC
-        LIMIT 60
+        LIMIT 80
       ''');
+
+      final breakdownOrders = rows.where((r) {
+        final title = (r['title'] ?? '').toString().trim().toUpperCase();
+        final desc = (r['description'] ?? '').toString().trim().toUpperCase();
+        final isPm = title.startsWith('PM ') ||
+            title.startsWith('PM:') ||
+            title.startsWith('PM-') ||
+            title.startsWith('PM -') ||
+            title.contains('บำรุงรักษา') ||
+            desc.startsWith('PM ') ||
+            desc.startsWith('PM:');
+        return !isPm;
+      }).toList();
+
       setState(() {
-        _workOrders = rows;
+        _workOrders = breakdownOrders;
         if (widget.initialWoId != null) {
           final match = rows.firstWhereOrNull((r) => r['wo_id'] == widget.initialWoId);
           if (match != null) {

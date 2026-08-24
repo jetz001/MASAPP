@@ -266,7 +266,7 @@ const _navItems = [
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
-    label: 'แผนปฏิบัติการ (Action Plan)',
+    label: 'แผนปฏิบัติการ',
     icon: HugeIcons.strokeRoundedTask02,
     iconSelected: HugeIcons.strokeRoundedTask02,
     route: '/action-plans',
