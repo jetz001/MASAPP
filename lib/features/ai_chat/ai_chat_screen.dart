@@ -3,7 +3,9 @@ import 'package:path/path.dart' as p;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,11 +15,13 @@ import 'package:uuid/uuid.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/ai/ai_provider_config.dart';
 import '../../core/ai/ai_service.dart';
 import '../../core/ai/ai_tool_handler.dart';
 import '../../core/ai/rag_document_service.dart';
+import '../../core/ai/ai_presentation_pdf_service.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../features/auth/auth_provider.dart';
 import '../tools_equipment/tool_provider.dart';
@@ -1836,6 +1840,18 @@ class _MessageContent extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: _ActionConfirmationCard(data: block.actionConfirmation!),
             );
+          case _AiMessageBlockType.chart:
+            if (block.chartData == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _InteractiveChartBlock(chartData: block.chartData!),
+            );
+          case _AiMessageBlockType.slides:
+            if (block.presentationData == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _InteractivePresentationDeckBlock(deck: block.presentationData!),
+            );
         }
       }).toList(),
     );
@@ -2127,7 +2143,435 @@ class _MarkdownTextRenderer extends StatelessWidget {
   }
 }
 
-enum _AiMessageBlockType { text, code, table, image, pdf, timeline, actionConfirmation }
+enum _AiMessageBlockType { text, code, table, image, pdf, timeline, actionConfirmation, chart, slides }
+
+class _AiSlideMetric {
+  final String label;
+  final String value;
+  final String? target;
+  final String status; // 'good', 'warning', 'critical'
+  final String? change;
+
+  const _AiSlideMetric({
+    required this.label,
+    required this.value,
+    this.target,
+    this.status = 'good',
+    this.change,
+  });
+
+  factory _AiSlideMetric.fromMap(Map<String, dynamic> map) {
+    return _AiSlideMetric(
+      label: (map['label'] ?? map['name'] ?? map['key'])?.toString().trim() ?? 'ตัวชี้วัด',
+      value: (map['value'] ?? map['val'])?.toString().trim() ?? '-',
+      target: map['target']?.toString().trim(),
+      status: (map['status'] ?? 'good').toString().toLowerCase().trim(),
+      change: map['change']?.toString().trim(),
+    );
+  }
+}
+
+class _AiFishboneModel {
+  final String problem;
+  final List<String> man;
+  final List<String> machine;
+  final List<String> method;
+  final List<String> material;
+  final List<String> environment;
+
+  const _AiFishboneModel({
+    required this.problem,
+    this.man = const [],
+    this.machine = const [],
+    this.method = const [],
+    this.material = const [],
+    this.environment = const [],
+  });
+
+  factory _AiFishboneModel.fromMap(Map<String, dynamic> map) {
+    return _AiFishboneModel(
+      problem: (map['problem'] ?? map['title'] ?? 'ปัญหาหลักที่ตรวจพบ')?.toString().trim() ?? '',
+      man: _parseList(map['man']),
+      machine: _parseList(map['machine']),
+      method: _parseList(map['method']),
+      material: _parseList(map['material']),
+      environment: _parseList(map['environment'] ?? map['env']),
+    );
+  }
+
+  static List<String> _parseList(dynamic raw) {
+    if (raw == null) return [];
+    if (raw is List) {
+      return raw.map((e) => e?.toString().trim() ?? '').where((e) => e.isNotEmpty).toList();
+    }
+    return [raw.toString().trim()];
+  }
+}
+
+class _AiFiveWhyModel {
+  final String problem;
+  final List<String> whys;
+  final String rootCause;
+  final String? countermeasure;
+
+  const _AiFiveWhyModel({
+    required this.problem,
+    required this.whys,
+    required this.rootCause,
+    this.countermeasure,
+  });
+
+  factory _AiFiveWhyModel.fromMap(Map<String, dynamic> map) {
+    final problem = (map['problem'] ?? 'ปัญหาที่ระบุ')?.toString().trim() ?? '';
+    final rawWhys = map['whys'];
+    final list = <String>[];
+    if (rawWhys is List) {
+      for (final w in rawWhys) {
+        if (w != null && w.toString().trim().isNotEmpty) {
+          list.add(w.toString().trim());
+        }
+      }
+    } else {
+      for (int i = 1; i <= 5; i++) {
+        final w = map['why_$i']?.toString().trim();
+        if (w != null && w.isNotEmpty) list.add(w);
+      }
+    }
+
+    final root = (map['root_cause'] ?? (list.isNotEmpty ? list.last : 'ไม่ระบุสาเหตุที่แท้จริง'))?.toString().trim() ?? '';
+    final action = (map['countermeasure'] ?? map['preventive_action'] ?? map['action'])?.toString().trim();
+
+    return _AiFiveWhyModel(
+      problem: problem,
+      whys: list,
+      rootCause: root,
+      countermeasure: action,
+    );
+  }
+}
+
+class _AiEightDStep {
+  final String step;
+  final String title;
+  final String description;
+  final String owner;
+  final String status;
+
+  const _AiEightDStep({
+    required this.step,
+    required this.title,
+    required this.description,
+    required this.owner,
+    required this.status,
+  });
+
+  factory _AiEightDStep.fromMap(Map<String, dynamic> map) {
+    return _AiEightDStep(
+      step: (map['step'] ?? 'D')?.toString().trim() ?? 'D',
+      title: (map['title'] ?? '')?.toString().trim() ?? '',
+      description: (map['description'] ?? map['detail'] ?? '-')?.toString().trim() ?? '-',
+      owner: (map['owner'] ?? map['responsible'] ?? '-')?.toString().trim() ?? '-',
+      status: (map['status'] ?? 'Completed')?.toString().trim() ?? 'Completed',
+    );
+  }
+}
+
+class _AiSlideItem {
+  final String type; // 'title', 'kpi', 'fishbone', 'rca_5why', 'eight_d', 'chart', 'table', 'content', 'summary'
+  final String title;
+  final String? subtitle;
+  final String? content;
+  final List<_AiSlideMetric> metrics;
+  final _AiFishboneModel? fishbone;
+  final _AiFiveWhyModel? fiveWhy;
+  final List<_AiEightDStep> eightD;
+  final _AiChartData? chartData;
+  final List<String> actionItems;
+  final List<String> bullets;
+  final Map<String, dynamic> raw;
+
+  const _AiSlideItem({
+    required this.type,
+    required this.title,
+    this.subtitle,
+    this.content,
+    this.metrics = const [],
+    this.fishbone,
+    this.fiveWhy,
+    this.eightD = const [],
+    this.chartData,
+    this.actionItems = const [],
+    this.bullets = const [],
+    required this.raw,
+  });
+
+  factory _AiSlideItem.fromMap(Map<String, dynamic> map) {
+    final type = (map['slide_type'] ?? map['type'])?.toString().toLowerCase().trim() ?? 'content';
+    final title = (map['title'] ?? 'สไลด์นำเสนอ')?.toString().trim() ?? 'สไลด์นำเสนอ';
+    final subtitle = map['subtitle']?.toString().trim();
+    final content = map['content']?.toString().trim();
+
+    // Metrics
+    final rawMetrics = map['metrics'] ?? map['kpis'];
+    final metricsList = <_AiSlideMetric>[];
+    if (rawMetrics is List) {
+      for (final m in rawMetrics) {
+        if (m is Map) metricsList.add(_AiSlideMetric.fromMap(m.cast<String, dynamic>()));
+      }
+    }
+
+    // Fishbone
+    _AiFishboneModel? fb;
+    if (type == 'fishbone' || map.containsKey('fishbone_data')) {
+      final fbMap = (map['fishbone_data'] ?? map) as Map;
+      fb = _AiFishboneModel.fromMap(fbMap.cast<String, dynamic>());
+    }
+
+    // 5-Why
+    _AiFiveWhyModel? fw;
+    if (type == 'rca_5why' || type == '5why' || map.containsKey('five_why_data')) {
+      final fwMap = (map['five_why_data'] ?? map) as Map;
+      fw = _AiFiveWhyModel.fromMap(fwMap.cast<String, dynamic>());
+    }
+
+    // 8D
+    final raw8D = map['eight_d_data'] ?? map['steps'];
+    final eightDList = <_AiEightDStep>[];
+    if (raw8D is List) {
+      for (final st in raw8D) {
+        if (st is Map) eightDList.add(_AiEightDStep.fromMap(st.cast<String, dynamic>()));
+      }
+    }
+
+    // Chart
+    _AiChartData? cd;
+    if (type == 'chart' || map.containsKey('chart_data')) {
+      final cMap = (map['chart_data'] ?? map) as Map;
+      cd = _AiChartData.fromMap(cMap.cast<String, dynamic>(), '');
+    }
+
+    // Actions & bullets
+    final rawActions = map['action_items'] ?? map['actions'] ?? map['items'];
+    final actionsList = <String>[];
+    if (rawActions is List) {
+      for (final a in rawActions) {
+        if (a != null && a.toString().trim().isNotEmpty) actionsList.add(a.toString().trim());
+      }
+    }
+
+    final rawBullets = map['bullets'] ?? map['points'];
+    final bulletsList = <String>[];
+    if (rawBullets is List) {
+      for (final b in rawBullets) {
+        if (b != null && b.toString().trim().isNotEmpty) bulletsList.add(b.toString().trim());
+      }
+    }
+
+    return _AiSlideItem(
+      type: type,
+      title: title,
+      subtitle: subtitle,
+      content: content,
+      metrics: metricsList,
+      fishbone: fb,
+      fiveWhy: fw,
+      eightD: eightDList,
+      chartData: cd,
+      actionItems: actionsList,
+      bullets: bulletsList,
+      raw: map,
+    );
+  }
+}
+
+class _AiPresentationDeckData {
+  final String title;
+  final String? subtitle;
+  final String? author;
+  final String theme;
+  final String? pdfPath;
+  final List<String> sources;
+  final List<_AiSlideItem> slides;
+  final String rawJson;
+
+  const _AiPresentationDeckData({
+    required this.title,
+    this.subtitle,
+    this.author,
+    this.theme = 'blue',
+    this.pdfPath,
+    this.sources = const [],
+    required this.slides,
+    required this.rawJson,
+  });
+
+  factory _AiPresentationDeckData.fromMap(Map<String, dynamic> map, String rawJson) {
+    final title = (map['title'] ?? 'สไลด์นำเสนอผลการดำเนินงาน')?.toString().trim() ?? 'สไลด์นำเสนอ';
+    final subtitle = map['subtitle']?.toString().trim();
+    final author = map['author']?.toString().trim();
+    final theme = (map['theme'] ?? 'blue')?.toString().trim() ?? 'blue';
+    final pdfPath = map['pdf_path']?.toString().trim();
+
+    final rawSources = map['sources'] ?? map['source_references'];
+    final sourcesList = <String>[];
+    if (rawSources is List) {
+      for (final s in rawSources) {
+        if (s != null && s.toString().trim().isNotEmpty) sourcesList.add(s.toString().trim());
+      }
+    }
+
+    final rawSlides = map['slides'] ?? map['deck'];
+    final slidesList = <_AiSlideItem>[];
+    if (rawSlides is List) {
+      for (final sl in rawSlides) {
+        if (sl is Map) slidesList.add(_AiSlideItem.fromMap(sl.cast<String, dynamic>()));
+      }
+    }
+
+    return _AiPresentationDeckData(
+      title: title,
+      subtitle: subtitle,
+      author: author,
+      theme: theme,
+      pdfPath: pdfPath,
+      sources: sourcesList,
+      slides: slidesList,
+      rawJson: rawJson,
+    );
+  }
+}
+
+class _AiChartDataPoint {
+  final String label;
+  final double value;
+  final Color? color;
+  final double? secondaryValue;
+  final String? group;
+
+  const _AiChartDataPoint({
+    required this.label,
+    required this.value,
+    this.color,
+    this.secondaryValue,
+    this.group,
+  });
+
+  factory _AiChartDataPoint.fromMap(Map<String, dynamic> map, int index, [List<Color>? palette]) {
+    final label = (map['label'] ?? map['name'] ?? map['key'] ?? map['category'])?.toString().trim() ?? '';
+    final rawVal = map['value'] ?? map['val'] ?? map['count'] ?? map['y'];
+    double value = 0.0;
+    if (rawVal is num) {
+      value = rawVal.toDouble();
+    } else if (rawVal != null) {
+      value = double.tryParse(rawVal.toString().replaceAll(RegExp(r'[^0-9.-]'), '')) ?? 0.0;
+    }
+
+    Color? itemColor;
+    final colorStr = map['color']?.toString().trim();
+    if (colorStr != null && colorStr.isNotEmpty) {
+      itemColor = _parseHexColor(colorStr);
+    }
+    if (itemColor == null && palette != null && palette.isNotEmpty) {
+      itemColor = palette[index % palette.length];
+    }
+
+    final rawSec = map['secondary_value'] ?? map['secondary'];
+    double? secVal;
+    if (rawSec is num) {
+      secVal = rawSec.toDouble();
+    } else if (rawSec != null) {
+      secVal = double.tryParse(rawSec.toString().replaceAll(RegExp(r'[^0-9.-]'), ''));
+    }
+
+    return _AiChartDataPoint(
+      label: label,
+      value: value,
+      color: itemColor,
+      secondaryValue: secVal,
+      group: map['group']?.toString().trim(),
+    );
+  }
+
+  static Color? _parseHexColor(String hex) {
+    var str = hex.replaceAll('#', '').trim();
+    if (str.length == 6) str = 'FF$str';
+    final val = int.tryParse(str, radix: 16);
+    return val != null ? Color(val) : null;
+  }
+}
+
+class _AiChartData {
+  final String chartType; // 'bar', 'pie', 'donut', 'line', 'area'
+  final String title;
+  final String? subtitle;
+  final String? xLabel;
+  final String? yLabel;
+  final String unit;
+  final List<_AiChartDataPoint> data;
+  final String rawJson;
+
+  const _AiChartData({
+    required this.chartType,
+    required this.title,
+    this.subtitle,
+    this.xLabel,
+    this.yLabel,
+    this.unit = '',
+    required this.data,
+    required this.rawJson,
+  });
+
+  static const List<Color> defaultPalette = [
+    Color(0xFF2196F3), // Blue
+    Color(0xFF4CAF50), // Green
+    Color(0xFFFF9800), // Orange
+    Color(0xFFE91E63), // Pink
+    Color(0xFF9C27B0), // Purple
+    Color(0xFF00BCD4), // Cyan
+    Color(0xFFFFC107), // Amber
+    Color(0xFF607D8B), // Blue Grey
+    Color(0xFF009688), // Teal
+    Color(0xFFF44336), // Red
+    Color(0xFF3F51B5), // Indigo
+    Color(0xFF8BC34A), // Light Green
+  ];
+
+  factory _AiChartData.fromMap(Map<String, dynamic> map, String rawJson) {
+    final type = (map['chart_type'] ?? map['type'])?.toString().toLowerCase().trim() ?? 'bar';
+    final title = (map['title'] ?? 'กราฟแสดงผลข้อมูล')?.toString().trim() ?? 'กราฟแสดงผลข้อมูล';
+    final subtitle = map['subtitle']?.toString().trim();
+    final xLabel = map['x_label']?.toString().trim();
+    final yLabel = map['y_label']?.toString().trim();
+    final unit = map['unit']?.toString().trim() ?? '';
+
+    final rawData = map['data'] ?? map['series'] ?? map['items'];
+    final dataPoints = <_AiChartDataPoint>[];
+
+    if (rawData is List) {
+      for (int i = 0; i < rawData.length; i++) {
+        final item = rawData[i];
+        if (item is Map) {
+          dataPoints.add(_AiChartDataPoint.fromMap(
+            item.cast<String, dynamic>(),
+            i,
+            defaultPalette,
+          ));
+        }
+      }
+    }
+
+    return _AiChartData(
+      chartType: type,
+      title: title,
+      subtitle: subtitle,
+      xLabel: xLabel,
+      yLabel: yLabel,
+      unit: unit,
+      data: dataPoints,
+      rawJson: rawJson,
+    );
+  }
+}
 
 class _AiTimelineItem {
   final String time;
@@ -2204,6 +2648,8 @@ class _AiMessageBlock {
   final int? pages;
   final List<_AiTimelineItem> timelineItems;
   final _AiActionConfirmationData? actionConfirmation;
+  final _AiChartData? chartData;
+  final _AiPresentationDeckData? presentationData;
 
   const _AiMessageBlock.text(this.text)
     : type = _AiMessageBlockType.text,
@@ -2216,7 +2662,9 @@ class _AiMessageBlock {
       thumbnail = '',
       pages = null,
       timelineItems = const [],
-      actionConfirmation = null;
+      actionConfirmation = null,
+      chartData = null,
+      presentationData = null;
 
   const _AiMessageBlock.code(this.text, {this.language = ''})
     : type = _AiMessageBlockType.code,
@@ -2228,7 +2676,9 @@ class _AiMessageBlock {
       thumbnail = '',
       pages = null,
       timelineItems = const [],
-      actionConfirmation = null;
+      actionConfirmation = null,
+      chartData = null,
+      presentationData = null;
 
   const _AiMessageBlock.table({
     required this.headers,
@@ -2242,7 +2692,9 @@ class _AiMessageBlock {
        thumbnail = '',
        pages = null,
        timelineItems = const [],
-       actionConfirmation = null;
+       actionConfirmation = null,
+       chartData = null,
+       presentationData = null;
 
   const _AiMessageBlock.image({required this.source, required this.altText})
     : type = _AiMessageBlockType.image,
@@ -2254,7 +2706,9 @@ class _AiMessageBlock {
       thumbnail = '',
       pages = null,
       timelineItems = const [],
-      actionConfirmation = null;
+      actionConfirmation = null,
+      chartData = null,
+      presentationData = null;
 
   const _AiMessageBlock.pdf({
     required this.title,
@@ -2268,7 +2722,9 @@ class _AiMessageBlock {
        rows = const [],
        altText = '',
        timelineItems = const [],
-       actionConfirmation = null;
+       actionConfirmation = null,
+       chartData = null,
+       presentationData = null;
 
   const _AiMessageBlock.timeline({required this.timelineItems})
     : type = _AiMessageBlockType.timeline,
@@ -2281,7 +2737,9 @@ class _AiMessageBlock {
       title = '',
       thumbnail = '',
       pages = null,
-      actionConfirmation = null;
+      actionConfirmation = null,
+      chartData = null,
+      presentationData = null;
 
   const _AiMessageBlock.actionConfirmation(this.actionConfirmation)
     : type = _AiMessageBlockType.actionConfirmation,
@@ -2294,7 +2752,39 @@ class _AiMessageBlock {
       title = '',
       thumbnail = '',
       pages = null,
-      timelineItems = const [];
+      timelineItems = const [],
+      chartData = null,
+      presentationData = null;
+
+  const _AiMessageBlock.chart(this.chartData)
+    : type = _AiMessageBlockType.chart,
+      text = '',
+      language = '',
+      headers = const [],
+      rows = const [],
+      source = '',
+      altText = '',
+      title = '',
+      thumbnail = '',
+      pages = null,
+      timelineItems = const [],
+      actionConfirmation = null,
+      presentationData = null;
+
+  const _AiMessageBlock.slides(this.presentationData)
+    : type = _AiMessageBlockType.slides,
+      text = '',
+      language = '',
+      headers = const [],
+      rows = const [],
+      source = '',
+      altText = '',
+      title = '',
+      thumbnail = '',
+      pages = null,
+      timelineItems = const [],
+      actionConfirmation = null,
+      chartData = null;
 }
 
 class _AiMessageBlockParser {
@@ -2346,6 +2836,8 @@ class _AiMessageBlockParser {
           'pdfcard' => _parsePdfCard(code),
           'timeline' => _parseTimeline(code),
           'action_confirmation' || 'action_request' || 'confirmation' => _parseActionConfirmation(code),
+          'chart' || 'fl_chart' || 'barchart' || 'bar_chart' || 'piechart' || 'pie_chart' || 'linechart' || 'line_chart' || 'donutchart' || 'donut_chart' || 'areachart' || 'area_chart' || 'chart_config' => _parseChart(code),
+          'slides' || 'presentation' || 'slide_deck' || 'pdf_slides' || 'slides_deck' => _parseSlides(code),
           _ => null,
         };
         if (specialBlock != null) {
@@ -2550,6 +3042,30 @@ class _AiMessageBlockParser {
       if (decoded is! Map<String, dynamic>) return null;
       final data = _AiActionConfirmationData.fromMap(decoded);
       return _AiMessageBlock.actionConfirmation(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static _AiMessageBlock? _parseChart(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final data = _AiChartData.fromMap(decoded, raw);
+      if (data.data.isEmpty) return null;
+      return _AiMessageBlock.chart(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static _AiMessageBlock? _parseSlides(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+      final data = _AiPresentationDeckData.fromMap(decoded, raw);
+      if (data.slides.isEmpty) return null;
+      return _AiMessageBlock.slides(data);
     } catch (_) {
       return null;
     }
@@ -3800,6 +4316,1767 @@ class _TimelineTypeStyle {
           label: 'อัปเดต',
         );
     }
+  }
+}
+
+class _InteractiveChartBlock extends StatefulWidget {
+  final _AiChartData chartData;
+
+  const _InteractiveChartBlock({required this.chartData});
+
+  @override
+  State<_InteractiveChartBlock> createState() => _InteractiveChartBlockState();
+}
+
+class _InteractiveChartBlockState extends State<_InteractiveChartBlock> {
+  late String _activeType;
+  bool _showTable = false;
+  int _touchedIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeType = _normalizeType(widget.chartData.chartType);
+  }
+
+  String _normalizeType(String raw) {
+    final lower = raw.toLowerCase().trim();
+    if (lower.contains('pie')) return 'pie';
+    if (lower.contains('donut') || lower.contains('doughnut')) return 'donut';
+    if (lower.contains('line') || lower.contains('area') || lower.contains('trend')) return 'line';
+    return 'bar';
+  }
+
+  double get _totalSum {
+    if (widget.chartData.data.isEmpty) return 0.0;
+    return widget.chartData.data.fold(0.0, (acc, item) => acc + item.value);
+  }
+
+  double get _maxValue {
+    if (widget.chartData.data.isEmpty) return 0.0;
+    return widget.chartData.data.map((e) => e.value).reduce(math.max);
+  }
+
+  double get _avgValue {
+    if (widget.chartData.data.isEmpty) return 0.0;
+    return _totalSum / widget.chartData.data.length;
+  }
+
+  String _formatNumber(double val) {
+    if (val == val.roundToDouble()) {
+      return val.toInt().toString();
+    }
+    return val.toStringAsFixed(1);
+  }
+
+  String _generateCsvData() {
+    final buffer = StringBuffer();
+    buffer.writeln('ลำดับ,รายการ,ค่า,หน่วย,สัดส่วน (%)');
+    final total = _totalSum;
+    for (int i = 0; i < widget.chartData.data.length; i++) {
+      final item = widget.chartData.data[i];
+      final pct = total > 0 ? (item.value / total * 100).toStringAsFixed(1) : '0';
+      buffer.writeln('${i + 1},"${item.label}",${item.value},"${widget.chartData.unit}",$pct%');
+    }
+    return buffer.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final unit = widget.chartData.unit;
+    final data = widget.chartData.data;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Header Toolbar
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    _getChartIcon(_activeType),
+                    size: 20,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.chartData.title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (widget.chartData.subtitle != null && widget.chartData.subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.chartData.subtitle!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Chart Type Selector
+                Container(
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  padding: const EdgeInsets.all(2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildTypeButton('bar', Icons.bar_chart_rounded, 'แท่ง', theme),
+                      _buildTypeButton('pie', Icons.pie_chart_rounded, 'วงกลม', theme),
+                      _buildTypeButton('donut', Icons.donut_large_rounded, 'โดนัท', theme),
+                      _buildTypeButton('line', Icons.show_chart_rounded, 'เส้น', theme),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Toggle Table / Chart
+                IconButton(
+                  tooltip: _showTable ? 'ดูกราฟ' : 'ดูตารางข้อมูล',
+                  icon: Icon(
+                    _showTable ? Icons.bar_chart_rounded : Icons.table_chart_outlined,
+                    size: 19,
+                    color: _showTable ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  onPressed: () => setState(() => _showTable = !_showTable),
+                  style: IconButton.styleFrom(
+                    backgroundColor: _showTable
+                        ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                        : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+                // Copy CSV Button
+                IconButton(
+                  tooltip: 'คัดลอกข้อมูล CSV',
+                  icon: const Icon(Icons.copy_rounded, size: 17),
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: _generateCsvData()));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('คัดลอกข้อมูลตาราง CSV เรียบร้อยแล้ว'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(height: 1),
+
+          // 2. Summary KPI Ribbon
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                _buildKpiChip('ยอดรวม', '${_formatNumber(_totalSum)} $unit', theme, Colors.blue),
+                _buildKpiChip('สูงสุด', '${_formatNumber(_maxValue)} $unit', theme, Colors.green),
+                _buildKpiChip('ค่าเฉลี่ย', '${_formatNumber(_avgValue)} $unit', theme, Colors.orange),
+                _buildKpiChip('จำนวนกลุ่ม', '${data.length} รายการ', theme, Colors.purple),
+              ],
+            ),
+          ),
+
+          // 3. Body View: Chart or Table
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: _showTable
+                ? _buildTableView(theme, unit)
+                : _buildChartView(theme, unit),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTypeButton(String type, IconData icon, String tooltip, ThemeData theme) {
+    final isSelected = _activeType == type;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _activeType = type;
+          _showTable = false;
+        });
+      },
+      borderRadius: BorderRadius.circular(7),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 15,
+              color: isSelected ? Colors.white : theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _getChartIcon(String type) {
+    switch (type) {
+      case 'pie':
+        return Icons.pie_chart_rounded;
+      case 'donut':
+        return Icons.donut_large_rounded;
+      case 'line':
+        return Icons.show_chart_rounded;
+      default:
+        return Icons.bar_chart_rounded;
+    }
+  }
+
+  Widget _buildKpiChip(String label, String value, ThemeData theme, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: accent.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChartView(ThemeData theme, String unit) {
+    final data = widget.chartData.data;
+    if (data.isEmpty) {
+      return const SizedBox(
+        height: 200,
+        child: Center(child: Text('ไม่มีข้อมูลสำหรับแสดงกราฟ')),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 260,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 16, right: 12),
+            child: switch (_activeType) {
+              'pie' => _buildPieChart(theme, false, unit),
+              'donut' => _buildPieChart(theme, true, unit),
+              'line' => _buildLineChart(theme, unit),
+              _ => _buildBarChart(theme, unit),
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Legend List for Pie / Donut
+        if (_activeType == 'pie' || _activeType == 'donut')
+          _buildPieLegend(theme, unit),
+      ],
+    );
+  }
+
+  Widget _buildBarChart(ThemeData theme, String unit) {
+    final data = widget.chartData.data;
+    final maxVal = _maxValue;
+    final maxY = maxVal > 0 ? (maxVal * 1.25) : 10.0;
+
+    return BarChart(
+      BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: maxY,
+        barTouchData: BarTouchData(
+          touchTooltipData: BarTouchTooltipData(
+            getTooltipColor: (_) => theme.colorScheme.inverseSurface,
+            tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            tooltipMargin: 8,
+            getTooltipItem: (group, groupIndex, rod, rodIndex) {
+              final item = data[group.x.toInt()];
+              final pct = _totalSum > 0 ? ' (${(item.value / _totalSum * 100).toStringAsFixed(1)}%)' : '';
+              return BarTooltipItem(
+                '${item.label}\n',
+                TextStyle(
+                  color: theme.colorScheme.onInverseSurface,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+                children: [
+                  TextSpan(
+                    text: '${_formatNumber(item.value)} $unit$pct',
+                    style: TextStyle(
+                      color: theme.colorScheme.primaryContainer,
+                      fontWeight: FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          touchCallback: (FlTouchEvent event, barTouchResponse) {
+            setState(() {
+              if (!event.isInterestedForInteractions ||
+                  barTouchResponse == null ||
+                  barTouchResponse.spot == null) {
+                _touchedIndex = -1;
+                return;
+              }
+              _touchedIndex = barTouchResponse.spot!.touchedBarGroupIndex;
+            });
+          },
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 38,
+              getTitlesWidget: (val, meta) {
+                if (val == meta.max || val == meta.min) return const SizedBox.shrink();
+                return Text(
+                  _formatNumber(val),
+                  style: TextStyle(
+                    color: theme.colorScheme.outline,
+                    fontSize: 11,
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 32,
+              getTitlesWidget: (val, meta) {
+                final idx = val.toInt();
+                if (idx < 0 || idx >= data.length) return const SizedBox.shrink();
+                final item = data[idx];
+                final shortLabel = item.label.length > 8 ? '${item.label.substring(0, 7)}…' : item.label;
+                final isSelected = idx == _touchedIndex;
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    shortLabel,
+                    style: TextStyle(
+                      color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+            strokeWidth: 1,
+            dashArray: [4, 4],
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        barGroups: List.generate(data.length, (i) {
+          final item = data[i];
+          final isTouched = i == _touchedIndex;
+          final barColor = item.color ?? _AiChartData.defaultPalette[i % _AiChartData.defaultPalette.length];
+
+          return BarChartGroupData(
+            x: i,
+            barRods: [
+              BarChartRodData(
+                toY: item.value,
+                color: isTouched ? barColor.withValues(alpha: 0.85) : barColor,
+                width: data.length > 10 ? 14 : (data.length > 6 ? 18 : 26),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                backDrawRodData: BackgroundBarChartRodData(
+                  show: true,
+                  toY: maxY,
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
+                ),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildPieChart(ThemeData theme, bool isDonut, String unit) {
+    final data = widget.chartData.data;
+    final total = _totalSum;
+
+    return PieChart(
+      PieChartData(
+        pieTouchData: PieTouchData(
+          touchCallback: (FlTouchEvent event, pieTouchResponse) {
+            setState(() {
+              if (!event.isInterestedForInteractions ||
+                  pieTouchResponse == null ||
+                  pieTouchResponse.touchedSection == null) {
+                _touchedIndex = -1;
+                return;
+              }
+              _touchedIndex = pieTouchResponse.touchedSection!.touchedSectionIndex;
+            });
+          },
+        ),
+        borderData: FlBorderData(show: false),
+        sectionsSpace: 2,
+        centerSpaceRadius: isDonut ? 48 : 0,
+        sections: List.generate(data.length, (i) {
+          final item = data[i];
+          final isTouched = i == _touchedIndex;
+          final radius = isTouched ? 65.0 : 54.0;
+          final pct = total > 0 ? (item.value / total * 100) : 0.0;
+          final color = item.color ?? _AiChartData.defaultPalette[i % _AiChartData.defaultPalette.length];
+
+          return PieChartSectionData(
+            color: color,
+            value: item.value,
+            title: pct >= 4.0 ? '${pct.toStringAsFixed(0)}%' : '',
+            radius: radius,
+            titleStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              shadows: [
+                Shadow(color: Colors.black45, blurRadius: 3),
+              ],
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildPieLegend(ThemeData theme, String unit) {
+    final data = widget.chartData.data;
+    final total = _totalSum;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 8,
+        children: List.generate(data.length, (i) {
+          final item = data[i];
+          final color = item.color ?? _AiChartData.defaultPalette[i % _AiChartData.defaultPalette.length];
+          final pct = total > 0 ? (item.value / total * 100).toStringAsFixed(1) : '0';
+          final isSelected = i == _touchedIndex;
+
+          return InkWell(
+            onTap: () => setState(() => _touchedIndex = (_touchedIndex == i ? -1 : i)),
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              decoration: BoxDecoration(
+                color: isSelected ? color.withValues(alpha: 0.15) : Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 11,
+                    height: 11,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    item.label,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '(${_formatNumber(item.value)} $unit - $pct%)',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildLineChart(ThemeData theme, String unit) {
+    final data = widget.chartData.data;
+    final maxVal = _maxValue;
+    final maxY = maxVal > 0 ? (maxVal * 1.25) : 10.0;
+    final primaryColor = theme.colorScheme.primary;
+
+    final spots = List.generate(data.length, (i) {
+      return FlSpot(i.toDouble(), data[i].value);
+    });
+
+    return LineChart(
+      LineChartData(
+        maxY: maxY,
+        minY: 0,
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => theme.colorScheme.inverseSurface,
+            tooltipPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                final idx = spot.x.toInt();
+                final item = data[idx];
+                return LineTooltipItem(
+                  '${item.label}\n',
+                  TextStyle(
+                    color: theme.colorScheme.onInverseSurface,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: '${_formatNumber(spot.y)} $unit',
+                      style: TextStyle(
+                        color: theme.colorScheme.primaryContainer,
+                        fontWeight: FontWeight.normal,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                );
+              }).toList();
+            },
+          ),
+        ),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
+            strokeWidth: 1,
+            dashArray: [4, 4],
+          ),
+        ),
+        titlesData: FlTitlesData(
+          show: true,
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 38,
+              getTitlesWidget: (val, meta) {
+                if (val == meta.max || val == meta.min) return const SizedBox.shrink();
+                return Text(
+                  _formatNumber(val),
+                  style: TextStyle(
+                    color: theme.colorScheme.outline,
+                    fontSize: 11,
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 32,
+              getTitlesWidget: (val, meta) {
+                final idx = val.toInt();
+                if (idx < 0 || idx >= data.length) return const SizedBox.shrink();
+                final item = data[idx];
+                final shortLabel = item.label.length > 8 ? '${item.label.substring(0, 7)}…' : item.label;
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    shortLabel,
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.35,
+            color: primaryColor,
+            barWidth: 3.5,
+            isStrokeCapRound: true,
+            dotData: FlDotData(
+              show: true,
+              getDotPainter: (spot, percent, barData, index) {
+                return FlDotCirclePainter(
+                  radius: 4.5,
+                  color: primaryColor,
+                  strokeWidth: 2,
+                  strokeColor: theme.colorScheme.surface,
+                );
+              },
+            ),
+            belowBarData: BarAreaData(
+              show: true,
+              color: primaryColor.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTableView(ThemeData theme, String unit) {
+    final data = widget.chartData.data;
+    final total = _totalSum;
+    final maxVal = _maxValue;
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: DataTable(
+            headingRowColor: WidgetStateProperty.all(
+              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+            ),
+            columnSpacing: 24,
+            columns: const [
+              DataColumn(label: Text('ลำดับ', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('รายการ / หมวดหมู่', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('จำนวน / ค่า', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('สัดส่วน (%)', style: TextStyle(fontWeight: FontWeight.bold))),
+              DataColumn(label: Text('แถบสัดส่วน', style: TextStyle(fontWeight: FontWeight.bold))),
+            ],
+            rows: List.generate(data.length, (i) {
+              final item = data[i];
+              final pct = total > 0 ? (item.value / total * 100) : 0.0;
+              final color = item.color ?? _AiChartData.defaultPalette[i % _AiChartData.defaultPalette.length];
+              final ratioToMax = maxVal > 0 ? (item.value / maxVal) : 0.0;
+
+              return DataRow(
+                cells: [
+                  DataCell(Text('${i + 1}')),
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(item.label, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                  DataCell(Text('${_formatNumber(item.value)} $unit')),
+                  DataCell(Text('${pct.toStringAsFixed(1)}%')),
+                  DataCell(
+                    SizedBox(
+                      width: 100,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: ratioToMax.clamp(0.0, 1.0),
+                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                          valueColor: AlwaysStoppedAnimation<Color>(color),
+                          minHeight: 8,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InteractivePresentationDeckBlock extends StatefulWidget {
+  final _AiPresentationDeckData deck;
+
+  const _InteractivePresentationDeckBlock({required this.deck});
+
+  @override
+  State<_InteractivePresentationDeckBlock> createState() => _InteractivePresentationDeckBlockState();
+}
+
+class _InteractivePresentationDeckBlockState extends State<_InteractivePresentationDeckBlock> {
+  int _currentIndex = 0;
+  bool _isExporting = false;
+  bool _showSources = false;
+  String? _savedPdfPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _savedPdfPath = widget.deck.pdfPath;
+  }
+
+  Color _resolvePrimaryColor() {
+    switch (widget.deck.theme.toLowerCase().trim()) {
+      case 'teal':
+      case 'green':
+      case 'lean':
+        return const Color(0xFF00796B);
+      case 'purple':
+      case 'enterprise':
+        return const Color(0xFF5E35B1);
+      case 'orange':
+      case 'urgent':
+      case 'rca':
+        return const Color(0xFFD84315);
+      case 'blue':
+      default:
+        return const Color(0xFF1565C0);
+    }
+  }
+
+  Future<void> _exportPdf() async {
+    setState(() => _isExporting = true);
+    try {
+      String path = _savedPdfPath ?? '';
+      if (path.isEmpty || !await File(path).exists()) {
+        final rawSlides = widget.deck.slides.map((s) => s.raw).toList();
+        path = await AiPresentationPdfService.generatePresentationPdf(
+          title: widget.deck.title,
+          subtitle: widget.deck.subtitle,
+          author: widget.deck.author,
+          themeName: widget.deck.theme,
+          slides: rawSlides,
+          sourceReferences: widget.deck.sources,
+        );
+        setState(() => _savedPdfPath = path);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ส่งออกสไลด์ PDF แนวนอนเรียบร้อย: ${p.basename(path)}'),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'เปิดดูไฟล์ PDF',
+              onPressed: () => AiPresentationPdfService.openPdf(path),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้าง PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<void> _printSlides() async {
+    if (_savedPdfPath != null && await File(_savedPdfPath!).exists()) {
+      await AiPresentationPdfService.printPdf(_savedPdfPath!);
+    } else {
+      await _exportPdf();
+      if (_savedPdfPath != null && await File(_savedPdfPath!).exists()) {
+        await AiPresentationPdfService.printPdf(_savedPdfPath!);
+      }
+    }
+  }
+
+  void _copySlideSummary() {
+    final buffer = StringBuffer();
+    buffer.writeln('# ${widget.deck.title}');
+    if (widget.deck.subtitle != null) buffer.writeln('## ${widget.deck.subtitle}');
+    buffer.writeln('');
+    for (int i = 0; i < widget.deck.slides.length; i++) {
+      final s = widget.deck.slides[i];
+      buffer.writeln('---');
+      buffer.writeln('### สไลด์ที่ ${i + 1}: ${s.title}');
+      if (s.content != null && s.content!.isNotEmpty) buffer.writeln(s.content);
+      if (s.metrics.isNotEmpty) {
+        for (final m in s.metrics) {
+          buffer.writeln('- **${m.label}**: ${m.value} (เป้าหมาย: ${m.target ?? "-"})');
+        }
+      }
+      if (s.actionItems.isNotEmpty) {
+        for (final a in s.actionItems) {
+          buffer.writeln('1. $a');
+        }
+      }
+    }
+    Clipboard.setData(ClipboardData(text: buffer.toString()));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('คัดลอกเนื้อหาสไลด์ทั้งหมดเรียบร้อยแล้ว'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = _resolvePrimaryColor();
+    final totalSlides = widget.deck.slides.length;
+    final currentSlide = totalSlides > 0 ? widget.deck.slides[_currentIndex.clamp(0, totalSlides - 1)] : null;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: primaryColor.withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 1. Studio Header Toolbar (NotebookLM Aesthetic)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: isDark ? 0.15 : 0.07),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              border: Border(
+                bottom: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    Icons.auto_stories_rounded,
+                    size: 20,
+                    color: primaryColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              widget.deck.title,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: primaryColor,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'PDF แนวนอน 16:9',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (widget.deck.subtitle != null && widget.deck.subtitle!.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          widget.deck.subtitle!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Action Buttons
+                if (widget.deck.sources.isNotEmpty)
+                  IconButton(
+                    tooltip: 'แหล่งข้อมูลอ้างอิง (${widget.deck.sources.length})',
+                    icon: Icon(
+                      Icons.source_rounded,
+                      size: 18,
+                      color: _showSources ? primaryColor : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    onPressed: () => setState(() => _showSources = !_showSources),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _showSources
+                          ? primaryColor.withValues(alpha: 0.15)
+                          : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                      padding: const EdgeInsets.all(8),
+                      minimumSize: const Size(34, 34),
+                    ),
+                  ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'คัดลอกสรุปสไลด์',
+                  icon: const Icon(Icons.copy_rounded, size: 17),
+                  onPressed: _copySlideSummary,
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: 'พิมพ์สไลด์ (Print)',
+                  icon: const Icon(Icons.print_rounded, size: 18),
+                  onPressed: _printSlides,
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                    padding: const EdgeInsets.all(8),
+                    minimumSize: const Size(34, 34),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                FilledButton.icon(
+                  onPressed: _isExporting ? null : _exportPdf,
+                  icon: _isExporting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.download_rounded, size: 16),
+                  label: Text(_isExporting ? 'กำลังสร้าง...' : 'ดาวน์โหลด PDF'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. Grounded Sources Drawer (NotebookLM Source Grounding)
+          if (_showSources && widget.deck.sources.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                border: Border(
+                  bottom: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.hub_rounded, size: 15, color: primaryColor),
+                      const SizedBox(width: 6),
+                      Text(
+                        '📚 แหล่งข้อมูลที่ Sub-agents นำมาสังเคราะห์ (Multi-Source Grounding):',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: widget.deck.sources.map((s) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                        ),
+                        child: Text(
+                          '• $s',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+
+          // 3. Main Slide Canvas (16:9 Responsive Display)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: currentSlide != null
+                ? _buildSlideBody(currentSlide, theme, isDark, primaryColor)
+                : const SizedBox(height: 240, child: Center(child: Text('ไม่มีสไลด์ในชุดนี้'))),
+          ),
+
+          // 4. Slide Navigation Controls
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(15)),
+              border: Border(
+                top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4)),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Previous Slide Button
+                OutlinedButton.icon(
+                  onPressed: _currentIndex > 0
+                      ? () => setState(() => _currentIndex--)
+                      : null,
+                  icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                  label: const Text('สไลด์ก่อนหน้า'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+
+                // Slide Thumbnails / Indicator
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'สไลด์ ${_currentIndex + 1} / $totalSlides',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: primaryColor,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ...List.generate(totalSlides, (idx) {
+                      final isSelected = idx == _currentIndex;
+                      return InkWell(
+                        onTap: () => setState(() => _currentIndex = idx),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          width: isSelected ? 18 : 8,
+                          height: 8,
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                          decoration: BoxDecoration(
+                            color: isSelected ? primaryColor : theme.colorScheme.outlineVariant,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+
+                // Next Slide Button
+                FilledButton.icon(
+                  onPressed: _currentIndex < totalSlides - 1
+                      ? () => setState(() => _currentIndex++)
+                      : null,
+                  icon: const Icon(Icons.arrow_forward_rounded, size: 16),
+                  label: const Text('สไลด์ถัดไป'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSlideBody(_AiSlideItem slide, ThemeData theme, bool isDark, Color primaryColor) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 280),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.6),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Slide Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.08),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(11)),
+              border: Border(
+                bottom: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: primaryColor,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          slide.title,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _formatSlideTypeBadge(slide.type),
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Slide Specific Content
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: switch (slide.type) {
+              'title' || 'cover' => _buildCoverSlideView(slide, theme, primaryColor),
+              'kpi' => _buildKpiSlideView(slide, theme, primaryColor),
+              'fishbone' => _buildFishboneSlideView(slide, theme, primaryColor),
+              'rca_5why' || '5why' => _build5WhySlideView(slide, theme, primaryColor),
+              'eight_d' || '8d' => _build8DSlideView(slide, theme, primaryColor),
+              'chart' => _buildChartSlideView(slide, theme, primaryColor),
+              'summary' => _buildSummarySlideView(slide, theme, primaryColor),
+              _ => _buildGeneralSlideView(slide, theme, primaryColor),
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatSlideTypeBadge(String type) {
+    switch (type) {
+      case 'title':
+        return 'หน้าปก (Cover)';
+      case 'kpi':
+        return 'KPI Dashboard';
+      case 'fishbone':
+        return 'Fishbone 4M1E';
+      case 'rca_5why':
+      case '5why':
+        return '5-Why RCA';
+      case 'eight_d':
+      case '8d':
+        return '8D Report';
+      case 'chart':
+        return 'สถิติกราฟ';
+      case 'summary':
+        return 'บทสรุป & Action';
+      default:
+        return 'เนื้อหา';
+    }
+  }
+
+  /// 1. Cover Slide View
+  Widget _buildCoverSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            primaryColor.withValues(alpha: 0.08),
+            primaryColor.withValues(alpha: 0.02),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: primaryColor,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'MASAPP · EXECUTIVE PRESENTATION',
+              style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            slide.title,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          if (slide.subtitle != null && slide.subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              slide.subtitle!,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'ผู้จัดทำ: ${widget.deck.author ?? "ฝ่ายซ่อมบำรุงและวิศวกรรม"}',
+                style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              Text(
+                DateFormat('dd/MM/yyyy').format(DateTime.now()),
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 2. KPI Slide View
+  Widget _buildKpiSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (slide.content != null && slide.content!.isNotEmpty) ...[
+          Text(slide.content!, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 14),
+        ],
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            childAspectRatio: 1.8,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+          ),
+          itemCount: slide.metrics.length,
+          itemBuilder: (ctx, i) {
+            final m = slide.metrics[i];
+            Color statusColor = primaryColor;
+            if (m.status == 'good' || m.status == 'pass') statusColor = Colors.green;
+            if (m.status == 'warning') statusColor = Colors.orange;
+            if (m.status == 'critical' || m.status == 'fail') statusColor = Colors.red;
+
+            return Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    m.label,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        m.value,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: statusColor,
+                        ),
+                      ),
+                      if (m.change != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: statusColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            m.change!,
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (m.target != null)
+                    Text(
+                      'เป้าหมาย: ${m.target}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                        fontSize: 10,
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  /// 3. Fishbone 4M1E Slide View
+  Widget _buildFishboneSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    final fb = slide.fishbone;
+    if (fb == null) return const Center(child: Text('ไม่มีข้อมูลผังก้างปลา'));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Problem Box
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.red.shade700,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'ปัญหาหลัก: ${fb.problem}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // 4M1E 5 Category Boxes
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildFishboneCategoryCard('👨 Man (คน/ทักษะ)', fb.man, theme, primaryColor),
+            _buildFishboneCategoryCard('⚙️ Machine (เครื่องจักร)', fb.machine, theme, primaryColor),
+            _buildFishboneCategoryCard('📋 Method (ขั้นตอน)', fb.method, theme, primaryColor),
+            _buildFishboneCategoryCard('📦 Material (อะไหล่/วัสดุ)', fb.material, theme, primaryColor),
+            _buildFishboneCategoryCard('🌡️ Environment (สภาพแวดล้อม)', fb.environment, theme, primaryColor),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFishboneCategoryCard(String title, List<String> items, ThemeData theme, Color primaryColor) {
+    return Container(
+      width: 240,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: primaryColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (items.isEmpty)
+            Text('- ไม่มีประเด็นตรวจพบ', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline))
+          else
+            ...items.map((it) => Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('• ', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
+                      Expanded(child: Text(it, style: theme.textTheme.bodySmall)),
+                    ],
+                  ),
+                )),
+        ],
+      ),
+    );
+  }
+
+  /// 4. 5-Why Drill-down Slide View
+  Widget _build5WhySlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    final fw = slide.fiveWhy;
+    if (fw == null) return const Center(child: Text('ไม่มีข้อมูล 5-Why'));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            '🚨 ปัญหา: ${fw.problem}',
+            style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 10),
+        ...List.generate(fw.whys.length, (idx) {
+          final isLast = idx == fw.whys.length - 1;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isLast ? primaryColor.withValues(alpha: 0.12) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: isLast ? primaryColor : theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isLast ? primaryColor : theme.colorScheme.outline,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Why #${idx + 1}',
+                    style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fw.whys[idx],
+                    style: TextStyle(
+                      fontWeight: isLast ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.green.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.green.shade600),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('🎯 Root Cause (สาเหตุที่แท้จริง): ${fw.rootCause}', style: TextStyle(color: Colors.green.shade900, fontWeight: FontWeight.bold, fontSize: 13)),
+              if (fw.countermeasure != null && fw.countermeasure!.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text('🛡️ มาตรการป้องกัน (Action): ${fw.countermeasure}', style: TextStyle(color: Colors.green.shade800, fontSize: 12)),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 5. 8D Methodology Slide View
+  Widget _build8DSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    if (slide.eightD.isEmpty) return const Center(child: Text('ไม่มีข้อมูล 8D'));
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        headingRowColor: WidgetStateProperty.all(primaryColor.withValues(alpha: 0.1)),
+        columnSpacing: 16,
+        columns: const [
+          DataColumn(label: Text('ขั้นตอน', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('หัวข้อ', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('การดำเนินการ', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('ผู้รับผิดชอบ', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('สถานะ', style: TextStyle(fontWeight: FontWeight.bold))),
+        ],
+        rows: slide.eightD.map((st) {
+          return DataRow(cells: [
+            DataCell(Text(st.step, style: const TextStyle(fontWeight: FontWeight.bold))),
+            DataCell(Text(st.title, style: const TextStyle(fontWeight: FontWeight.w600))),
+            DataCell(Text(st.description)),
+            DataCell(Text(st.owner)),
+            DataCell(Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(st.status, style: TextStyle(fontSize: 10, color: Colors.green.shade900, fontWeight: FontWeight.bold)),
+            )),
+          ]);
+        }).toList(),
+      ),
+    );
+  }
+
+  /// 6. Chart Slide View
+  Widget _buildChartSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    if (slide.chartData != null) {
+      return _InteractiveChartBlock(chartData: slide.chartData!);
+    }
+    return Text(slide.content ?? 'ไม่มีข้อมูลกราฟสำหรับสไลด์นี้');
+  }
+
+  /// 7. Summary & Action Plan View
+  Widget _buildSummarySlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('📌 สรุปภาพรวม (Summary):', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: primaryColor)),
+                const SizedBox(height: 8),
+                Text(slide.content ?? 'การดำเนินงานเป็นไปตามแผนงาน', style: theme.textTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: primaryColor.withValues(alpha: 0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('🎯 แผนงานขั้นตอนถัดไป (Next Actions):', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: primaryColor)),
+                const SizedBox(height: 8),
+                if (slide.actionItems.isEmpty)
+                  const Text('- ติดตามแผนงานตามมาตรฐาน PM/AM ประจำเดือน')
+                else
+                  ...List.generate(slide.actionItems.length, (idx) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: primaryColor,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text('${idx + 1}', style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(slide.actionItems[idx], style: theme.textTheme.bodyMedium)),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 8. General Slide View
+  Widget _buildGeneralSlideView(_AiSlideItem slide, ThemeData theme, Color primaryColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (slide.content != null && slide.content!.isNotEmpty) ...[
+          Text(slide.content!, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 12),
+        ],
+        if (slide.bullets.isNotEmpty)
+          ...slide.bullets.map((b) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.check_circle_rounded, size: 16, color: primaryColor),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(b, style: theme.textTheme.bodyMedium)),
+                  ],
+                ),
+              )),
+      ],
+    );
   }
 }
 

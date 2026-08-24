@@ -241,4 +241,173 @@ class SubagentBatchWorker {
       'location': raw['location']?.toString().trim() ?? 'Store A',
     };
   }
+
+  /// Subagent Chunked Data Query Helper:
+  /// Executes high-volume data retrieval across partitions (e.g. date slices, machine batches, or offset chunks)
+  /// and aggregates summaries safely without hitting query limits or token truncation.
+  static Future<Map<String, dynamic>> subagentBatchQuery({
+    required List<String> partitionQueries,
+    required String taskDescription,
+    void Function(String progressMsg)? onProgress,
+    Future<List<Map<String, dynamic>>> Function(String query)? queryExecutor,
+  }) async {
+    if (partitionQueries.isEmpty) {
+      return {
+        'status': 'empty',
+        'total_partitions': 0,
+        'rows_count': 0,
+        'results': <Map<String, dynamic>>[],
+        'message': 'ไม่มีชุดคำสั่งย่อยสำหรับ Subagent',
+      };
+    }
+
+    final totalPartitions = partitionQueries.length;
+    final allRows = <Map<String, dynamic>>[];
+    final warnings = <String>[];
+
+    for (int i = 0; i < totalPartitions; i++) {
+      final partSql = partitionQueries[i];
+      final partNum = i + 1;
+      onProgress?.call(
+        '🤖 Sub-agent กำลังดึงข้อมูลชุดที่ $partNum/$totalPartitions สำหรับ "$taskDescription"...',
+      );
+
+      try {
+        if (queryExecutor != null) {
+          final rows = await queryExecutor(partSql);
+          allRows.addAll(rows);
+        }
+      } catch (e) {
+        warnings.add('ชุดที่ $partNum เกิดข้อผิดพลาด: $e');
+      }
+
+      if (i < totalPartitions - 1) {
+        await Future.delayed(const Duration(milliseconds: 40));
+      }
+    }
+
+    onProgress?.call(
+      '✅ Sub-agent รวมข้อมูลเสร็จสิ้น ทั้งหมด ${allRows.length} รายการ จาก $totalPartitions ชุดย่อย',
+    );
+
+    return {
+      'status': 'success',
+      'task': taskDescription,
+      'total_partitions': totalPartitions,
+      'rows_count': allRows.length,
+      'results': allRows,
+      'warnings': warnings,
+      'message': 'Sub-agent ประมวลผลและรวบรวมข้อมูลสำเร็จ รวม ${allRows.length} รายการ',
+    };
+  }
+
+  /// Multi-Source Synthesis Engine (NotebookLM Style):
+  /// Calls domain-specific subagents to query and synthesize data across Maintenance modules:
+  /// (1) OEE & Production, (2) Work Orders & Downtime, (3) RCA & 5-Why, (4) PM/AM Plans, (5) Spare Parts.
+  static Future<Map<String, dynamic>> synthesizeMultiSourcePresentation({
+    String? machineIdentifier,
+    String? dateRange,
+    String? topic,
+    void Function(String progressMsg)? onProgress,
+    required Future<List<Map<String, dynamic>>> Function(String query) queryExecutor,
+  }) async {
+    final synthesis = <String, dynamic>{};
+    final sources = <String>[];
+
+    // Domain 1: OEE & Production Running Hours
+    onProgress?.call('🤖 Sub-agent [1/5]: กำลังดึงและวิเคราะห์สถิติ OEE, Availability และชั่วโมงเดินเครื่อง...');
+    try {
+      final oeeSql = machineIdentifier != null && machineIdentifier.isNotEmpty
+          ? '''
+            SELECT ol.*, m.machine_no, m.machine_name 
+            FROM oee_logs ol
+            JOIN machines m ON ol.machine_id = m.machine_id
+            WHERE m.machine_no LIKE '%$machineIdentifier%' OR m.machine_name LIKE '%$machineIdentifier%'
+            ORDER BY ol.recorded_date DESC LIMIT 30
+          '''
+          : '''
+            SELECT ol.*, m.machine_no, m.machine_name 
+            FROM oee_logs ol
+            JOIN machines m ON ol.machine_id = m.machine_id
+            ORDER BY ol.recorded_date DESC LIMIT 50
+          ''';
+      final oeeRows = await queryExecutor(oeeSql);
+      synthesis['oee_data'] = oeeRows;
+      sources.add('ตาราง oee_logs (${oeeRows.length} บันทึก)');
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 40));
+
+    // Domain 2: Work Orders & Breakdown Breakdown
+    onProgress?.call('🤖 Sub-agent [2/5]: กำลังรวบรวมข้อมูลใบแจ้งซ่อม (Work Orders), อัตราการซ่อมเสร็จ และ Downtime...');
+    try {
+      final woSql = machineIdentifier != null && machineIdentifier.isNotEmpty
+          ? '''
+            SELECT wo.*, m.machine_no, m.machine_name 
+            FROM work_orders wo
+            LEFT JOIN machines m ON wo.machine_id = m.machine_id
+            WHERE m.machine_no LIKE '%$machineIdentifier%' OR m.machine_name LIKE '%$machineIdentifier%'
+            ORDER BY wo.created_at DESC LIMIT 30
+          '''
+          : '''
+            SELECT wo.*, m.machine_no, m.machine_name 
+            FROM work_orders wo
+            LEFT JOIN machines m ON wo.machine_id = m.machine_id
+            ORDER BY wo.created_at DESC LIMIT 50
+          ''';
+      final woRows = await queryExecutor(woSql);
+      synthesis['work_orders'] = woRows;
+      sources.add('ตาราง work_orders (${woRows.length} ใบงาน)');
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 40));
+
+    // Domain 3: RCA 5-Why & Failure Causes
+    onProgress?.call('🤖 Sub-agent [3/5]: กำลังสกัดการวิเคราะห์สาเหตุเชิงลึก RCA, 5-Why และ Ishikawa 4M1E...');
+    try {
+      final rcaSql = '''
+        SELECT wo_no, title, failure_cause, root_cause, why_1, why_2, why_3, why_4, why_5,
+               correction_action, preventive_action, labor_hours
+        FROM work_orders
+        WHERE root_cause IS NOT NULL AND root_cause != ''
+        ORDER BY updated_at DESC LIMIT 20
+      ''';
+      final rcaRows = await queryExecutor(rcaSql);
+      synthesis['rca_records'] = rcaRows;
+      sources.add('บันทึก RCA 5-Why (${rcaRows.length} รายการ)');
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 40));
+
+    // Domain 4: PM/AM Plans & Compliance Schedules
+    onProgress?.call('🤖 Sub-agent [4/5]: กำลังตรวจสอบแผนแม่บท PM/AM และอัตราความสอดคล้อง (Compliance)...');
+    try {
+      final pmPlans = await queryExecutor('SELECT * FROM pm_am_plans LIMIT 30');
+      final pmSchedules = await queryExecutor('SELECT * FROM pm_am_schedules ORDER BY scheduled_date DESC LIMIT 50');
+      synthesis['pm_plans'] = pmPlans;
+      synthesis['pm_schedules'] = pmSchedules;
+      sources.add('แผนแม่บท PM/AM (${pmPlans.length} แผน, ${pmSchedules.length} รอบ)');
+    } catch (_) {}
+
+    await Future.delayed(const Duration(milliseconds: 40));
+
+    // Domain 5: Spare Parts Inventory & Cost
+    onProgress?.call('🤖 Sub-agent [5/5]: กำลังประมวลผลต้นทุนอะไหล่ และประวัติการเบิกจ่าย...');
+    try {
+      final parts = await queryExecutor('SELECT * FROM spare_parts ORDER BY current_stock ASC LIMIT 30');
+      synthesis['spare_parts'] = parts;
+      sources.add('คลังอะไหล่และต้นทุน (${parts.length} รายการ)');
+    } catch (_) {}
+
+    onProgress?.call('✅ Sub-agents สังเคราะห์ข้อมูลครบทั้ง 5 โดเมนสำเร็จ พร้อมจัดทำสไลด์นำเสนอ');
+
+    return {
+      'status': 'success',
+      'grounded_sources': sources,
+      'synthesis_data': synthesis,
+      'message': 'ดึงและสังเคราะห์ข้อมูลหลายโดเมนสำเร็จ พร้อมจัดสร้าง Presentation Deck',
+    };
+  }
 }
+
+

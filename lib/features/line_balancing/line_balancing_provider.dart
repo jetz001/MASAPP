@@ -431,14 +431,40 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
   }
 
   Future<void> _seedDefaultStations() async {
+    // Try to link real machines from database
+    List<Map<String, dynamic>> realMachines = [];
+    try {
+      realMachines = await DbHelper.query('SELECT machine_id, machine_no, machine_name FROM machines LIMIT 10');
+    } catch (_) {}
+
+    String? m1Id, m1Name, m2Id, m2Name, m3Id, m3Name, m4Id, m4Name;
+    if (realMachines.isNotEmpty) {
+      m1Id = realMachines[0]['machine_id']?.toString();
+      m1Name = '${realMachines[0]['machine_no']} - ${realMachines[0]['machine_name']}';
+      if (realMachines.length > 1) {
+        m2Id = realMachines[1]['machine_id']?.toString();
+        m2Name = '${realMachines[1]['machine_no']} - ${realMachines[1]['machine_name']}';
+      }
+      if (realMachines.length > 2) {
+        m3Id = realMachines[2]['machine_id']?.toString();
+        m3Name = '${realMachines[2]['machine_no']} - ${realMachines[2]['machine_name']}';
+      }
+      if (realMachines.length > 3) {
+        m4Id = realMachines[3]['machine_id']?.toString();
+        m4Name = '${realMachines[3]['machine_no']} - ${realMachines[3]['machine_name']}';
+      }
+    }
+
     final s1 = WorkstationData(
       id: 'st_1',
       name: '1. ตัดและเตรียมวัตถุดิบ (Cutting)',
       cycleTime: 25.0,
       workers: 1,
+      machineId: m1Id,
+      machineName: m1Name,
       eventType: 'operation',
       valueType: 'va',
-      position: const Offset(1600, 1850),
+      position: const Offset(-450, 0),
       nextStationIds: ['st_2'],
     );
     final s2 = WorkstationData(
@@ -446,9 +472,11 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       name: '2. ขึ้นรูปและกลึง (Machining)',
       cycleTime: 35.0,
       workers: 2,
+      machineId: m2Id,
+      machineName: m2Name,
       eventType: 'operation',
       valueType: 'va',
-      position: const Offset(1920, 1850),
+      position: const Offset(-150, 0),
       prevStationIds: ['st_1'],
       nextStationIds: ['st_3'],
     );
@@ -457,9 +485,11 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       name: '3. ประกอบชิ้นงาน (Assembly)',
       cycleTime: 40.0,
       workers: 2,
+      machineId: m3Id,
+      machineName: m3Name,
       eventType: 'operation',
       valueType: 'va',
-      position: const Offset(2240, 1850),
+      position: const Offset(150, 0),
       prevStationIds: ['st_2'],
       nextStationIds: ['st_4'],
     );
@@ -468,9 +498,11 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       name: '4. ตรวจสอบคุณภาพและบรรจุ (QC & Pack)',
       cycleTime: 20.0,
       workers: 1,
+      machineId: m4Id,
+      machineName: m4Name,
       eventType: 'inspection',
       valueType: 'va',
-      position: const Offset(2560, 1850),
+      position: const Offset(450, 0),
       prevStationIds: ['st_3'],
     );
 
@@ -513,6 +545,17 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           }
         } catch (_) {}
 
+        var rawX = (s['pos_x'] as num?)?.toDouble() ?? 0.0;
+        var rawY = (s['pos_y'] as num?)?.toDouble() ?? 0.0;
+
+        // Auto-normalize legacy out-of-bounds coordinates (if saved as absolute 1600+, shift back to relative center)
+        if (rawX >= 1000.0) {
+          rawX -= 2000.0;
+        }
+        if (rawY >= 1000.0) {
+          rawY -= 2000.0;
+        }
+
         return WorkstationData(
           id: s['station_id'].toString(),
           name: s['station_name'] ?? 'สถานีงาน',
@@ -528,10 +571,7 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           energyCost: (s['energy_cost'] as num?)?.toDouble() ?? 0.0,
           materialCost: (s['material_cost'] as num?)?.toDouble() ?? 0.0,
           otherCost: (s['other_cost'] as num?)?.toDouble() ?? 0.0,
-          position: Offset(
-            (s['pos_x'] as num?)?.toDouble() ?? 0.0,
-            (s['pos_y'] as num?)?.toDouble() ?? 0.0,
-          ),
+          position: Offset(rawX, rawY),
           prevStationIds: prevs,
           nextStationIds: nexts,
         );

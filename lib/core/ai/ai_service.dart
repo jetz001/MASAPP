@@ -157,6 +157,66 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
      4. For spare parts & tools: Supply the full array in `parts: [...]` or `tools: [...]`.
      5. The Subagent Batch Worker will stream live progress back to the user and ensure 100% data quality, transaction rollback protection, and zero token truncation.
 
+32. DYNAMIC CHART CREATION & DATA VISUALIZATION:
+   - When the user asks for charts, graphs, or visual data representation (e.g. "ช่วยทำเป็นกราฟให้หน่อย", "ช่วยสร้างกราฟแท่งให้หน่อย", "กราฟวงกลม", "กราฟโดนัท", "กราฟเส้น", "สรุปข้อมูลเป็นกราฟ", "Chart"):
+     1. Retrieve the required data from MASAPP database using `query_database` (or `subagent_query_database` if dealing with high volume / year-long historical data).
+     2. Call `generate_chart` tool or output a ```chart code block with valid JSON configuration:
+        ```chart
+        {
+          "chart_type": "bar",
+          "title": "สถิติการแจ้งซ่อมแยกตามเครื่องจักร",
+          "subtitle": "สรุปตามใบแจ้งซ่อมทั้งหมดในระบบ",
+          "x_label": "เครื่องจักร",
+          "y_label": "จำนวนครั้ง (ครั้ง)",
+          "unit": "ครั้ง",
+          "data": [
+            {"label": "MC-01", "value": 14, "color": "#2196F3"},
+            {"label": "MC-02", "value": 8, "color": "#4CAF50"},
+            {"label": "MC-03", "value": 22, "color": "#FF9800"}
+          ]
+        }
+        ```
+     3. Supported chart types:
+        - `bar`: For comparing quantities across machines, categories, technicians, failure causes.
+        - `pie` or `donut`: For showing proportions/ratios (e.g. status distribution: normal vs breakdown vs PM, work order priorities: urgent vs normal).
+        - `line`: For trends over time (e.g. monthly breakdown counts, OEE trend, running hours).
+     4. Always accompany the chart with a concise markdown summary or key insights in Thai explaining the findings.
+
+33. SUB-AGENT CHUNKED LARGE DATA RETRIEVAL (subagent_query_database):
+   - When the user asks to query or analyze large datasets (e.g. all work orders over multiple years, hundreds of spare part transactions, all machine OEE logs, breakdown history across entire factory lines):
+     1. DO NOT try to run a single unpartitioned query that might timeout or return thousands of rows exceeding context limits.
+     2. Use `subagent_query_database` with `queries: [...]` or partition parameters to have the Subagent Batch Worker retrieve and aggregate data in chunks safely with real-time progress.
+     3. Feed the aggregated results into `generate_chart` or markdown summary.
+
+34. SLIDE PRESENTATION STUDIO & LANDSCAPE PDF EXPORT (generate_presentation_slides):
+   - When the user asks to create, prepare, or export a presentation, slide deck, executive briefing, or report (e.g. "ช่วยทำเป็นสไลด์นำเสนองานให้หน่อย", "ขอสไลด์สรุป KPI ประจำเดือนเป็น PDF แนวนอน", "ทำสไลด์ RCA และผังก้างปลา Fishbone 4M1E สำหรับนำเสนอ", "รายงาน 8D problem solving เป็นสไลด์", "สไลด์เปรียบเทียบ Before/After ปรับปรุงงาน", or NotebookLM style presentation):
+     1. Use `generate_presentation_slides` tool to orchestrate multi-domain subagents and generate an A4 Landscape PDF presentation deck.
+     2. Supported slide types:
+        - `title` / `cover`: Executive title slide with title, subtitle, presenter, date, company branding.
+        - `kpi`: KPI Metric cards grid (e.g. OEE, Availability, MTTR, MTBF, Completion Rate, Cost) with actual values, targets, status (good, warning, critical), and change indicators.
+        - `fishbone`: Ishikawa 4M1E Root Cause diagram (Man, Machine, Method, Material, Environment) with key failure factors leading to the problem statement.
+        - `rca_5why` / `5why`: 5-Why root cause drill-down sequence (Why 1 to 5) with root cause and countermeasure action plan.
+        - `eight_d` / `8d`: 8D Problem Solving Methodology table (D1 to D8: Team, Problem Description, Containment, Root Cause, Permanent Corrective Actions, Validation, Prevention, Congratulate).
+        - `chart`: Statistical breakdown chart (bar, pie, line) with takeaway notes.
+        - `table`: Structured comparison or inventory/machine list table.
+        - `content`: Key discussion points or Kaizen Before/After analysis.
+        - `summary`: Executive conclusion and prioritized next action items.
+     3. Choose a professional theme: `blue` (corporate/engineering), `teal` (lean/green), `purple` (executive), `orange` (urgent/RCA).
+     4. The tool automatically exports an A4 Landscape PDF and returns a ```slides { ... }``` block that renders an interactive slide deck in chat with instant PDF download and print buttons.
+
+35. LINE BALANCING & PRODUCTION LINE DESIGN (manage_line_balancing):
+   - When the user asks to create, design, update, or balance a production line or workstations (e.g. "ช่วยสร้าง line balancing ให้หน่อย", "จัดสายการผลิต", "ปรับสมดุลสายการผลิต", "เพิ่มสถานีงานในไลน์", "โยงเครื่องจักรในสายการผลิต"):
+     1. MANDATORY - ALWAYS REUSE & LINK EXISTING MACHINES FROM DATABASE:
+        - You MUST query existing machines first (e.g. via `query_database` `SELECT machine_id, machine_no, machine_name, department, location FROM machines`) to find actual machine IDs in the factory.
+        - Pass the real `machine_identifier` (machine_no or machine_id) for each station so that `machine_id` and `machine_name` are properly linked to `production_line_stations`.
+        - NEVER invent fake machine names or leave `machine_id` empty. Linking real machines allows the Lean Analysis (VSM / SOP) module to recognize the machine steps and cycle times immediately!
+     2. AUTOMATIC CENTERED GRID LAYOUT (ZERO-OVERFLOW / ไม่ตกขอบ):
+        - Always use `manage_line_balancing` tool. It automatically computes optimal centered relative coordinates `pos_x` and `pos_y` (e.g. horizontal layout `-450..450, 0` for 1-4 stations, or multi-row grid for 5+ stations).
+        - DO NOT put large diagonal or arbitrary coordinate offsets (like 1600+ or 2000+) that cause station nodes to overflow or drop off the screen borders ("ตกขอบ").
+     3. LEAN & BALANCING METRICS:
+        - Specify realistic `cycle_time_sec`, `workers`, `event_type` ('operation', 'inspection', 'transport'), and `value_type` ('va', 'nva', 'nnva').
+        - The tool automatically computes Takt Time, Total Cycle Time, Bottleneck Station, Line Efficiency (%), and Balance Delay (%).
+
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
 
@@ -870,6 +930,154 @@ Start by greeting the user and asking how you can help with maintenance operatio
     ),
   );
 
+  static final _generateChartTool = FunctionDeclaration(
+    'generate_chart',
+    'Generate interactive visual charts (bar, pie, donut, line, area) for maintenance statistics, breakdown counts, OEE trends, spare part consumption, etc.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'chart_type': Schema(SchemaType.string, description: 'Chart type: bar, pie, donut, line, area'),
+        'title': Schema(SchemaType.string, description: 'Title of chart in Thai or English'),
+        'subtitle': Schema(SchemaType.string, description: 'Optional subtitle or timeframe description'),
+        'x_label': Schema(SchemaType.string, description: 'X-axis label (for bar/line charts)'),
+        'y_label': Schema(SchemaType.string, description: 'Y-axis label (for bar/line charts)'),
+        'unit': Schema(SchemaType.string, description: 'Data unit suffix (e.g. "ครั้ง", "%", "บาท", "ชิ้น", "ชม.")'),
+        'data': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'label': Schema(SchemaType.string, description: 'Category or X-axis label'),
+              'value': Schema(SchemaType.number, description: 'Numeric value for this item'),
+              'color': Schema(SchemaType.string, description: 'Optional hex color (e.g. "#2196F3")'),
+              'secondary_value': Schema(SchemaType.number, description: 'Optional secondary value for comparison'),
+              'group': Schema(SchemaType.string, description: 'Optional group name'),
+            },
+            requiredProperties: ['label', 'value'],
+          ),
+          description: 'Array of data points to plot in the chart',
+        ),
+      },
+      requiredProperties: ['chart_type', 'title', 'data'],
+    ),
+  );
+
+  static final _subagentQueryDbTool = FunctionDeclaration(
+    'subagent_query_database',
+    'Delegate high-volume data retrieval to Sub-agent workers to split large database queries into safe batch chunks with live progress and aggregation without token truncation.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'task_description': Schema(SchemaType.string, description: 'Human-readable description of what the subagents are fetching (e.g. "ดึงสถิติงานซ่อมย้อนหลัง 1 ปี")'),
+        'queries': Schema(
+          SchemaType.array,
+          items: Schema(SchemaType.string),
+          description: 'List of partitioned SQL SELECT queries to execute in chunks',
+        ),
+        'sql': Schema(SchemaType.string, description: 'Base SQL query if letting subagent auto-partition by pagination'),
+        'split_count': Schema(SchemaType.integer, description: 'Number of chunks/partitions (default 4)'),
+      },
+      requiredProperties: ['task_description'],
+    ),
+  );
+
+  static final _generatePresentationSlidesTool = FunctionDeclaration(
+    'generate_presentation_slides',
+    'Synthesize multi-domain maintenance data and generate an Executive Presentation Deck exported as A4 Landscape (16:9) PDF with Thai font support, KPI cards, Fishbone 4M1E, 5-Why, and 8D problem solving slides.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'title': Schema(SchemaType.string, description: 'Presentation title (e.g. "สรุปผลการดำเนินงานและ KPI ประจำเดือน")'),
+        'subtitle': Schema(SchemaType.string, description: 'Subtitle, department, or evaluation period'),
+        'author': Schema(SchemaType.string, description: 'Presenter / department name'),
+        'theme': Schema(SchemaType.string, description: 'Color theme: blue (corporate), teal (lean/green), purple (executive), orange (urgent/RCA)'),
+        'machine_identifier': Schema(SchemaType.string, description: 'Optional specific machine identifier if focusing on a particular machine'),
+        'source_references': Schema(
+          SchemaType.array,
+          items: Schema(SchemaType.string),
+          description: 'Grounded source tables or documents referenced in the presentation',
+        ),
+        'slides': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'slide_type': Schema(SchemaType.string, description: 'Type: title, kpi, fishbone, rca_5why, eight_d, chart, table, content, summary'),
+              'title': Schema(SchemaType.string, description: 'Slide title in Thai'),
+              'subtitle': Schema(SchemaType.string, description: 'Optional slide subtitle'),
+              'content': Schema(SchemaType.string, description: 'Main text description or takeaway notes'),
+              'metrics': Schema(
+                SchemaType.array,
+                items: Schema(SchemaType.object),
+                description: 'KPI metric items: [{"label": "OEE", "value": "88.4%", "target": "85%", "status": "good", "change": "+3.4%"}]',
+              ),
+              'fishbone_data': Schema(
+                SchemaType.object,
+                description: 'Ishikawa 4M1E data: {"problem": "...", "man": [...], "machine": [...], "method": [...], "material": [...], "environment": [...]}',
+              ),
+              'five_why_data': Schema(
+                SchemaType.object,
+                description: '5-Why RCA data: {"problem": "...", "whys": ["Why 1", "Why 2", ...], "root_cause": "...", "countermeasure": "..."}',
+              ),
+              'eight_d_data': Schema(
+                SchemaType.array,
+                items: Schema(SchemaType.object),
+                description: '8D steps: [{"step": "D1", "title": "ทีมงาน", "description": "...", "owner": "...", "status": "..."}]',
+              ),
+              'chart_data': Schema(SchemaType.object, description: 'Chart definition if slide_type is chart'),
+              'table_data': Schema(SchemaType.object, description: 'Table data with headers and rows if slide_type is table'),
+              'action_items': Schema(
+                SchemaType.array,
+                items: Schema(SchemaType.string),
+                description: 'List of next action items if slide_type is summary',
+              ),
+            },
+            requiredProperties: ['slide_type', 'title'],
+          ),
+          description: 'List of slides in sequential order',
+        ),
+      },
+      requiredProperties: ['title'],
+    ),
+  );
+
+  static final _manageLineBalancingTool = FunctionDeclaration(
+    'manage_line_balancing',
+    'Design, generate, update, or optimize Production Lines & Line Balancing workstations. Always query existing machines first and link their machine_id/machine_no to each station. Automatically calculates zero-overflow centered grid layout coordinates so nodes never drop off the canvas edges.',
+    Schema(
+      SchemaType.object,
+      properties: {
+        'action': Schema(SchemaType.string, description: 'generate_line, create_line, update_line, link_machines, auto_layout, get_lines, get_line_details'),
+        'line_id': Schema(SchemaType.string, description: 'Unique line ID (e.g. "main_line" or custom ID)'),
+        'line_name': Schema(SchemaType.string, description: 'Production line name (e.g. "สายการผลิตหลัก (Main Line)", "Line A - ชิ้นส่วนยานยนต์")'),
+        'department': Schema(SchemaType.string, description: 'Department or factory section'),
+        'available_time_min': Schema(SchemaType.number, description: 'Total work time available in minutes per day (default 480)'),
+        'demand_quantity': Schema(SchemaType.number, description: 'Target demand quantity per day (default 1000)'),
+        'electricity_rate': Schema(SchemaType.number, description: 'Electricity cost per kWh (default 4.0)'),
+        'fuel_rate': Schema(SchemaType.number, description: 'Fuel cost per unit (default 30.0)'),
+        'stations': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'station_no': Schema(SchemaType.integer, description: 'Station sequence number (1, 2, 3...)'),
+              'station_name': Schema(SchemaType.string, description: 'Station name (e.g. "1. ตัดและเตรียมวัตถุดิบ (Cutting)")'),
+              'machine_identifier': Schema(SchemaType.string, description: 'Code/No or ID of existing machine in database (e.g. "GM-04", "MC-01", "CNC-02"). MUST reuse existing machines from DB!'),
+              'cycle_time_sec': Schema(SchemaType.number, description: 'Cycle time in seconds (e.g. 25.0)'),
+              'workers': Schema(SchemaType.integer, description: 'Number of operators at this station (default 1)'),
+              'event_type': Schema(SchemaType.string, description: 'operation, inspection, transport, delay, storage'),
+              'value_type': Schema(SchemaType.string, description: 'va, nva, nnva'),
+              'waiting_time_sec': Schema(SchemaType.number, description: 'Buffer/waiting time in seconds'),
+              'buffer_quantity': Schema(SchemaType.integer, description: 'WIP buffer quantity before station'),
+            },
+            requiredProperties: ['station_name', 'cycle_time_sec'],
+          ),
+          description: 'List of workstations in sequential order in the production line',
+        ),
+      },
+    ),
+  );
+
   static final _openAiTools = [
     {
       'type': 'function',
@@ -1450,6 +1658,144 @@ Start by greeting the user and asking how you can help with maintenance operatio
         },
       },
     },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'generate_chart',
+        'description': 'Generate interactive visual charts (bar, pie, donut, line, area) for maintenance statistics, breakdown counts, OEE trends, spare part consumption, etc.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'chart_type': {'type': 'string', 'description': 'Chart type: bar, pie, donut, line, area'},
+            'title': {'type': 'string', 'description': 'Title of chart in Thai or English'},
+            'subtitle': {'type': 'string', 'description': 'Optional subtitle or timeframe description'},
+            'x_label': {'type': 'string', 'description': 'X-axis label (for bar/line charts)'},
+            'y_label': {'type': 'string', 'description': 'Y-axis label (for bar/line charts)'},
+            'unit': {'type': 'string', 'description': 'Data unit suffix (e.g. "ครั้ง", "%", "บาท", "ชิ้น", "ชม.")'},
+            'data': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'label': {'type': 'string', 'description': 'Category or X-axis label'},
+                  'value': {'type': 'number', 'description': 'Numeric value for this item'},
+                  'color': {'type': 'string', 'description': 'Optional hex color (e.g. "#2196F3")'},
+                  'secondary_value': {'type': 'number', 'description': 'Optional secondary value'},
+                  'group': {'type': 'string', 'description': 'Optional group name'},
+                },
+                'required': ['label', 'value'],
+              },
+              'description': 'Array of data points to plot in the chart',
+            },
+          },
+          'required': ['chart_type', 'title', 'data'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'subagent_query_database',
+        'description': 'Delegate high-volume data retrieval to Sub-agent workers to split large database queries into safe batch chunks with live progress and aggregation without token truncation.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'task_description': {'type': 'string', 'description': 'Description of what subagents are fetching'},
+            'queries': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description': 'List of partitioned SQL SELECT queries to execute in chunks',
+            },
+            'sql': {'type': 'string', 'description': 'Base SQL query if auto-partitioning by pagination'},
+            'split_count': {'type': 'integer', 'description': 'Number of chunks (default 4)'},
+          },
+          'required': ['task_description'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'generate_presentation_slides',
+        'description':
+            'Synthesize multi-domain maintenance data and generate an Executive Presentation Deck exported as A4 Landscape (16:9) PDF with Thai font support, KPI cards, Fishbone 4M1E, 5-Why, and 8D problem solving slides.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'title': {'type': 'string', 'description': 'Presentation title'},
+            'subtitle': {'type': 'string', 'description': 'Optional subtitle'},
+            'author': {'type': 'string', 'description': 'Presenter / department'},
+            'theme': {'type': 'string', 'description': 'Theme: blue, teal, purple, orange'},
+            'machine_identifier': {'type': 'string', 'description': 'Optional specific machine identifier'},
+            'source_references': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description': 'Grounded source tables or documents referenced',
+            },
+            'slides': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'slide_type': {'type': 'string', 'description': 'Type: title, kpi, fishbone, rca_5why, eight_d, chart, table, content, summary'},
+                  'title': {'type': 'string', 'description': 'Slide title'},
+                  'subtitle': {'type': 'string', 'description': 'Slide subtitle'},
+                  'content': {'type': 'string', 'description': 'Slide text description'},
+                  'metrics': {'type': 'array', 'items': {'type': 'object'}},
+                  'fishbone_data': {'type': 'object'},
+                  'five_why_data': {'type': 'object'},
+                  'eight_d_data': {'type': 'array', 'items': {'type': 'object'}},
+                  'chart_data': {'type': 'object'},
+                  'table_data': {'type': 'object'},
+                  'action_items': {'type': 'array', 'items': {'type': 'string'}},
+                },
+                'required': ['slide_type', 'title'],
+              },
+            },
+          },
+          'required': ['title'],
+        },
+      },
+    },
+    {
+      'type': 'function',
+      'function': {
+        'name': 'manage_line_balancing',
+        'description':
+            'Design, generate, update, or optimize Production Lines & Line Balancing workstations. Always query existing machines first and link their machine_id/machine_no to each station. Automatically calculates zero-overflow centered grid layout coordinates so nodes never drop off the canvas edges.',
+        'parameters': {
+          'type': 'object',
+          'properties': {
+            'action': {'type': 'string', 'description': 'generate_line, create_line, update_line, link_machines, auto_layout, get_lines, get_line_details'},
+            'line_id': {'type': 'string', 'description': 'Unique line ID'},
+            'line_name': {'type': 'string', 'description': 'Production line name'},
+            'department': {'type': 'string', 'description': 'Department'},
+            'available_time_min': {'type': 'number', 'description': 'Work time available in minutes (default 480)'},
+            'demand_quantity': {'type': 'number', 'description': 'Target demand per day (default 1000)'},
+            'electricity_rate': {'type': 'number', 'description': 'Electricity cost per kWh'},
+            'fuel_rate': {'type': 'number', 'description': 'Fuel cost per unit'},
+            'stations': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'station_no': {'type': 'integer'},
+                  'station_name': {'type': 'string'},
+                  'machine_identifier': {'type': 'string', 'description': 'Code/No or ID of existing machine in database. MUST reuse existing machines!'},
+                  'cycle_time_sec': {'type': 'number'},
+                  'workers': {'type': 'integer'},
+                  'event_type': {'type': 'string'},
+                  'value_type': {'type': 'string'},
+                  'waiting_time_sec': {'type': 'number'},
+                  'buffer_quantity': {'type': 'integer'},
+                },
+                'required': ['station_name', 'cycle_time_sec'],
+              },
+            },
+          },
+        },
+      },
+    },
   ];
 
   static final _anthropicTools = [
@@ -1913,6 +2259,134 @@ Start by greeting the user and asking how you can help with maintenance operatio
         'required': ['query', 'db_context', 'why_external_needed'],
       },
     },
+    {
+      'name': 'generate_chart',
+      'description':
+          'Generate interactive visual charts (bar, pie, donut, line, area) for maintenance statistics, breakdown counts, OEE trends, spare part consumption, etc.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'chart_type': {'type': 'string', 'description': 'Chart type: bar, pie, donut, line, area'},
+          'title': {'type': 'string', 'description': 'Title of chart in Thai or English'},
+          'subtitle': {'type': 'string', 'description': 'Optional subtitle or timeframe description'},
+          'x_label': {'type': 'string', 'description': 'X-axis label (for bar/line charts)'},
+          'y_label': {'type': 'string', 'description': 'Y-axis label (for bar/line charts)'},
+          'unit': {'type': 'string', 'description': 'Data unit suffix (e.g. "ครั้ง", "%", "บาท", "ชิ้น", "ชม.")'},
+          'data': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'label': {'type': 'string', 'description': 'Category or X-axis label'},
+                'value': {'type': 'number', 'description': 'Numeric value for this item'},
+                'color': {'type': 'string', 'description': 'Optional hex color (e.g. "#2196F3")'},
+                'secondary_value': {'type': 'number', 'description': 'Optional secondary value'},
+                'group': {'type': 'string', 'description': 'Optional group name'},
+              },
+              'required': ['label', 'value'],
+            },
+            'description': 'Array of data points to plot in the chart',
+          },
+        },
+        'required': ['chart_type', 'title', 'data'],
+      },
+    },
+    {
+      'name': 'subagent_query_database',
+      'description':
+          'Delegate high-volume data retrieval to Sub-agent workers to split large database queries into safe batch chunks with live progress and aggregation without token truncation.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'task_description': {'type': 'string', 'description': 'Description of what subagents are fetching'},
+          'queries': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description': 'List of partitioned SQL SELECT queries to execute in chunks',
+          },
+          'sql': {'type': 'string', 'description': 'Base SQL query if auto-partitioning by pagination'},
+          'split_count': {'type': 'integer', 'description': 'Number of chunks (default 4)'},
+        },
+        'required': ['task_description'],
+      },
+    },
+    {
+      'name': 'generate_presentation_slides',
+      'description':
+          'Synthesize multi-domain maintenance data and generate an Executive Presentation Deck exported as A4 Landscape (16:9) PDF with Thai font support, KPI cards, Fishbone 4M1E, 5-Why, and 8D problem solving slides.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'title': {'type': 'string', 'description': 'Presentation title'},
+          'subtitle': {'type': 'string', 'description': 'Optional subtitle'},
+          'author': {'type': 'string', 'description': 'Presenter / department'},
+          'theme': {'type': 'string', 'description': 'Theme: blue, teal, purple, orange'},
+          'machine_identifier': {'type': 'string', 'description': 'Optional specific machine identifier'},
+          'source_references': {
+            'type': 'array',
+            'items': {'type': 'string'},
+            'description': 'Grounded source tables or documents referenced',
+          },
+          'slides': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'slide_type': {'type': 'string', 'description': 'Type: title, kpi, fishbone, rca_5why, eight_d, chart, table, content, summary'},
+                'title': {'type': 'string', 'description': 'Slide title'},
+                'subtitle': {'type': 'string', 'description': 'Slide subtitle'},
+                'content': {'type': 'string', 'description': 'Slide text description'},
+                'metrics': {'type': 'array', 'items': {'type': 'object'}},
+                'fishbone_data': {'type': 'object'},
+                'five_why_data': {'type': 'object'},
+                'eight_d_data': {'type': 'array', 'items': {'type': 'object'}},
+                'chart_data': {'type': 'object'},
+                'table_data': {'type': 'object'},
+                'action_items': {'type': 'array', 'items': {'type': 'string'}},
+              },
+              'required': ['slide_type', 'title'],
+            },
+          },
+        },
+        'required': ['title'],
+      },
+    },
+    {
+      'name': 'manage_line_balancing',
+      'description':
+          'Design, generate, update, or optimize Production Lines & Line Balancing workstations. Always query existing machines first and link their machine_id/machine_no to each station. Automatically calculates zero-overflow centered grid layout coordinates so nodes never drop off the canvas edges.',
+      'input_schema': {
+        'type': 'object',
+        'properties': {
+          'action': {'type': 'string', 'description': 'generate_line, create_line, update_line, link_machines, auto_layout, get_lines, get_line_details'},
+          'line_id': {'type': 'string', 'description': 'Unique line ID'},
+          'line_name': {'type': 'string', 'description': 'Production line name'},
+          'department': {'type': 'string', 'description': 'Department'},
+          'available_time_min': {'type': 'number', 'description': 'Work time available in minutes (default 480)'},
+          'demand_quantity': {'type': 'number', 'description': 'Target demand per day (default 1000)'},
+          'electricity_rate': {'type': 'number', 'description': 'Electricity cost per kWh'},
+          'fuel_rate': {'type': 'number', 'description': 'Fuel cost per unit'},
+          'stations': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'station_no': {'type': 'integer'},
+                'station_name': {'type': 'string'},
+                'machine_identifier': {'type': 'string', 'description': 'Code/No or ID of existing machine in database. MUST reuse existing machines!'},
+                'cycle_time_sec': {'type': 'number'},
+                'workers': {'type': 'integer'},
+                'event_type': {'type': 'string'},
+                'value_type': {'type': 'string'},
+                'waiting_time_sec': {'type': 'number'},
+                'buffer_quantity': {'type': 'integer'},
+              },
+              'required': ['station_name', 'cycle_time_sec'],
+            },
+          },
+        },
+      },
+    },
   ];
 
   static Future<AiProviderConfig> loadConfig() async {
@@ -2115,6 +2589,33 @@ Start by greeting the user and asking how you can help with maintenance operatio
       case 'external_image_search':
         final q = args['query'] ?? '';
         return 'ค้นหารูปภาพที่เกี่ยวข้อง: $q';
+      case 'generate_chart':
+      case 'create_chart':
+      case 'render_chart':
+        final type = args['chart_type'] ?? 'bar';
+        final title = args['title'] ?? 'กราฟ';
+        return 'กำลังสร้างกราฟ: $title ($type)';
+      case 'subagent_query_database':
+      case 'query_database_chunked':
+      case 'subagent_batch_query':
+        final desc = args['task_description'] ?? 'ดึงข้อมูลชุดใหญ่';
+        return '🤖 Sub-agent กำลังช่วยแบ่งดึงข้อมูล: $desc';
+      case 'generate_presentation_slides':
+      case 'create_presentation':
+      case 'build_presentation_deck':
+      case 'export_slides_pdf':
+        final title = args['title'] ?? 'สไลด์นำเสนอ';
+        return '📽️ กำลังสร้างสไลด์นำเสนอและส่งออก PDF แนวนอน: $title';
+      case 'synthesize_presentation_data':
+        return '🤖 Sub-agents กำลังสังเคราะห์ข้อมูลข้ามทุกมิติสำหรับสไลด์นำเสนอ...';
+      case 'manage_line_balancing':
+      case 'create_production_line':
+      case 'generate_line_balancing':
+      case 'update_line_balancing':
+      case 'manage_production_lines':
+        final lname = args['line_name'] ?? 'สายการผลิต';
+        final count = (args['stations'] as List?)?.length ?? 0;
+        return '📐 กำลังจัดผัง Line Balancing และเชื่อมโยงเครื่องจักร: $lname ($count สถานี)';
       default:
         return 'เรียกใช้เครื่องมือ: $name';
     }
@@ -2395,6 +2896,10 @@ Start by greeting the user and asking how you can help with maintenance operatio
             _findMachineAssetsTool,
             _externalWebSearchTool,
             _externalImageSearchTool,
+            _generateChartTool,
+            _subagentQueryDbTool,
+            _generatePresentationSlidesTool,
+            _manageLineBalancingTool,
           ],
         ),
       ],
