@@ -238,6 +238,13 @@ const _navItems = [
     roles: ['safety', 'engineer', 'admin'],
   ),
   _NavItem(
+    label: 'ขั้นตอนการทำงาน',
+    icon: HugeIcons.strokeRoundedFlow,
+    iconSelected: HugeIcons.strokeRoundedFlow,
+    route: '/work-processes',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
     label: 'Line Balancing',
     icon: HugeIcons.strokeRoundedFlowSquare,
     iconSelected: HugeIcons.strokeRoundedFlowSquare,
@@ -263,13 +270,6 @@ const _navItems = [
     icon: HugeIcons.strokeRoundedTask02,
     iconSelected: HugeIcons.strokeRoundedTask02,
     route: '/action-plans',
-    roles: ['engineer', 'executive', 'admin'],
-  ),
-  _NavItem(
-    label: 'ขั้นตอนการทำงาน',
-    icon: HugeIcons.strokeRoundedFlow,
-    iconSelected: HugeIcons.strokeRoundedFlow,
-    route: '/work-processes',
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
