@@ -491,3 +491,19 @@ final filteredActionPlanListProvider = Provider<List<ActionPlanRecord>>((ref) {
     return true;
   }).toList();
 });
+
+/// Provider for fetching active users for Action Plan assignment
+final actionPlanUsersProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  try {
+    final rows = await DbHelper.query('''
+      SELECT user_id, full_name, employee_no, role 
+      FROM users 
+      WHERE is_active = 1 
+      ORDER BY full_name ASC
+    ''');
+    return rows;
+  } catch (e) {
+    return [];
+  }
+});
+

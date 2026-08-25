@@ -1260,58 +1260,137 @@ class _ActionPlanDetailScreenState extends ConsumerState<ActionPlanDetailScreen>
 
   void _showAddStepDialog(BuildContext context, ActionPlanRecord plan) {
     final titleCtrl = TextEditingController();
-    final assigneeCtrl = TextEditingController();
+    String selectedAssignee = '';
     final dueDateCtrl = TextEditingController();
+    final users = ref.read(actionPlanUsersProvider).value ?? [];
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('เพิ่มขั้นตอนการปฏิบัติงาน'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: titleCtrl,
-              decoration: const InputDecoration(
-                labelText: 'รายละเอียดขั้นตอนการทำงาน *',
-                border: OutlineInputBorder(),
-              ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          title: const Text('เพิ่มขั้นตอนการปฏิบัติงาน'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'รายละเอียดขั้นตอนการทำงาน *',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedAssignee,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'ผู้รับผิดชอบ (เลือกจาก User)',
+                    prefixIcon: Icon(Icons.person_outline, size: 16),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('-- เลือกผู้รับผิดชอบ --', style: TextStyle(color: Colors.grey, fontSize: 13)),
+                    ),
+                    ...users.map((u) {
+                      final name = u['full_name']?.toString() ?? '';
+                      final role = u['role']?.toString() ?? '';
+                      final empNo = u['employee_no']?.toString();
+                      final roleLabel = role.isNotEmpty ? ' ($role)' : '';
+                      final empLabel = (empNo != null && empNo.isNotEmpty) ? ' [$empNo]' : '';
+                      return DropdownMenuItem<String>(
+                        value: name,
+                        child: Row(
+                          children: [
+                            Icon(Icons.person_outline, size: 16, color: Colors.blue.shade700),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text('$name$empLabel$roleLabel', style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const DropdownMenuItem<String>(
+                      value: '__custom__',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit_note_rounded, size: 16, color: Colors.orange),
+                          SizedBox(width: 6),
+                          Text('+ ระบุชื่ออื่น / บุคคลภายนอก...', style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ],
+                  onChanged: (val) async {
+                    if (val == '__custom__') {
+                      final customName = await _promptCustomAssignee(context);
+                      if (customName != null && customName.isNotEmpty) {
+                        setDlgState(() => selectedAssignee = customName);
+                      }
+                    } else {
+                      setDlgState(() => selectedAssignee = val ?? '');
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: dueDateCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'กำหนดเสร็จ (เช่น ภายใน 3 วัน หรือ 28/08/2026)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: assigneeCtrl,
-              decoration: const InputDecoration(
-                labelText: 'ผู้รับผิดชอบ',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: dueDateCtrl,
-              decoration: const InputDecoration(
-                labelText: 'กำหนดเสร็จ (เช่น ภายใน 3 วัน หรือ 28/08/2026)',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          actions: [
+            TextButton(onPressed: () => ctx.pop(), child: const Text('ยกเลิก')),
+            FilledButton(
+              onPressed: () async {
+                if (titleCtrl.text.trim().isEmpty) return;
+                final newStep = ActionStepItem(
+                  id: const Uuid().v4(),
+                  title: titleCtrl.text.trim(),
+                  assignee: selectedAssignee,
+                  dueDate: dueDateCtrl.text.trim(),
+                  status: 'pending',
+                );
+                final updated = List<ActionStepItem>.from(plan.actionSteps)..add(newStep);
+                await _updateSteps(plan, updated);
+                if (ctx.mounted) ctx.pop();
+              },
+              child: const Text('เพิ่ม'),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<String?> _promptCustomAssignee(BuildContext context) async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ระบุชื่อผู้รับผิดชอบ'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'ชื่อ-นามสกุล หรือ ตำแหน่ง',
+            hintText: 'เช่น นายสมศักดิ์ หรือ ช่างซ่อมภายนอก',
+            border: OutlineInputBorder(),
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => ctx.pop(), child: const Text('ยกเลิก')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
           FilledButton(
-            onPressed: () async {
-              if (titleCtrl.text.trim().isEmpty) return;
-              final newStep = ActionStepItem(
-                id: const Uuid().v4(),
-                title: titleCtrl.text.trim(),
-                assignee: assigneeCtrl.text.trim(),
-                dueDate: dueDateCtrl.text.trim(),
-                status: 'pending',
-              );
-              final updated = List<ActionStepItem>.from(plan.actionSteps)..add(newStep);
-              await _updateSteps(plan, updated);
-              if (ctx.mounted) ctx.pop();
-            },
-            child: const Text('เพิ่ม'),
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('ตกลง'),
           ),
         ],
       ),

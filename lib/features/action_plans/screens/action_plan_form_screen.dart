@@ -127,6 +127,7 @@ class _ActionPlanFormScreenState extends ConsumerState<ActionPlanFormScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final users = ref.watch(actionPlanUsersProvider).value ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -161,7 +162,7 @@ class _ActionPlanFormScreenState extends ConsumerState<ActionPlanFormScreen> {
               const SizedBox(height: 16),
 
               // 2. Action Steps Checklist Builder Card
-              _buildActionStepsCard(theme),
+              _buildActionStepsCard(theme, users),
               const SizedBox(height: 16),
 
               // 3. Target Metric & Baseline Setting Card
@@ -265,7 +266,7 @@ class _ActionPlanFormScreenState extends ConsumerState<ActionPlanFormScreen> {
     );
   }
 
-  Widget _buildActionStepsCard(ThemeData theme) {
+  Widget _buildActionStepsCard(ThemeData theme, List<Map<String, dynamic>> users) {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(
@@ -342,19 +343,12 @@ class _ActionPlanFormScreenState extends ConsumerState<ActionPlanFormScreen> {
                             Row(
                               children: [
                                 Expanded(
-                                  child: TextFormField(
-                                    initialValue: step.assignee,
-                                    decoration: const InputDecoration(
-                                      labelText: 'ผู้รับผิดชอบ',
-                                      isDense: true,
-                                      prefixIcon: Icon(Icons.person_outline, size: 16),
-                                      border: OutlineInputBorder(),
-                                    ),
-                                    onChanged: (val) => step.assignee = val,
-                                  ),
+                                  flex: 3,
+                                  child: _buildAssigneeField(step, users, theme),
                                 ),
                                 const SizedBox(width: 8),
                                 Expanded(
+                                  flex: 2,
                                   child: TextFormField(
                                     initialValue: step.dueDate,
                                     decoration: const InputDecoration(
@@ -389,6 +383,129 @@ class _ActionPlanFormScreenState extends ConsumerState<ActionPlanFormScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildAssigneeField(ActionStepItem step, List<Map<String, dynamic>> users, ThemeData theme) {
+    final userNames = users
+        .map((u) => u['full_name']?.toString() ?? '')
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    final currentAssignee = step.assignee.trim();
+    final isCustom = currentAssignee.isNotEmpty && !userNames.contains(currentAssignee);
+
+    return DropdownButtonFormField<String>(
+      value: currentAssignee.isEmpty
+          ? ''
+          : (userNames.contains(currentAssignee) || isCustom ? currentAssignee : ''),
+      isExpanded: true,
+      decoration: const InputDecoration(
+        labelText: 'ผู้รับผิดชอบ (เลือกจาก User)',
+        isDense: true,
+        prefixIcon: Icon(Icons.person_outline, size: 16),
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      ),
+      items: [
+        const DropdownMenuItem<String>(
+          value: '',
+          child: Text('-- เลือกผู้รับผิดชอบ --', style: TextStyle(color: Colors.grey, fontSize: 13)),
+        ),
+        if (isCustom)
+          DropdownMenuItem<String>(
+            value: currentAssignee,
+            child: Row(
+              children: [
+                const Icon(Icons.person_pin_outlined, size: 16, color: Colors.blueAccent),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '$currentAssignee (กำหนดเอง / AI)',
+                    style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueAccent, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ...users.map((u) {
+          final name = u['full_name']?.toString() ?? '';
+          final role = u['role']?.toString() ?? '';
+          final empNo = u['employee_no']?.toString();
+          final roleLabel = role.isNotEmpty ? ' ($role)' : '';
+          final empLabel = (empNo != null && empNo.isNotEmpty) ? ' [$empNo]' : '';
+
+          return DropdownMenuItem<String>(
+            value: name,
+            child: Row(
+              children: [
+                Icon(Icons.person_outline, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '$name$empLabel$roleLabel',
+                    style: const TextStyle(fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+        const DropdownMenuItem<String>(
+          value: '__custom__',
+          child: Row(
+            children: [
+              Icon(Icons.edit_note_rounded, size: 16, color: Colors.orange),
+              SizedBox(width: 6),
+              Text(
+                '+ ระบุชื่ออื่น / บุคคลภายนอก...',
+                style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
+      ],
+      onChanged: (val) {
+        if (val == '__custom__') {
+          _showCustomAssigneeDialog(step);
+        } else {
+          setState(() {
+            step.assignee = val ?? '';
+          });
+        }
+      },
+    );
+  }
+
+  Future<void> _showCustomAssigneeDialog(ActionStepItem step) async {
+    final ctrl = TextEditingController(text: step.assignee);
+    final res = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('ระบุชื่อผู้รับผิดชอบ'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'ชื่อ-นามสกุล หรือ ตำแหน่ง',
+            hintText: 'เช่น นายสมศักดิ์ หรือ ช่างซ่อมภายนอก',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('ตกลง'),
+          ),
+        ],
+      ),
+    );
+    if (res != null && res.isNotEmpty) {
+      setState(() {
+        step.assignee = res;
+      });
+    }
   }
 
   Widget _buildMetricCard(ThemeData theme) {
