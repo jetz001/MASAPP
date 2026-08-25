@@ -34,6 +34,29 @@ class _OutsourceVendorDetailScreenState extends State<OutsourceVendorDetailScree
     }
   }
 
+  Future<void> _toggleApprove() async {
+    if (_vendor == null) return;
+    final isApproved = (_vendor!['is_approved'] as num? ?? 0) == 1;
+    final newStatus = isApproved ? 0 : 1;
+    await DbHelper.execute(
+      'UPDATE suppliers SET is_approved = @approved WHERE supplier_id = @id',
+      params: {'approved': newStatus, 'id': widget.id},
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newStatus == 1
+                ? 'อนุมัติผู้รับเหมาเรียบร้อยแล้ว'
+                : 'ยกเลิกการอนุมัติผู้รับเหมาแล้ว',
+          ),
+          backgroundColor: newStatus == 1 ? Colors.green : Colors.orange,
+        ),
+      );
+    }
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -55,6 +78,33 @@ class _OutsourceVendorDetailScreenState extends State<OutsourceVendorDetailScree
       appBar: AppBar(
         title: const Text('ข้อมูลผู้รับเหมา'),
         actions: [
+          if (!approved)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.green.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text('อนุมัติผู้รับเหมา'),
+                onPressed: _toggleApprove,
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.green.shade700,
+                  side: BorderSide(color: Colors.green.shade700),
+                ),
+                icon: const Icon(Icons.verified, size: 18, color: Colors.green),
+                label: const Text('อนุมัติแล้ว'),
+                onPressed: _toggleApprove,
+              ),
+            ),
+          const SizedBox(width: 8),
           IconButton(
             icon: const Icon(Icons.print),
             tooltip: 'พิมพ์ข้อมูลผู้รับเหมา',
@@ -78,9 +128,25 @@ class _OutsourceVendorDetailScreenState extends State<OutsourceVendorDetailScree
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    vendor['name'] ?? '',
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          vendor['name'] ?? '',
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      if (approved)
+                        const Chip(
+                          avatar: Icon(Icons.check_circle, color: Colors.green, size: 18),
+                          label: Text('อนุมัติแล้ว', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        )
+                      else
+                        const Chip(
+                          avatar: Icon(Icons.hourglass_empty, color: Colors.orange, size: 18),
+                          label: Text('รออนุมัติ', style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text('รหัส: ${vendor['supplier_code'] ?? '-'}'),
@@ -94,6 +160,26 @@ class _OutsourceVendorDetailScreenState extends State<OutsourceVendorDetailScree
                   const Divider(height: 32),
                   _buildDetailRow('สถานะการอนุมัติ', approved ? 'อนุมัติแล้ว' : 'รออนุมัติ'),
                   _buildDetailRow('สถานะการใช้งาน', active ? 'เปิดใช้งาน' : 'พักใช้งาน'),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      if (!approved)
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(backgroundColor: Colors.green.shade700),
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('กดเพื่ออนุมัติผู้รับเหมานี้'),
+                          onPressed: _toggleApprove,
+                        )
+                      else
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(foregroundColor: Colors.orange),
+                          icon: const Icon(Icons.undo),
+                          label: const Text('ยกเลิกการอนุมัติ'),
+                          onPressed: _toggleApprove,
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),

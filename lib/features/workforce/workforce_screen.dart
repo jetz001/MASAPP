@@ -54,9 +54,21 @@ final workforceProvider =
     String extraWhere = '';
     Map<String, dynamic> params = {};
 
-    // Technicians can only see their own work.
-    // Higher roles (engineer, safety, admin, etc.) can see everyone.
-    if (user.role == 'technician') {
+    // Technicians can only see their own work, unless admin/engineer/executive/safety
+    final uRole = user.role.toLowerCase();
+    final isElevated = uRole == 'admin' ||
+        uRole.contains('admin') ||
+        uRole.contains('ผู้ดูแล') ||
+        uRole == 'engineer' ||
+        uRole.contains('engineer') ||
+        uRole.contains('วิศวกร') ||
+        uRole == 'safety' ||
+        uRole.contains('safety') ||
+        uRole.contains('จป') ||
+        uRole == 'executive' ||
+        uRole.contains('ผู้บริหาร');
+
+    if (!isElevated && (uRole == 'technician' || uRole.contains('ช่าง'))) {
       extraWhere = ' AND u.user_id = @uid';
       params['uid'] = user.userId;
     }
@@ -67,7 +79,7 @@ final workforceProvider =
                 d.dept_name
          FROM users u
          LEFT JOIN departments d ON d.dept_id = u.dept_id
-         WHERE u.role IN ('technician','engineer','safety')$extraWhere
+         WHERE (u.role != 'viewer' OR u.role IS NULL)$extraWhere
          ORDER BY u.role, u.full_name''',
       params: params,
     );
@@ -376,19 +388,24 @@ class _TechCardState extends State<_TechCard> {
   bool _hovered = false;
 
   Color get _roleColor {
-    switch (widget.profile.role) {
-      case 'engineer': return AppColors.primary;
-      case 'safety': return AppColors.success;
-      default: return AppColors.machinePM;
-    }
+    final r = widget.profile.role.toLowerCase();
+    if (r.contains('admin') || r.contains('ผู้ดูแล')) return AppColors.error;
+    if (r.contains('engineer') || r.contains('วิศวกร') || r.contains('หัวหน้า')) return AppColors.primary;
+    if (r.contains('safety') || r.contains('จป')) return AppColors.success;
+    if (r.contains('technician') || r.contains('ช่าง')) return AppColors.machinePM;
+    if (r.contains('executive') || r.contains('ผู้บริหาร')) return AppColors.info;
+    return AppColors.machinePM;
   }
 
   String get _roleName {
-    switch (widget.profile.role) {
-      case 'engineer': return 'วิศวกร';
-      case 'safety': return 'จป.';
-      default: return 'ช่างเทคนิค';
-    }
+    final r = widget.profile.role.toLowerCase();
+    if (r == 'admin') return 'ผู้ดูแลระบบ';
+    if (r == 'engineer') return 'วิศวกร';
+    if (r == 'safety') return 'จป. / Safety';
+    if (r == 'technician') return 'ช่างเทคนิค';
+    if (r == 'operator') return 'พนักงานคุมเครื่อง';
+    if (r == 'executive') return 'ผู้บริหาร';
+    return widget.profile.role;
   }
 
   @override

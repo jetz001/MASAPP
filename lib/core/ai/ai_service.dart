@@ -101,8 +101,8 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
 - Spare Parts & Inventory: Call `manage_spare_parts` (action: create_part, update_part, delete_part, record_transaction, link_machine).
 - Tools & Equipment: Call `manage_tools` (action: create_tool, update_tool, delete_tool, record_transaction).
 - OEE Logs: Call `manage_oee_logs` (action: record_log, update_log, delete_log).
-- Technicians & Skills: Call `manage_technicians` (action: add_skill, update_skill, delete_skill, set_availability).
-  - Supports Technician Skill Matrix (Level 1-5), Skill Endorsements, Kaizen Portfolios, and Achievement Badges:
+- Technicians & Skills: Call `manage_technicians` (action: create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability).
+  - Supports Registering/Adding Technicians (`create_technician` / `bulk_create` / `insert`), Technician Skill Matrix (Level 1-5 / Score 1-100), Skill Endorsements, Kaizen Portfolios, and Achievement Badges:
     - 🛡️ `RCA Specialist`: เชี่ยวชาญการวิเคราะห์สาเหตุรากเหง้า 5-Why / ผังก้างปลา
     - ⚡ `Cycle Time Buster`: ลดเวลาคอขวดในสายการผลิต (Line Balancing / SOP)
     - 🔧 `Preventive Master`: วางมาตรการป้องกันปัญหาเครื่องจักรซ้ำสำเร็จ
@@ -149,11 +149,12 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
      4. NEVER reply that specs are updated without calling `manage_machines` with the extracted numeric parameters!
      5. Always summarize the updated specs clearly with numbers and units in your response table/bullet points.
 
-29. CONTRACTORS, VENDORS & SUPPLIERS MANAGEMENT:
-   - When managing outsource vendors, suppliers, parts providers, or contractors (เช่น ผู้รับเหมา, ซัพพลายเออร์, ร้านค้า, บริษัทผู้จำหน่าย):
+29. CONTRACTORS, VENDORS & SUPPLIERS MANAGEMENT (manage_contractors):
+   - When managing outsource vendors, suppliers, parts providers, or contractors (เช่น "เพิ่มทะเบียนผู้รับเหมาให้หน่อย", "ลงทะเบียนผู้รับเหมา", "เพิ่มซัพพลายเออร์", "เพิ่มร้านค้า/คู่ค้า", "ค้นหาผู้รับเหมา"):
      1. ALWAYS use `manage_contractors` (stored in `suppliers` table), NEVER use `manage_spare_parts`!
-     2. You can pass single contractor updates, or a batch list in `contractors` or `suppliers` parameter.
-     3. Parameters include: `contractor_identifier` (or `supplier_code`), `name`, `contact_name`, `phone`, `email`, `address`, `service_scope`, `vendor_type`, `is_approved`.
+     2. You can pass single contractor updates/creation with `action: 'create_contractor'`, `name`, `supplier_code`, `contact_name`, `phone`, `email`, `address`, `service_scope`, `vendor_type`, `is_approved`.
+     3. For bulk contractor lists, pass the full list in `contractors: [...]` or `suppliers: [...]`.
+     4. If the user asks to add a contractor without details (e.g. "เพิ่มทะเบียนผู้รับเหมาให้หน่อย"), call `manage_contractors` with action `'create_contractor'` or prompt the user for the company name, contact, phone, and service scope. NEVER return empty response!
 
 30. STRICT PM VS AM SEPARATION & INTELLIGENT TASK CLASSIFICATION:
    - When the user asks to create or import maintenance master plans from Excel/PDF/chat (e.g. «02แผนการบำรุงรักษาเครื่องจักร.xlsx» หรือเอกสารงานบำรุงรักษา):
@@ -236,6 +237,14 @@ DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules)
      3. LEAN & BALANCING METRICS:
         - Specify realistic `cycle_time_sec`, `workers`, `event_type` ('operation', 'inspection', 'transport'), and `value_type` ('va', 'nva', 'nnva').
         - The tool automatically computes Takt Time, Total Cycle Time, Bottleneck Station, Line Efficiency (%), and Balance Delay (%).
+
+36. TECHNICIAN & WORKFORCE MANAGEMENT & VECTOR RAG (manage_technicians):
+   - When the user asks to add, register, or create a technician (e.g. "เพิ่มช่างให้หน่อย", "เพิ่มช่างใหม่", "ลงทะเบียนช่าง", "เพิ่มวิศวกร"):
+     1. If the user provides details (such as full name, employee number, department, role, skills, contact), IMMEDIATELY call `manage_technicians` with `action: 'create_technician'`, `full_name`, `employee_no`, `role`, `department`, `skills: [...]`, `phone`, `email`.
+     2. If the user only says "เพิ่มช่างให้หน่อย" without details:
+        - Ask the user for the technician's details (ชื่อ-นามสกุล, รหัสพนักงาน, แผนก, ตำแหน่ง/บทบาท เช่น ช่างเทคนิค/วิศวกร/จป., ทักษะความเชี่ยวชาญ, เบอร์โทร/อีเมล) OR provide a ready-to-fill sample/draft.
+     3. When user asks for technician recommendations, skill matrix lookup, or expertise matching (e.g. "ใครซ่อมมอเตอร์ได้บ้าง", "แนะนำช่างสำหรับงานซ่อมปั๊ม", "ดูผลงานช่างสมชาย"):
+        - ALWAYS use `search_vector_knowledge` with category `workforce_skills` or query `users` and `technician_skills` to retrieve the most suitable technician based on skill matrix, Kaizen points, and past repair history!
 
 Start by greeting the user and asking how you can help with maintenance operations today.
 ''';
@@ -569,20 +578,47 @@ Start by greeting the user and asking how you can help with maintenance operatio
 
   static final _manageTechniciansTool = FunctionDeclaration(
     'manage_technicians',
-    'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+    'Manage technician records, skill matrix, scoring, availability, and workforce directory in MASAPP database (create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability).',
     Schema(
       SchemaType.object,
       properties: {
-        'action': Schema(SchemaType.string, description: 'add_skill, update_skill, delete_skill, set_availability'),
-        'technician_identifier': Schema(SchemaType.string, description: 'Technician username, name, or ID'),
-        'skill_name': Schema(SchemaType.string, description: 'Skill/Competency name'),
+        'action': Schema(SchemaType.string, description: 'create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability'),
+        'technician_identifier': Schema(SchemaType.string, description: 'Technician username, employee_no, full_name, or ID'),
+        'full_name': Schema(SchemaType.string, description: 'Full name of technician / engineer'),
+        'employee_no': Schema(SchemaType.string, description: 'Employee code e.g. EMP005'),
+        'username': Schema(SchemaType.string, description: 'Login username'),
+        'role': Schema(SchemaType.string, description: 'technician, engineer, safety, operator, executive'),
+        'department': Schema(SchemaType.string, description: 'Department name e.g. หน่วยงานซ่อมบำรุง'),
+        'phone': Schema(SchemaType.string, description: 'Contact phone number'),
+        'email': Schema(SchemaType.string, description: 'Email address'),
+        'skill_name': Schema(SchemaType.string, description: 'Skill/Competency name e.g. ซ่อมระบบไฮดรอลิก'),
+        'skills': Schema(SchemaType.array, items: Schema(SchemaType.string), description: 'List of skills to add'),
         'proficiency_level': Schema(SchemaType.string, description: 'basic, intermediate, expert'),
+        'score': Schema(SchemaType.integer, description: 'Skill rating score 1-100'),
         'certified': Schema(SchemaType.boolean, description: 'Whether certified'),
         'available_date': Schema(SchemaType.string, description: 'Availability date (YYYY-MM-DD)'),
         'available_hours': Schema(SchemaType.number, description: 'Available work hours (default 8)'),
         'reserved_hours': Schema(SchemaType.number, description: 'Reserved/Booked hours'),
+        'technicians': Schema(
+          SchemaType.array,
+          items: Schema(
+            SchemaType.object,
+            properties: {
+              'full_name': Schema(SchemaType.string),
+              'employee_no': Schema(SchemaType.string),
+              'username': Schema(SchemaType.string),
+              'role': Schema(SchemaType.string),
+              'department': Schema(SchemaType.string),
+              'phone': Schema(SchemaType.string),
+              'email': Schema(SchemaType.string),
+              'skills': Schema(SchemaType.array, items: Schema(SchemaType.string)),
+            },
+            requiredProperties: ['full_name'],
+          ),
+          description: 'Array of technician objects for bulk registration/import',
+        ),
       },
-      requiredProperties: ['action', 'technician_identifier'],
+      requiredProperties: ['action'],
     ),
   );
 
@@ -1507,20 +1543,46 @@ Start by greeting the user and asking how you can help with maintenance operatio
       'type': 'function',
       'function': {
         'name': 'manage_technicians',
-        'description': 'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+        'description': 'Manage technician records, skill matrix, scoring, availability, and workforce directory in MASAPP database (create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability).',
         'parameters': {
           'type': 'object',
           'properties': {
-            'action': {'type': 'string', 'description': 'add_skill, update_skill, delete_skill, set_availability'},
+            'action': {'type': 'string', 'description': 'create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability'},
             'technician_identifier': {'type': 'string'},
+            'full_name': {'type': 'string'},
+            'employee_no': {'type': 'string'},
+            'username': {'type': 'string'},
+            'role': {'type': 'string'},
+            'department': {'type': 'string'},
+            'phone': {'type': 'string'},
+            'email': {'type': 'string'},
             'skill_name': {'type': 'string'},
+            'skills': {'type': 'array', 'items': {'type': 'string'}},
             'proficiency_level': {'type': 'string'},
+            'score': {'type': 'integer'},
             'certified': {'type': 'boolean'},
             'available_date': {'type': 'string'},
             'available_hours': {'type': 'number'},
             'reserved_hours': {'type': 'number'},
+            'technicians': {
+              'type': 'array',
+              'items': {
+                'type': 'object',
+                'properties': {
+                  'full_name': {'type': 'string'},
+                  'employee_no': {'type': 'string'},
+                  'username': {'type': 'string'},
+                  'role': {'type': 'string'},
+                  'department': {'type': 'string'},
+                  'phone': {'type': 'string'},
+                  'email': {'type': 'string'},
+                  'skills': {'type': 'array', 'items': {'type': 'string'}},
+                },
+                'required': ['full_name'],
+              },
+            },
           },
-          'required': ['action', 'technician_identifier'],
+          'required': ['action'],
         },
       },
     },
@@ -2080,20 +2142,46 @@ Start by greeting the user and asking how you can help with maintenance operatio
     },
     {
       'name': 'manage_technicians',
-      'description': 'Manage technician skill matrix and daily availability (add_skill, update_skill, delete_skill, set_availability).',
+      'description': 'Manage technician records, skill matrix, scoring, availability, and workforce directory in MASAPP database (create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability).',
       'input_schema': {
         'type': 'object',
         'properties': {
-          'action': {'type': 'string', 'description': 'add_skill, update_skill, delete_skill, set_availability'},
+          'action': {'type': 'string', 'description': 'create_technician, update_technician, delete_technician, add_skill, update_skill, rate_skill, delete_skill, set_availability'},
           'technician_identifier': {'type': 'string'},
+          'full_name': {'type': 'string'},
+          'employee_no': {'type': 'string'},
+          'username': {'type': 'string'},
+          'role': {'type': 'string'},
+          'department': {'type': 'string'},
+          'phone': {'type': 'string'},
+          'email': {'type': 'string'},
           'skill_name': {'type': 'string'},
+          'skills': {'type': 'array', 'items': {'type': 'string'}},
           'proficiency_level': {'type': 'string'},
+          'score': {'type': 'integer'},
           'certified': {'type': 'boolean'},
           'available_date': {'type': 'string'},
           'available_hours': {'type': 'number'},
           'reserved_hours': {'type': 'number'},
+          'technicians': {
+            'type': 'array',
+            'items': {
+              'type': 'object',
+              'properties': {
+                'full_name': {'type': 'string'},
+                'employee_no': {'type': 'string'},
+                'username': {'type': 'string'},
+                'role': {'type': 'string'},
+                'department': {'type': 'string'},
+                'phone': {'type': 'string'},
+                'email': {'type': 'string'},
+                'skills': {'type': 'array', 'items': {'type': 'string'}},
+              },
+              'required': ['full_name'],
+            },
+          },
         },
-        'required': ['action', 'technician_identifier'],
+        'required': ['action'],
       },
     },
     {
@@ -2521,6 +2609,40 @@ Start by greeting the user and asking how you can help with maintenance operatio
     return (text, null);
   }
 
+  static String _buildToolExecutionSummary(List<String> toolResults, {String? defaultReasoning}) {
+    if (toolResults.isEmpty) {
+      if (defaultReasoning != null && defaultReasoning.trim().isNotEmpty) {
+        return defaultReasoning.trim();
+      }
+      return 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ';
+    }
+
+    final messages = <String>[];
+    for (final raw in toolResults) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          if (decoded['message'] != null && decoded['message'].toString().trim().isNotEmpty) {
+            messages.add(decoded['message'].toString().trim());
+          } else if (decoded['error'] != null && decoded['error'].toString().trim().isNotEmpty) {
+            messages.add('ข้อผิดพลาด: ${decoded['error']}');
+          } else if (decoded['status'] == 'success') {
+            messages.add('ดำเนินการบันทึกข้อมูลเรียบร้อยแล้ว');
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (messages.isEmpty) {
+      if (defaultReasoning != null && defaultReasoning.trim().isNotEmpty) {
+        return defaultReasoning.trim();
+      }
+      return 'ดำเนินการตามคำสั่งในระบบเรียบร้อยแล้วครับ';
+    }
+
+    return 'ดำเนินการเรียบร้อยแล้วครับ:\n\n' + messages.map((m) => '✅ $m').join('\n');
+  }
+
   static String _describeToolCall(String name, Map<String, dynamic> args) {
     switch (name) {
       case 'query_database':
@@ -2584,8 +2706,8 @@ Start by greeting the user and asking how you can help with maintenance operatio
         return 'คำนวณ/ตรวจสอบสถิติ OEE ($action)';
       case 'manage_technicians':
         final action = args['action'] ?? '';
-        final tech = args['technician_identifier'] ?? '';
-        return 'ตรวจสอบข้อมูลช่างซ่อมบำรุง ($action $tech)'.trim();
+        final tech = args['full_name'] ?? args['technician_identifier'] ?? '';
+        return 'จัดการข้อมูลช่าง/บุคลากร ($action $tech)'.trim();
       case 'manage_work_processes':
       case 'import_work_processes':
       case 'manage_sop_steps':
@@ -2859,6 +2981,56 @@ Start by greeting the user and asking how you can help with maintenance operatio
           buffer.writeln('- $pNo: $title ($method)');
         }
       }
+
+      // 6. Registered Technicians & Workforce
+      final techRows = await DbHelper.query('''
+        SELECT u.user_id, u.employee_no, u.full_name, u.role, u.phone, u.email, d.dept_name
+        FROM users u
+        LEFT JOIN departments d ON d.dept_id = u.dept_id
+        WHERE u.is_active = 1
+        ORDER BY u.role, u.full_name
+        LIMIT 50
+      ''');
+      if (techRows.isNotEmpty) {
+        buffer.writeln('\nREGISTERED TECHNICIANS & WORKFORCE DIRECTORY (Total ${techRows.length} members):');
+        for (final t in techRows) {
+          final uid = t['user_id'].toString();
+          final empNo = t['employee_no']?.toString() ?? '-';
+          final name = t['full_name']?.toString() ?? '';
+          final role = t['role']?.toString() ?? 'technician';
+          final dept = t['dept_name']?.toString() ?? 'ซ่อมบำรุง';
+
+          final sRows = await DbHelper.query(
+            'SELECT skill_name, proficiency_level FROM technician_skills WHERE technician_id = @id',
+            params: {'id': uid},
+          );
+          final skillsStr = sRows.map((s) => '${s['skill_name']}(${s['proficiency_level']})').join(', ');
+          final skillPart = skillsStr.isNotEmpty ? ' | ทักษะ: $skillsStr' : '';
+          buffer.writeln('- $empNo: $name ($role, $dept)$skillPart');
+        }
+        buffer.writeln('INSTRUCTION: You can manage, query, and recommend technicians. To register a new technician, call manage_technicians with action: "create_technician". When the user asks "เพิ่มช่างให้หน่อย" without details, prompt them for name, role, department, and skills, or accept whatever parameters they provide.');
+      }
+
+      // 7. Registered Outsource Contractors & Suppliers
+      final suppRows = await DbHelper.query('''
+        SELECT supplier_code, name, contact_name, phone, service_scope, vendor_type
+        FROM suppliers
+        WHERE is_active = 1
+        ORDER BY name
+        LIMIT 30
+      ''');
+      if (suppRows.isNotEmpty) {
+        buffer.writeln('\nREGISTERED CONTRACTORS & OUTSOURCE SUPPLIERS DIRECTORY (Total ${suppRows.length} vendors):');
+        for (final s in suppRows) {
+          final code = s['supplier_code']?.toString() ?? '';
+          final sName = s['name']?.toString() ?? '';
+          final scope = s['service_scope']?.toString() ?? 'บริการซ่อมบำรุง';
+          final tel = s['phone']?.toString() ?? '';
+          final telPart = tel.isNotEmpty ? ' (โทร: $tel)' : '';
+          buffer.writeln('- $code: $sName$telPart | งาน: $scope');
+        }
+        buffer.writeln('INSTRUCTION: You can manage, query, and register outsource contractors using manage_contractors (action: create_contractor). When user asks "เพิ่มทะเบียนผู้รับเหมาให้หน่อย", you can create a contractor or prompt for details.');
+      }
     } catch (_) {}
     return buffer.toString();
   }
@@ -2973,6 +3145,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
       userParts.length > 1 ? Content.multi(userParts) : Content.text(userMessage),
     );
 
+    final executedToolOutputs = <String>[];
     for (var i = 0; i < 25 && response.functionCalls.isNotEmpty; i++) {
       final functionResponses = <FunctionResponse>[];
 
@@ -2985,6 +3158,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           toolArgs,
           onProgress: addStep,
         );
+        executedToolOutputs.add(result);
         functionResponses.add(FunctionResponse(call.name, {'output': result}));
       }
 
@@ -2996,7 +3170,12 @@ Start by greeting the user and asking how you can help with maintenance operatio
       );
     }
 
-    final (cleanText, extractedReasoning) = _extractThinkTags(response.text ?? '');
+    var (cleanText, extractedReasoning) = _extractThinkTags(response.text ?? '');
+    if (cleanText.isEmpty && executedToolOutputs.isNotEmpty) {
+      cleanText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: extractedReasoning);
+    } else if (cleanText.isEmpty && extractedReasoning != null && extractedReasoning.isNotEmpty) {
+      cleanText = extractedReasoning;
+    }
     final finalText = cleanText.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : cleanText;
 
     return AiChatResult(
@@ -3063,6 +3242,8 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userContent},
     ];
 
+    final executedToolOutputs = <String>[];
+
     for (var i = 0; i < 25; i++) {
       final headers = <String, String>{
         'Authorization': 'Bearer ${config.apiKey}',
@@ -3124,19 +3305,22 @@ Start by greeting the user and asking how you can help with maintenance operatio
 
       if (toolCalls.isEmpty) {
         var text = _extractOpenAiContent(message['content']);
-        final (cleanText, extractedReasoning) = _extractThinkTags(text);
+        var (cleanText, extractedReasoning) = _extractThinkTags(text);
         if (extractedReasoning != null && extractedReasoning.isNotEmpty) {
           reasoningBuffer.write(extractedReasoning);
-          text = cleanText;
         }
-        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        if (cleanText.isEmpty && executedToolOutputs.isNotEmpty) {
+          cleanText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
+        } else if (cleanText.isEmpty && reasoningBuffer.isNotEmpty) {
+          cleanText = reasoningBuffer.toString();
+        }
+        final finalText = cleanText.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : cleanText;
         return AiChatResult(
           text: finalText,
           reasoningSteps: steps,
           reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
         );
       }
-
 
       messages.add({
         'role': 'assistant',
@@ -3156,6 +3340,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           args,
           onProgress: addStep,
         );
+        executedToolOutputs.add(result);
         messages.add({
           'role': 'tool',
           'tool_call_id': rawCall['id'],
@@ -3165,8 +3350,9 @@ Start by greeting the user and asking how you can help with maintenance operatio
       addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
     }
 
+    final fallbackText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
     return AiChatResult(
-      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      text: fallbackText,
       reasoningSteps: steps,
       reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
     );
@@ -3244,6 +3430,8 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userContent},
     ];
 
+    final executedToolOutputs = <String>[];
+
     for (var i = 0; i < 25; i++) {
       final json = await _postJson(
         _normalizeBaseUrl(config.resolvedBaseUrl, '/messages'),
@@ -3290,6 +3478,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
             toolArgs,
             onProgress: addStep,
           );
+          executedToolOutputs.add(result);
           toolResults.add({
             'type': 'tool_result',
             'tool_use_id': block['id'],
@@ -3299,8 +3488,17 @@ Start by greeting the user and asking how you can help with maintenance operatio
       }
 
       if (toolResults.isEmpty) {
-        final text = textParts.join('\n').trim();
-        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        var text = textParts.join('\n').trim();
+        var (cleanText, extractedReasoning) = _extractThinkTags(text);
+        if (extractedReasoning != null && extractedReasoning.isNotEmpty) {
+          reasoningBuffer.write(extractedReasoning);
+        }
+        if (cleanText.isEmpty && executedToolOutputs.isNotEmpty) {
+          cleanText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
+        } else if (cleanText.isEmpty && reasoningBuffer.isNotEmpty) {
+          cleanText = reasoningBuffer.toString();
+        }
+        final finalText = cleanText.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : cleanText;
         return AiChatResult(
           text: finalText,
           reasoningSteps: steps,
@@ -3313,8 +3511,9 @@ Start by greeting the user and asking how you can help with maintenance operatio
       messages.add({'role': 'user', 'content': toolResults});
     }
 
+    final fallbackText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
     return AiChatResult(
-      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      text: fallbackText,
       reasoningSteps: steps,
       reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
     );
@@ -3351,6 +3550,8 @@ Start by greeting the user and asking how you can help with maintenance operatio
       {'role': 'user', 'content': userMessage},
     ];
 
+    final executedToolOutputs = <String>[];
+
     for (var i = 0; i < 25; i++) {
       final headers = <String, String>{};
       if (config.apiKey.trim().isNotEmpty) {
@@ -3381,12 +3582,16 @@ Start by greeting the user and asking how you can help with maintenance operatio
 
       if (toolCalls.isEmpty) {
         var text = message['content']?.toString().trim() ?? '';
-        final (cleanText, extractedReasoning) = _extractThinkTags(text);
+        var (cleanText, extractedReasoning) = _extractThinkTags(text);
         if (extractedReasoning != null && extractedReasoning.isNotEmpty) {
           reasoningBuffer.write(extractedReasoning);
-          text = cleanText;
         }
-        final finalText = text.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : text;
+        if (cleanText.isEmpty && executedToolOutputs.isNotEmpty) {
+          cleanText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
+        } else if (cleanText.isEmpty && reasoningBuffer.isNotEmpty) {
+          cleanText = reasoningBuffer.toString();
+        }
+        final finalText = cleanText.isEmpty ? 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ' : cleanText;
         return AiChatResult(
           text: finalText,
           reasoningSteps: steps,
@@ -3412,6 +3617,7 @@ Start by greeting the user and asking how you can help with maintenance operatio
           args,
           onProgress: addStep,
         );
+        executedToolOutputs.add(result);
         messages.add({
           'role': 'tool',
           'tool_call_id': rawCall['id'],
@@ -3421,8 +3627,9 @@ Start by greeting the user and asking how you can help with maintenance operatio
       addStep('กำลังประมวลผลข้อมูลและเตรียมคำตอบ...');
     }
 
+    final fallbackText = _buildToolExecutionSummary(executedToolOutputs, defaultReasoning: reasoningBuffer.toString());
     return AiChatResult(
-      text: 'ไม่สามารถประมวลผลคำตอบได้ในขณะนี้ครับ',
+      text: fallbackText,
       reasoningSteps: steps,
       reasoningContent: reasoningBuffer.isEmpty ? null : reasoningBuffer.toString(),
     );

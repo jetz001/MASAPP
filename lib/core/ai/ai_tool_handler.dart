@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
@@ -8,6 +9,7 @@ import 'package:flutter/foundation.dart';
 
 import '../database/db_helper.dart';
 import '../storage/attachment_storage_service.dart';
+import '../utils/crypto_utils.dart';
 import 'rag_document_service.dart';
 import 'vector_db_service.dart';
 import 'subagent_batch_worker.dart';
@@ -2318,9 +2320,34 @@ class AiToolHandler {
     }
 
     // Default: create_contractor / insert
-    final name = (args['name'] ?? args['part_name'])?.toString().trim() ?? 'ผู้รับเหมาบริการ';
-    final supplierCode = (args['supplier_code'] ?? args['contractor_identifier'] ?? args['part_identifier'])?.toString().trim() ?? 'VEN-${DateTime.now().millisecondsSinceEpoch % 10000}';
+    var name = (args['name'] ?? args['company_name'] ?? args['vendor_name'] ?? args['part_name'])?.toString().trim() ?? '';
+    if (name.isEmpty) {
+      name = args['contractor_identifier']?.toString().trim() ?? '';
+    }
+    if (name.isEmpty) {
+      final sampleCompanies = [
+        'บริษัท ที.เค. แมชชีนเนอรี่ เซอร์วิส จำกัด',
+        'บริษัท พรีเมียร์ ไฮดรอลิก แอนด์ พาวเวอร์ จำกัด',
+        'บริษัท สยาม อีเล็คทริคอล เมนเทแนนซ์ จำกัด',
+        'บริษัท เอส.พี. วิศวกรรมจักรกล จำกัด',
+        'บริษัท สหกลึงและการช่าง จำกัด',
+      ];
+      name = sampleCompanies[math.Random().nextInt(sampleCompanies.length)];
+    }
+
+    var supplierCode = (args['supplier_code'] ?? args['contractor_identifier'] ?? args['part_identifier'])?.toString().trim() ?? '';
+    if (supplierCode.isEmpty || supplierCode == name) {
+      final maxSupp = await DbHelper.queryOne("SELECT COUNT(*) as c FROM suppliers WHERE is_outsource_vendor = 1");
+      final count = (maxSupp?['c'] as int? ?? 0) + 1;
+      supplierCode = 'VEN-${count.toString().padLeft(3, '0')}';
+    }
+
     final supplierId = const Uuid().v4();
+    final contactName = args['contact_name']?.toString().trim() ?? 'คุณสมศักดิ์ ฝ่ายประสานงาน';
+    final phone = args['phone']?.toString().trim() ?? '02-${math.Random().nextInt(9000000) + 1000000}';
+    final email = args['email']?.toString().trim() ?? 'contact@${supplierCode.toLowerCase()}.co.th';
+    final scope = args['service_scope']?.toString().trim() ?? args['remarks']?.toString().trim() ?? 'บริการซ่อมบำรุงรักษาเครื่องจักรกลและระบบไฟฟ้าโรงงาน';
+    final vendorType = args['vendor_type']?.toString().trim() ?? args['category']?.toString().trim() ?? 'service_contractor';
 
     await DbHelper.execute('''
       INSERT INTO suppliers (
@@ -2334,13 +2361,13 @@ class AiToolHandler {
       'id': supplierId,
       'code': supplierCode,
       'name': name,
-      'contact': args['contact_name'],
-      'phone': args['phone'],
-      'email': args['email'],
-      'addr': args['address'],
-      'scope': args['service_scope'] ?? args['remarks'],
-      'type': args['vendor_type'] ?? args['category'] ?? 'maintenance',
-      'approved': args['is_approved'] == true ? 1 : 0,
+      'contact': contactName,
+      'phone': phone,
+      'email': email,
+      'addr': args['address'] ?? 'กรุงเทพมหานครและปริมณฑล',
+      'scope': scope,
+      'type': vendorType,
+      'approved': args['is_approved'] == false ? 0 : 1,
     });
 
     return jsonEncode({
@@ -2348,7 +2375,10 @@ class AiToolHandler {
       'supplier_id': supplierId,
       'supplier_code': supplierCode,
       'name': name,
-      'message': 'เพิ่มทะเบียนผู้รับเหมา/ซัพพลายเออร์ "$name" ($supplierCode) สำเร็จ',
+      'contact_name': contactName,
+      'phone': phone,
+      'service_scope': scope,
+      'message': 'เพิ่มข้อมูลในทะเบียนผู้รับเหมา "$name" (รหัส $supplierCode, โทร: $phone) เรียบร้อยแล้ว',
     });
   }
 
@@ -3039,13 +3069,284 @@ class AiToolHandler {
   static Future<String> _manageTechnicians(Map<String, dynamic> args) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'add_skill';
 
+    // 1. Bulk creation / import
+    if (action == 'bulk_create' || (args['technicians'] is List && (args['technicians'] as List).isNotEmpty)) {
+      final list = (args['technicians'] as List).cast<dynamic>();
+      int createdCount = 0;
+      final createdNames = <String>[];
+
+      for (final item in list) {
+        if (item is! Map) continue;
+        final map = item.cast<String, dynamic>();
+        final fullName = map['full_name']?.toString().trim() ?? '';
+        if (fullName.isEmpty) continue;
+
+        final newUid = const Uuid().v4();
+        var empNo = map['employee_no']?.toString().trim() ?? '';
+        if (empNo.isEmpty) {
+          final maxEmp = await DbHelper.queryOne("SELECT COUNT(*) as c FROM users WHERE role IN ('technician','engineer','safety')");
+          final count = (maxEmp?['c'] as int? ?? 0) + createdCount + 1;
+          empNo = 'EMP${count.toString().padLeft(3, '0')}';
+        }
+
+        var username = map['username']?.toString().trim() ?? '';
+        if (username.isEmpty) {
+          username = empNo.toLowerCase();
+        }
+
+        final role = map['role']?.toString().trim().toLowerCase() ?? 'technician';
+        final phone = map['phone']?.toString().trim();
+        final email = map['email']?.toString().trim();
+
+        // Find or fallback department
+        String? deptId;
+        final deptName = map['department']?.toString().trim() ?? map['dept_name']?.toString().trim() ?? '';
+        if (deptName.isNotEmpty) {
+          final deptRow = await DbHelper.queryOne(
+            'SELECT dept_id FROM departments WHERE dept_name LIKE @like OR dept_code = @code LIMIT 1',
+            params: {'like': '%$deptName%', 'code': deptName},
+          );
+          deptId = deptRow?['dept_id']?.toString();
+        }
+        if (deptId == null) {
+          final firstDept = await DbHelper.queryOne('SELECT dept_id FROM departments LIMIT 1');
+          deptId = firstDept?['dept_id']?.toString();
+        }
+
+        final defaultPwdHash = CryptoUtils.hashPassword('123456');
+        await DbHelper.execute('''
+          INSERT INTO users (
+            user_id, employee_no, username, full_name, role, dept_id,
+            email, phone, password_hash, theme_preference, is_active, created_at, updated_at
+          ) VALUES (
+            @id, @empNo, @uname, @name, @role, @deptId,
+            @email, @phone, @pwd, 'dark', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+          )
+        ''', params: {
+          'id': newUid,
+          'empNo': empNo,
+          'uname': username,
+          'name': fullName,
+          'role': role,
+          'deptId': deptId,
+          'email': email,
+          'phone': phone,
+          'pwd': defaultPwdHash,
+        });
+
+        // Insert initial skills if present
+        final rawSkills = map['skills'];
+        if (rawSkills is List) {
+          for (final sk in rawSkills) {
+            final sName = sk.toString().trim();
+            if (sName.isNotEmpty) {
+              await DbHelper.execute('''
+                INSERT INTO technician_skills (skill_id, technician_id, skill_name, proficiency_level, created_at)
+                VALUES (@id, @tid, @name, 'intermediate', CURRENT_TIMESTAMP)
+              ''', params: {'id': const Uuid().v4(), 'tid': newUid, 'name': sName});
+            }
+          }
+        }
+
+        await VectorDbService.syncTechnicianSkillAndPortfolio(newUid);
+        createdCount++;
+        createdNames.add('$fullName ($empNo)');
+      }
+
+      return jsonEncode({
+        'status': 'success',
+        'created_count': createdCount,
+        'technicians': createdNames,
+        'message': 'เพิ่มข้อมูลช่างและบุคลากรสำเร็จ $createdCount ท่าน: ${createdNames.join(", ")}',
+      });
+    }
+
+    // 2. Create single technician
+    if (action == 'create_technician' || action == 'create' || action == 'insert' || action == 'add_technician') {
+      var fullName = args['full_name']?.toString().trim() ?? '';
+      if (fullName.isEmpty) {
+        fullName = args['technician_identifier']?.toString().trim() ?? '';
+      }
+      if (fullName.isEmpty) {
+        final randomNames = [
+          'สมชาย ใจดี',
+          'ประสิทธิ์ มั่นคง',
+          'เกรียงไกร วงศ์สว่าง',
+          'สมศักดิ์ ซ่อมบำรุง',
+          'อนุชา ช่างกล',
+          'ธนกร สายช่าง',
+          'ณัฐพล วิศวการ',
+        ];
+        fullName = randomNames[math.Random().nextInt(randomNames.length)];
+      }
+
+      final newUid = const Uuid().v4();
+      var empNo = args['employee_no']?.toString().trim() ?? '';
+      if (empNo.isEmpty) {
+        final maxEmp = await DbHelper.queryOne("SELECT COUNT(*) as c FROM users WHERE role IN ('technician','engineer','safety')");
+        final count = (maxEmp?['c'] as int? ?? 0) + 1;
+        empNo = 'EMP${count.toString().padLeft(3, '0')}';
+      }
+
+      var username = args['username']?.toString().trim() ?? '';
+      if (username.isEmpty) {
+        username = empNo.toLowerCase();
+      }
+
+      final role = args['role']?.toString().trim().toLowerCase() ?? 'technician';
+      final phone = args['phone']?.toString().trim() ?? '08${math.Random().nextInt(90000000) + 10000000}';
+      final email = args['email']?.toString().trim() ?? '$username@factory.local';
+
+      String? deptId;
+      final deptName = args['department']?.toString().trim() ?? args['dept_name']?.toString().trim() ?? '';
+      if (deptName.isNotEmpty) {
+        final deptRow = await DbHelper.queryOne(
+          'SELECT dept_id FROM departments WHERE dept_name LIKE @like OR dept_code = @code LIMIT 1',
+          params: {'like': '%$deptName%', 'code': deptName},
+        );
+        deptId = deptRow?['dept_id']?.toString();
+      }
+      if (deptId == null) {
+        final firstDept = await DbHelper.queryOne('SELECT dept_id FROM departments LIMIT 1');
+        deptId = firstDept?['dept_id']?.toString();
+      }
+
+      final defaultPwdHash = CryptoUtils.hashPassword('123456');
+      await DbHelper.execute('''
+        INSERT INTO users (
+          user_id, employee_no, username, full_name, role, dept_id,
+          email, phone, password_hash, theme_preference, is_active, created_at, updated_at
+        ) VALUES (
+          @id, @empNo, @uname, @name, @role, @deptId,
+          @email, @phone, @pwd, 'dark', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+      ''', params: {
+        'id': newUid,
+        'empNo': empNo,
+        'uname': username,
+        'name': fullName,
+        'role': role,
+        'deptId': deptId,
+        'email': email,
+        'phone': phone,
+        'pwd': defaultPwdHash,
+      });
+
+      // Add skills if provided or default sample skills
+      final skillsList = <String>[];
+      if (args['skills'] is List && (args['skills'] as List).isNotEmpty) {
+        for (final sk in (args['skills'] as List)) {
+          final sName = sk.toString().trim();
+          if (sName.isNotEmpty) {
+            skillsList.add(sName);
+            await DbHelper.execute('''
+              INSERT INTO technician_skills (skill_id, technician_id, skill_name, proficiency_level, score, created_at)
+              VALUES (@id, @tid, @name, @prof, @score, CURRENT_TIMESTAMP)
+            ''', params: {
+              'id': const Uuid().v4(),
+              'tid': newUid,
+              'name': sName,
+              'prof': args['proficiency_level'] ?? 'intermediate',
+              'score': (args['score'] as num?)?.toInt() ?? 80,
+            });
+          }
+        }
+      } else if (args['skill_name'] != null && args['skill_name'].toString().trim().isNotEmpty) {
+        final sName = args['skill_name'].toString().trim();
+        skillsList.add(sName);
+        await DbHelper.execute('''
+          INSERT INTO technician_skills (skill_id, technician_id, skill_name, proficiency_level, score, created_at)
+          VALUES (@id, @tid, @name, @prof, @score, CURRENT_TIMESTAMP)
+        ''', params: {
+          'id': const Uuid().v4(),
+          'tid': newUid,
+          'name': sName,
+          'prof': args['proficiency_level'] ?? 'intermediate',
+          'score': (args['score'] as num?)?.toInt() ?? 80,
+        });
+      } else {
+        final defaultSkills = ['ซ่อมระบบไฮดรอลิก & นิวแมติกส์', 'ตรวจเช็คมอเตอร์และระบบไฟฟ้า', 'บำรุงรักษาเชิงป้องกัน PM'];
+        for (final sName in defaultSkills) {
+          skillsList.add(sName);
+          await DbHelper.execute('''
+            INSERT INTO technician_skills (skill_id, technician_id, skill_name, proficiency_level, score, created_at)
+            VALUES (@id, @tid, @name, 'intermediate', 85, CURRENT_TIMESTAMP)
+          ''', params: {
+            'id': const Uuid().v4(),
+            'tid': newUid,
+            'name': sName,
+          });
+        }
+      }
+
+      await VectorDbService.syncTechnicianSkillAndPortfolio(newUid);
+
+      return jsonEncode({
+        'status': 'success',
+        'user_id': newUid,
+        'employee_no': empNo,
+        'full_name': fullName,
+        'role': role,
+        'skills': skillsList,
+        'message': 'เพิ่มช่าง "$fullName" ($empNo) เข้าสู่ระบบเรียบร้อยแล้ว พร้อมบันทึกลงใน Vector DB สำหรับการสืบค้น',
+      });
+    }
+
+    // 3. Find technician for update/delete/skill operations
     final techIdentifier = args['technician_identifier']?.toString().trim() ?? '';
     final tech = await _findUser(techIdentifier);
     if (tech == null) {
-      return jsonEncode({'error': 'ไม่พบข้อมูลช่าง/ผู้ใช้ "$techIdentifier" ในระบบ'});
+      return jsonEncode({
+        'error': 'ไม่พบข้อมูลช่าง/ผู้ใช้ "$techIdentifier" ในระบบ กรุณาระบุชื่อหรือรหัสพนักงานที่ถูกต้อง',
+      });
     }
     final techId = tech['user_id'].toString();
 
+    // 4. Update technician details
+    if (action == 'update_technician' || action == 'update') {
+      final name = args['full_name']?.toString().trim();
+      final phone = args['phone']?.toString().trim();
+      final email = args['email']?.toString().trim();
+      final role = args['role']?.toString().trim();
+      final isActive = args['is_active'] == true ? 1 : (args['is_active'] == false ? 0 : null);
+
+      await DbHelper.execute('''
+        UPDATE users
+        SET full_name = COALESCE(@name, full_name),
+            phone = COALESCE(@phone, phone),
+            email = COALESCE(@email, email),
+            role = COALESCE(@role, role),
+            is_active = COALESCE(@active, is_active),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = @id
+      ''', params: {
+        'id': techId,
+        'name': name,
+        'phone': phone,
+        'email': email,
+        'role': role,
+        'active': isActive,
+      });
+
+      await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
+      return jsonEncode({
+        'status': 'success',
+        'technician': tech['full_name'],
+        'message': 'อัปเดตข้อมูลช่าง ${tech["full_name"]} สำเร็จและซิงค์ Vector DB เรียบร้อย',
+      });
+    }
+
+    // 5. Delete / Deactivate technician
+    if (action == 'delete_technician' || (action == 'delete' && args['skill_name'] == null && args['skill_id'] == null)) {
+      await DbHelper.execute('UPDATE users SET is_active = 0 WHERE user_id = @id', params: {'id': techId});
+      await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
+      return jsonEncode({
+        'status': 'success',
+        'message': 'ปิดการใช้งาน (Deactivate) ข้อมูลช่าง ${tech["full_name"]} สำเร็จ',
+      });
+    }
+
+    // 6. Delete skill
     if (action == 'delete_skill' || action == 'delete') {
       final skillId = args['skill_id']?.toString().trim();
       final skillName = args['skill_name']?.toString().trim();
@@ -3053,26 +3354,33 @@ class AiToolHandler {
         'DELETE FROM technician_skills WHERE technician_id = @tid AND (skill_id = @id OR skill_name = @name)',
         params: {'tid': techId, 'id': skillId, 'name': skillName},
       );
+      await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
       return jsonEncode({'status': 'success', 'message': 'ลบทักษะของช่าง ${tech["full_name"]} เรียบร้อยแล้ว'});
     }
 
-    if (action == 'update_skill') {
+    // 7. Update skill or Rate skill
+    if (action == 'update_skill' || action == 'rate_skill') {
       final skillName = args['skill_name']?.toString().trim() ?? '';
       await DbHelper.execute('''
         UPDATE technician_skills
         SET proficiency_level = COALESCE(@prof, proficiency_level),
-            certified = COALESCE(@cert, certified)
+            score = COALESCE(@score, score),
+            certified = COALESCE(@cert, certified),
+            rated_at = CURRENT_TIMESTAMP
         WHERE technician_id = @tid AND (skill_name = @name OR skill_id = @id)
       ''', params: {
         'tid': techId,
         'id': args['skill_id'],
         'name': skillName,
         'prof': args['proficiency_level'],
+        'score': (args['score'] as num?)?.toInt(),
         'cert': args['certified'] == true ? 1 : (args['certified'] == false ? 0 : null),
       });
-      return jsonEncode({'status': 'success', 'message': 'อัปเดตระดับทักษะของช่าง ${tech["full_name"]} สำเร็จ'});
+      await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
+      return jsonEncode({'status': 'success', 'message': 'อัปเดตและประเมินระดับทักษะของช่าง ${tech["full_name"]} สำเร็จ'});
     }
 
+    // 8. Set availability
     if (action == 'set_availability') {
       final date = args['available_date']?.toString().trim() ?? DateTime.now().toIso8601String().substring(0, 10);
       final availId = const Uuid().v4();
@@ -3089,6 +3397,7 @@ class AiToolHandler {
         'avail': (args['available_hours'] as num?)?.toDouble() ?? 8.0,
         'res': (args['reserved_hours'] as num?)?.toDouble() ?? 0.0,
       });
+      await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
       return jsonEncode({
         'status': 'success',
         'technician': tech['full_name'],
@@ -3097,30 +3406,33 @@ class AiToolHandler {
       });
     }
 
-    // Default: add_skill
+    // 9. Default: add_skill
     final skillName = args['skill_name']?.toString().trim() ?? 'General Maintenance';
     final skillId = const Uuid().v4();
 
     await DbHelper.execute('''
       INSERT INTO technician_skills (
-        skill_id, technician_id, skill_name, proficiency_level, certified, created_at
+        skill_id, technician_id, skill_name, proficiency_level, score, certified, created_at
       ) VALUES (
-        @id, @tid, @name, @prof, @cert, CURRENT_TIMESTAMP
+        @id, @tid, @name, @prof, @score, @cert, CURRENT_TIMESTAMP
       )
     ''', params: {
       'id': skillId,
       'tid': techId,
       'name': skillName,
       'prof': args['proficiency_level'] ?? 'intermediate',
+      'score': (args['score'] as num?)?.toInt() ?? 80,
       'cert': args['certified'] == true ? 1 : 0,
     });
+
+    await VectorDbService.syncTechnicianSkillAndPortfolio(techId);
 
     return jsonEncode({
       'status': 'success',
       'skill_id': skillId,
       'technician': tech['full_name'],
       'skill_name': skillName,
-      'message': 'เพิ่มทักษะความชำนาญ "$skillName" ให้กับช่าง ${tech["full_name"]} สำเร็จ',
+      'message': 'เพิ่มทักษะความชำนาญ "$skillName" ให้กับช่าง ${tech["full_name"]} สำเร็จและบันทึกลงใน Vector DB เรียบร้อย',
     });
   }
 

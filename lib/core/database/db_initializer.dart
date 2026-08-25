@@ -886,6 +886,7 @@ class DbInitializer {
       await _ensureFileAssetsSchema(db);
       await _ensureKnowledgeVectorsSchema(db);
       await _ensureAiChatHistorySchema(db);
+      await _ensureWorkOrderRcaSchema(db);
       await _backfillLegacyFileAssets(db);
       await _migrateLegacyFileAssetsToManagedStorage(db);
 
@@ -1773,6 +1774,25 @@ class DbInitializer {
     } catch (e) {
       _log.e('Error restoring from backup: $e');
       return false;
+    }
+  }
+
+  static Future<void> _ensureWorkOrderRcaSchema(Database db) async {
+    try {
+      final rcaTable = await db.query(
+        'sqlite_master',
+        where: 'type = ? AND name = ?',
+        whereArgs: ['table', 'work_order_rca'],
+      );
+      if (rcaTable.isNotEmpty) {
+        final cols = await db.rawQuery("PRAGMA table_info('work_order_rca');");
+        if (!cols.any((col) => col['name'] == 'cause_category')) {
+          _log.i('Migration: Adding cause_category to work_order_rca...');
+          await db.execute('ALTER TABLE work_order_rca ADD COLUMN cause_category TEXT;');
+        }
+      }
+    } catch (e) {
+      _log.e('Failed to ensure work_order_rca schema: $e');
     }
   }
 }

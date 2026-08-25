@@ -740,7 +740,7 @@ class VectorDbService {
     await ensureTable();
     try {
       final uRows = await DbHelper.query('''
-        SELECT u.user_id, u.employee_no, u.full_name, u.role, d.dept_name
+        SELECT u.user_id, u.employee_no, u.full_name, u.role, u.phone, u.email, u.is_active, d.dept_name
         FROM users u
         LEFT JOIN departments d ON d.dept_id = u.dept_id
         WHERE u.user_id = @id
@@ -749,17 +749,25 @@ class VectorDbService {
       if (uRows.isEmpty) return;
 
       final u = uRows.first;
-      final empNo = u['employee_no'] ?? '-';
-      final name = u['full_name'] ?? 'ช่างเทคนิค';
-      final role = u['role'] ?? 'technician';
-      final dept = u['dept_name'] ?? 'ฝ่ายซ่อมบำรุง';
+      final empNo = u['employee_no']?.toString() ?? '-';
+      final name = u['full_name']?.toString() ?? 'ช่างเทคนิค';
+      final role = u['role']?.toString() ?? 'technician';
+      final dept = u['dept_name']?.toString() ?? 'ฝ่ายซ่อมบำรุง';
+      final phone = u['phone']?.toString() ?? '-';
+      final email = u['email']?.toString() ?? '-';
+      final isActive = u['is_active'] == 1 ? 'พร้อมปฏิบัติงาน (Active)' : 'หยุด/ลา (Inactive)';
 
-      // 1. Fetch skills
+      // 1. Fetch skills with proficiency and score
       final sRows = await DbHelper.query(
         'SELECT skill_name, proficiency_level, score FROM technician_skills WHERE technician_id = @id',
         params: {'id': userId},
       );
-      final skillText = sRows.map((s) => '${s['skill_name']} (ระดับ: ${s['proficiency_level']})').join(', ');
+      final skillText = sRows.map((s) {
+        final sName = s['skill_name'];
+        final sProf = s['proficiency_level'] ?? 'intermediate';
+        final sScore = s['score'] != null ? ' (คะแนน: ${s['score']}/100)' : '';
+        return '$sName [ระดับ: $sProf$sScore]';
+      }).join(', ');
 
       // 2. Fetch certificates
       final certRows = await DbHelper.query(
@@ -774,6 +782,16 @@ class VectorDbService {
         params: {'id': userId},
       );
       final completedWo = (woDoneCount?['c'] as int?) ?? 0;
+
+      // 3.1 Fetch machines worked on
+      final mcRows = await DbHelper.query('''
+        SELECT DISTINCT m.machine_no, m.machine_name
+        FROM work_orders wo
+        JOIN machines m ON wo.machine_id = m.machine_id
+        WHERE wo.assigned_to = @id
+        LIMIT 10
+      ''', params: {'id': userId});
+      final machinesWorked = mcRows.map((m) => '${m['machine_no']} (${m['machine_name']})').join(', ');
 
       // 4. Calculate real Kaizen points, projects & badges from DB
       final planRows = await DbHelper.query('SELECT * FROM problem_solving_records');
@@ -821,10 +839,12 @@ class VectorDbService {
       if (completedProjects >= 2 || kPoints >= 250) badges.add('🌟 Kaizen Champion');
       if (maxRed >= 50.0) badges.add('🚀 High Impact (>50% Waste Cut)');
 
-      final chunk = 'ข้อมูลบุคลากร & ทักษะความสามารถ: $empNo - $name ($role)\n'
-          'แผนก: $dept\n'
-          'ทักษะความชำนาญ (Skill Matrix): ${skillText.isEmpty ? 'ยังไม่ระบุ' : skillText}\n'
-          'คะแนน Kaizen สะสม: $kPoints แต้ม | โครงการ Action Plan ที่ปิดสำเร็จ: $completedProjects โครงการ\n'
+      final chunk = 'ข้อมูลบุคลากร, ช่างซ่อมบำรุง & ทักษะความเชี่ยวชาญ (Workforce & Technician Profile):\n'
+          'ชื่อ-นามสกุล: $name | รหัสพนักงาน: $empNo | ตำแหน่ง/บทบาท: $role | สถานะ: $isActive\n'
+          'แผนก: $dept | เบอร์โทรศัพท์: $phone | อีเมล: $email\n'
+          'ทักษะความชำนาญและความสามารถ (Skill Matrix): ${skillText.isEmpty ? 'ยังไม่ระบุ' : skillText}\n'
+          'เครื่องจักรที่เชี่ยวชาญ/เคยซ่อม: ${machinesWorked.isEmpty ? 'ทั่วไป' : machinesWorked}\n'
+          'คะแนน Kaizen สะสม: $kPoints แต้ม | โครงการ Action Plan / RCA ที่ปิดสำเร็จ: $completedProjects โครงการ\n'
           'เหรียญเกียรติยศที่ได้รับ: ${badges.isEmpty ? 'กำลังสะสมผลงาน' : badges.join(', ')}\n'
           'ใบประกาศนียบัตร/ใบเซอร์: ${certText.isEmpty ? 'ไม่มีเอกสารแนบ' : certText}\n'
           'สถิติงานซ่อมบำรุงที่ปิดสำเร็จ: $completedWo งาน';
@@ -844,6 +864,9 @@ class VectorDbService {
             'employee_no': empNo,
             'full_name': name,
             'role': role,
+            'phone': phone,
+            'email': email,
+            'department': dept,
             'kaizen_points': kPoints,
             'completed_projects': completedProjects,
             'badges': badges,
@@ -855,6 +878,27 @@ class VectorDbService {
     } catch (e) {
       _log.w('[VectorDB] Failed to auto-sync technician profile: $e');
     }
+  }
+
+  /// Sync all technicians into Vector DB
+  static Future<int> syncAllTechnicians() async {
+    await ensureTable();
+    int count = 0;
+    try {
+      final userRows = await DbHelper.query(
+        "SELECT user_id FROM users WHERE is_active = 1 OR role IN ('technician', 'engineer', 'safety', 'operator')",
+      );
+      for (final u in userRows) {
+        final uId = u['user_id']?.toString();
+        if (uId != null && uId.isNotEmpty) {
+          await syncTechnicianSkillAndPortfolio(uId);
+          count++;
+        }
+      }
+    } catch (e) {
+      _log.e('Failed to sync all technicians: $e');
+    }
+    return count;
   }
 
   /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions), Machines, Spare Parts, Tools, and Lean Processes into Vector DB.

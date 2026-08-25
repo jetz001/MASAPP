@@ -880,9 +880,9 @@ class WorkOrderDetailScreen extends ConsumerWidget {
   ) async {
     final woId = wo.woId;
     final vendors = await DbHelper.query(
-      '''SELECT supplier_id, supplier_code, name, service_scope
-        FROM suppliers WHERE is_outsource_vendor = 1 AND vendor_type = 'repair'
-        AND is_active = 1 AND is_approved = 1 ORDER BY name''',
+      '''SELECT supplier_id, supplier_code, name, service_scope, is_approved
+        FROM suppliers WHERE is_outsource_vendor = 1
+        AND is_active = 1 ORDER BY is_approved DESC, name''',
     );
     if (!context.mounted) return;
     String? selectedVendorId;
@@ -918,17 +918,20 @@ class WorkOrderDetailScreen extends ConsumerWidget {
                           ),
                           hint: Text(
                             vendors.isEmpty
-                                ? 'ยังไม่มีผู้รับเหมาที่อนุมัติแล้ว'
+                                ? 'ยังไม่มีรายชื่อผู้รับเหมาในระบบ'
                                 : 'เลือกจากทะเบียนผู้รับเหมา',
                           ),
                           items: vendors
                               .map(
-                                (vendor) => DropdownMenuItem<String>(
-                                  value: vendor['supplier_id'] as String,
-                                  child: Text(
-                                    '${vendor['supplier_code']} - ${vendor['name']}',
-                                  ),
-                                ),
+                                (vendor) {
+                                  final isAppr = (vendor['is_approved'] as num? ?? 0) == 1;
+                                  return DropdownMenuItem<String>(
+                                    value: vendor['supplier_id'] as String,
+                                    child: Text(
+                                      '${vendor['supplier_code']} - ${vendor['name']}${isAppr ? ' (อนุมัติแล้ว)' : ' (รออนุมัติ)'}',
+                                    ),
+                                  );
+                                },
                               )
                               .toList(),
                           onChanged: vendors.isEmpty

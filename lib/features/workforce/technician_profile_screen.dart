@@ -613,26 +613,51 @@ class _SkillTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final rawScore = (skill.score ?? 80).toDouble();
+    final normalized = (rawScore <= 10 && rawScore > 0) ? rawScore * 10 : rawScore;
+    final displayScore = normalized.clamp(0.0, 100.0);
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Expanded(flex: 2, child: Text(skill.skillName, style: AppTextStyles.labelLarge)),
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(skill.skillName, style: AppTextStyles.labelLarge),
+                Text(
+                  'ระดับ: ${skill.proficiencyLevel}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             flex: 3,
             child: Row(
               children: [
                 Expanded(
                   child: Slider(
-                    value: (skill.score ?? 0).toDouble(),
-                    min: 0,
-                    max: 10,
-                    divisions: 10,
-                    label: skill.score?.toString() ?? '0',
+                    value: displayScore,
+                    min: 0.0,
+                    max: 100.0,
+                    divisions: 20,
+                    label: '${displayScore.toInt()}',
                     onChanged: onScoreChanged,
                   ),
                 ),
-                Text('${skill.score ?? 0} / 10', style: AppTextStyles.labelMedium),
+                SizedBox(
+                  width: 65,
+                  child: Text(
+                    '${displayScore.toInt()} / 100',
+                    style: AppTextStyles.labelMedium,
+                    textAlign: TextAlign.end,
+                  ),
+                ),
               ],
             ),
           ),

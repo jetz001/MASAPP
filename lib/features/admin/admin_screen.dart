@@ -65,14 +65,13 @@ class UserRecord {
   }
 
   Color get roleColor {
-    switch (role) {
-      case 'admin': return AppColors.error;
-      case 'engineer': return AppColors.primary;
-      case 'safety': return AppColors.success;
-      case 'technician': return AppColors.machinePM;
-      case 'executive': return AppColors.info;
-      default: return AppColors.textSecondary;
-    }
+    final r = role.toLowerCase();
+    if (r.contains('admin') || r.contains('ผู้ดูแล')) return AppColors.error;
+    if (r.contains('engineer') || r.contains('วิศวกร') || r.contains('หัวหน้า')) return AppColors.primary;
+    if (r.contains('safety') || r.contains('จป')) return AppColors.success;
+    if (r.contains('technician') || r.contains('ช่าง')) return AppColors.machinePM;
+    if (r.contains('executive') || r.contains('ผู้บริหาร')) return AppColors.info;
+    return AppColors.textSecondary;
   }
 }
 
@@ -640,6 +639,16 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
     ('admin', 'ผู้ดูแลระบบ'),
   ];
 
+  static String _normalizeRole(String? raw) {
+    final r = (raw ?? '').trim();
+    if (r.isEmpty) return 'technician';
+    final lower = r.toLowerCase();
+    for (final role in _roles) {
+      if (role.$1 == lower || role.$2 == r) return role.$1;
+    }
+    return r;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -648,7 +657,7 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
       _nameCtrl.text = u.fullName;
       _usernameCtrl.text = u.username;
       _empCtrl.text = u.employeeNo ?? '';
-      _role = u.role;
+      _role = _normalizeRole(u.role);
       _active = u.isActive;
     }
   }
@@ -656,6 +665,11 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.existing != null;
+    final roleItems = [
+      ..._roles,
+      if (!_roles.any((r) => r.$1 == _role)) (_role, _role),
+    ];
+
     return AlertDialog(
       title: Text(isEdit ? 'แก้ไขผู้ใช้งาน' : 'เพิ่มผู้ใช้งานใหม่'),
       content: SizedBox(
@@ -699,10 +713,10 @@ class _UserDialogState extends ConsumerState<_UserDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              initialValue: _role,
+              value: roleItems.any((r) => r.$1 == _role) ? _role : 'technician',
               decoration:
                   const InputDecoration(labelText: 'ตำแหน่ง / สิทธิ์'),
-              items: _roles
+              items: roleItems
                   .map((r) => DropdownMenuItem(
                         value: r.$1,
                         child: Text(r.$2),

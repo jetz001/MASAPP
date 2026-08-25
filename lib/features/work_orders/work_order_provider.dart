@@ -647,6 +647,10 @@ class WorkOrderRepository {
       final now = DateTime.now().toIso8601String();
       const uuid = Uuid();
 
+      try {
+        await DbHelper.execute('ALTER TABLE work_order_rca ADD COLUMN cause_category TEXT');
+      } catch (_) {}
+
       final existingRca = await DbHelper.queryOne(
         'SELECT rca_id FROM work_order_rca WHERE wo_id = @id',
         params: {'id': woId},

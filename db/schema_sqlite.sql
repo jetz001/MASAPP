@@ -317,6 +317,7 @@ CREATE TABLE work_order_rca (
   rca_id            TEXT PRIMARY KEY,
   wo_id             TEXT NOT NULL UNIQUE REFERENCES work_orders(wo_id) ON DELETE CASCADE,
   failure_type      TEXT, -- breakdown, wear, design, process, environment
+  cause_category    TEXT, -- machine, man, method, material, environment
   why_1             TEXT,
   why_2             TEXT,
   why_3             TEXT,

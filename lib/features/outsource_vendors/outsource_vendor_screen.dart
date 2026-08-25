@@ -57,6 +57,28 @@ class _OutsourceVendorScreenState extends ConsumerState<OutsourceVendorScreen> {
     if (saved == true) _load();
   }
 
+  Future<void> _toggleApprove(Map<String, dynamic> vendor) async {
+    final isApproved = (vendor['is_approved'] as num? ?? 0) == 1;
+    final newStatus = isApproved ? 0 : 1;
+    await DbHelper.execute(
+      'UPDATE suppliers SET is_approved = @approved WHERE supplier_id = @id',
+      params: {'approved': newStatus, 'id': vendor['supplier_id']},
+    );
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            newStatus == 1
+                ? 'อนุมัติผู้รับเหมา "${vendor['name']}" เรียบร้อยแล้ว'
+                : 'ยกเลิกการอนุมัติผู้รับเหมา "${vendor['name']}" แล้ว',
+          ),
+          backgroundColor: newStatus == 1 ? Colors.green : Colors.orange,
+        ),
+      );
+    }
+    _load();
+  }
+
   Future<void> _toggleActive(Map<String, dynamic> vendor) async {
     final isActive = (vendor['is_active'] as num? ?? 0) == 1;
     await DbHelper.execute(
@@ -96,7 +118,7 @@ class _OutsourceVendorScreenState extends ConsumerState<OutsourceVendorScreen> {
       _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('ไม่สามารถลบได้: อาจมีการใช้งานผู้รับเหมานี้อยู่แล้ว')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ไม่สามารถลบได้: อาจมีการใช้งานผู้รับเหมานี้อยู่แล้ว')));
       }
     }
   }
@@ -190,13 +212,31 @@ class _OutsourceVendorScreenState extends ConsumerState<OutsourceVendorScreen> {
                                   _typeLabel(vendor['vendor_type'] as String?),
                                 ),
                               ),
-                              Chip(
-                                label: Text(
-                                  approved ? 'อนุมัติแล้ว' : 'รออนุมัติ',
+                              if (!approved)
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.green.shade700,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                  ),
+                                  onPressed: () => _toggleApprove(vendor),
+                                  icon: const Icon(Icons.check_circle_outline, size: 18),
+                                  label: const Text('อนุมัติ'),
+                                )
+                              else
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.green.shade700,
+                                    side: BorderSide(color: Colors.green.shade700),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  ),
+                                  onPressed: () => _toggleApprove(vendor),
+                                  icon: const Icon(Icons.verified, size: 16, color: Colors.green),
+                                  label: const Text('อนุมัติแล้ว'),
                                 ),
-                              ),
                               IconButton(
                                 icon: const Icon(Icons.edit_outlined),
+                                tooltip: 'แก้ไข',
                                 onPressed: () => _showForm(vendor),
                               ),
                               TextButton(
