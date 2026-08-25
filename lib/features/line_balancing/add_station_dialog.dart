@@ -6,7 +6,17 @@ import '../work_processes/providers/work_process_provider.dart';
 
 class AddStationDialog extends ConsumerStatefulWidget {
   final LineBalancingNotifier notifier;
-  const AddStationDialog({super.key, required this.notifier});
+  final WorkstationData? initialStation;
+  final String? fromStationId;
+  final Offset? suggestedPosition;
+
+  const AddStationDialog({
+    super.key,
+    required this.notifier,
+    this.initialStation,
+    this.fromStationId,
+    this.suggestedPosition,
+  });
 
   @override
   ConsumerState<AddStationDialog> createState() => _AddStationDialogState();
@@ -27,15 +37,55 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
   double energyCost = 0.0;
   double materialCost = 0.0;
   double otherCost = 0.0;
+  double waitingTimeSec = 0.0;
+  int bufferQuantity = 0;
 
-  final TextEditingController _cycleTimeController = TextEditingController(text: '20.0');
-  final TextEditingController _nameController = TextEditingController(text: 'Station');
-  final TextEditingController _workersController = TextEditingController(text: '1');
+  late final TextEditingController _cycleTimeController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _workersController;
   
-  final TextEditingController _laborCostController = TextEditingController(text: '300.0');
-  final TextEditingController _energyCostController = TextEditingController(text: '0.0');
-  final TextEditingController _materialCostController = TextEditingController(text: '0.0');
-  final TextEditingController _otherCostController = TextEditingController(text: '0.0');
+  late final TextEditingController _laborCostController;
+  late final TextEditingController _energyCostController;
+  late final TextEditingController _materialCostController;
+  late final TextEditingController _otherCostController;
+  late final TextEditingController _bufferController;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = widget.initialStation;
+    if (s != null) {
+      name = s.name;
+      cycleTime = s.cycleTime;
+      workers = s.workers;
+      selectedMachineId = s.machineId;
+      selectedMachineName = s.machineName;
+      laborCost = s.laborCost;
+      energyCost = s.energyCost;
+      materialCost = s.materialCost;
+      otherCost = s.otherCost;
+      waitingTimeSec = s.waitingTimeSec;
+      bufferQuantity = s.bufferQuantity;
+
+      _nameController = TextEditingController(text: s.name);
+      _cycleTimeController = TextEditingController(text: s.cycleTime.toStringAsFixed(2));
+      _workersController = TextEditingController(text: s.workers.toString());
+      _laborCostController = TextEditingController(text: s.laborCost.toStringAsFixed(2));
+      _energyCostController = TextEditingController(text: s.energyCost.toStringAsFixed(2));
+      _materialCostController = TextEditingController(text: s.materialCost.toStringAsFixed(2));
+      _otherCostController = TextEditingController(text: s.otherCost.toStringAsFixed(2));
+      _bufferController = TextEditingController(text: s.bufferQuantity.toString());
+    } else {
+      _nameController = TextEditingController(text: 'Station');
+      _cycleTimeController = TextEditingController(text: '20.0');
+      _workersController = TextEditingController(text: '1');
+      _laborCostController = TextEditingController(text: '300.0');
+      _energyCostController = TextEditingController(text: '0.0');
+      _materialCostController = TextEditingController(text: '0.0');
+      _otherCostController = TextEditingController(text: '0.0');
+      _bufferController = TextEditingController(text: '0');
+    }
+  }
 
   @override
   void dispose() {
@@ -68,11 +118,20 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
     });
 
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.add_circle_outline, color: Colors.blueAccent),
-          SizedBox(width: 8),
-          Text('เพิ่มสถานีใหม่'),
+          Icon(
+            widget.initialStation != null
+                ? Icons.edit_note_rounded
+                : Icons.add_circle_outline,
+            color: Colors.blueAccent,
+          ),
+          const SizedBox(width: 8),
+          Text(widget.initialStation != null
+              ? 'แก้ไขสถานีงาน: ${widget.initialStation!.name}'
+              : (widget.fromStationId != null
+                  ? 'เพิ่มสถานีงานถัดไป'
+                  : 'เพิ่มสถานีใหม่')),
         ],
       ),
       content: SizedBox(
@@ -298,17 +357,38 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
         ElevatedButton(
           onPressed: selectedMachineId == null ? null : () {
-            widget.notifier.addStation(
-              name, 
-              cycleTime, 
-              machineId: selectedMachineId, 
-              machineName: selectedMachineName,
-              workers: workers,
-              laborCost: laborCost,
-              energyCost: energyCost,
-              materialCost: materialCost,
-              otherCost: otherCost,
-            );
+            if (widget.initialStation != null) {
+              widget.notifier.updateStation(
+                widget.initialStation!.id,
+                name,
+                cycleTime,
+                machineId: selectedMachineId,
+                machineName: selectedMachineName,
+                workers: workers,
+                laborCost: laborCost,
+                energyCost: energyCost,
+                materialCost: materialCost,
+                otherCost: otherCost,
+                waitingTimeSec: waitingTimeSec,
+                bufferQuantity: bufferQuantity,
+              );
+            } else {
+              widget.notifier.addStation(
+                name,
+                cycleTime,
+                machineId: selectedMachineId,
+                machineName: selectedMachineName,
+                workers: workers,
+                laborCost: laborCost,
+                energyCost: energyCost,
+                materialCost: materialCost,
+                otherCost: otherCost,
+                waitingTimeSec: waitingTimeSec,
+                bufferQuantity: bufferQuantity,
+                prevStationIds: widget.fromStationId != null ? [widget.fromStationId!] : const [],
+                position: widget.suggestedPosition ?? Offset.zero,
+              );
+            }
             Navigator.pop(context);
           },
           child: const Text('บันทึก'),

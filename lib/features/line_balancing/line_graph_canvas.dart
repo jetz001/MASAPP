@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'add_station_dialog.dart';
 import 'line_balancing_provider.dart';
 
 const List<Color> kWokwiColors = [
@@ -43,8 +44,8 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
   final TransformationController _transformController =
       TransformationController();
 
-  static const double nodeWidth = 240;
-  static const double nodeHeight = 130;
+  static const double nodeWidth = 260;
+  static const double nodeHeight = 150;
   static const double centerOffset = 2000.0;
 
   @override
@@ -125,7 +126,9 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
                           ],
 
                           // Draw Workstation Nodes
-                          ...state.stations.map((station) {
+                          ...state.stations.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final station = entry.value;
                             final isLinking = _linkingFromId == station.id;
                             final isLinkTarget = _linkingFromId != null &&
                                 _linkingFromId != station.id;
@@ -168,14 +171,71 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
                                     });
                                   }
                                 },
+                                onDoubleTap: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => AddStationDialog(
+                                      notifier: notifier,
+                                      initialStation: station,
+                                    ),
+                                  );
+                                },
                                 child: _buildStationCard(
                                   station,
+                                  index,
                                   isLinking,
                                   isLinkTarget,
                                   state,
                                   notifier,
                                   theme,
+                                  isDark,
                                 ),
+                              ),
+                            );
+                          }),
+
+                          // Draw WIP / Buffer Badges on Connections (VSM ▽ Inventory Box)
+                          ...connections.map((conn) {
+                            final fromSt = state.stations
+                                .where((s) => s.id == conn.fromStationId)
+                                .firstOrNull;
+                            final toSt = state.stations
+                                .where((s) => s.id == conn.toStationId)
+                                .firstOrNull;
+                            if (fromSt == null || toSt == null) {
+                              return const SizedBox.shrink();
+                            }
+
+                            final startPos = Offset(
+                              fromSt.position.dx + centerOffset + nodeWidth,
+                              fromSt.position.dy + centerOffset + (nodeHeight / 2),
+                            );
+                            final endPos = Offset(
+                              toSt.position.dx + centerOffset,
+                              toSt.position.dy + centerOffset + (nodeHeight / 2),
+                            );
+
+                            Offset midPos;
+                            if (conn.waypoints.isNotEmpty) {
+                              final midIndex = conn.waypoints.length ~/ 2;
+                              midPos = conn.waypoints[midIndex];
+                            } else {
+                              midPos = Offset(
+                                (startPos.dx + endPos.dx) / 2,
+                                (startPos.dy + endPos.dy) / 2,
+                              );
+                            }
+
+                            return Positioned(
+                              left: midPos.dx - 48,
+                              top: midPos.dy - 16,
+                              child: _buildWipBufferBadge(
+                                context,
+                                conn,
+                                fromSt,
+                                toSt,
+                                notifier,
+                                isDark,
                               ),
                             );
                           }),
@@ -691,134 +751,548 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
 
   Widget _buildStationCard(
     WorkstationData station,
+    int stationIndex,
     bool isLinking,
     bool isLinkTarget,
     LineBalancingState state,
     LineBalancingNotifier notifier,
     ThemeData theme,
+    bool isDark,
   ) {
+    // Smart extraction of Machine / Station Code (e.g. GM01, GM03)
+    String displayCode = '';
+    String displayTitle = station.name;
+
+    final bracketMatch = RegExp(r'\[(.*?)\]').firstMatch(station.name);
+    if (bracketMatch != null) {
+      displayCode = bracketMatch.group(1)!.trim();
+      displayTitle = station.name.replaceAll(bracketMatch.group(0)!, '').trim();
+    } else {
+      final codePrefixMatch =
+          RegExp(r'^([A-Za-z0-9\-_]+)\s*[:\-–]?\s*(.*)$').firstMatch(station.name);
+      if (codePrefixMatch != null && codePrefixMatch.group(1)!.length <= 8) {
+        displayCode = codePrefixMatch.group(1)!.trim();
+        final rest = codePrefixMatch.group(2)?.trim() ?? '';
+        if (rest.isNotEmpty) displayTitle = rest;
+      } else {
+        displayCode = 'GM${(stationIndex + 1).toString().padLeft(2, '0')}';
+      }
+    }
+
+    if (displayTitle.isEmpty &&
+        station.machineName != null &&
+        station.machineName!.isNotEmpty) {
+      displayTitle = station.machineName!;
+    }
+
+    final headerBg = isDark
+        ? const Color(0xFF27272A)
+        : (isLinkTarget
+            ? theme.colorScheme.primaryContainer.withValues(alpha: 0.5)
+            : const Color(0xFFF1F5F9));
+    final bodyBg = isDark ? const Color(0xFF18181B) : Colors.white;
+    final borderColor = isLinking
+        ? Colors.amberAccent
+        : (isLinkTarget
+            ? theme.colorScheme.primary
+            : (isDark ? const Color(0xFF3F3F46) : const Color(0xFFCBD5E1)));
+
     return Material(
-      elevation: isLinking ? 10 : 4,
-      borderRadius: BorderRadius.circular(12),
-      color: isLinkTarget
-          ? theme.colorScheme.primaryContainer
-          : theme.cardColor,
+      elevation: isLinking ? 12 : 5,
+      borderRadius: BorderRadius.circular(10),
+      color: Colors.transparent,
       child: Container(
         width: nodeWidth,
         constraints: const BoxConstraints(minHeight: nodeHeight),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          color: bodyBg,
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isLinking
-                ? theme.colorScheme.primary
-                : theme.dividerColor,
-            width: isLinking ? 3 : 1,
+            color: borderColor,
+            width: isLinking ? 2.5 : 1.5,
           ),
-        ),
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    station.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                InkWell(
-                  onTap: () => notifier.removeStation(station.id),
-                  child: const Icon(Icons.close, size: 16, color: Colors.grey),
-                ),
-              ],
-            ),
-            if (station.machineName != null &&
-                station.machineName!.isNotEmpty) ...[
-              Text(
-                'เครื่อง: ${station.machineName}',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            const SizedBox(height: 4),
-            Text(
-              'Cycle Time: ${station.cycleTime.toStringAsFixed(1)} s (${(station.cycleTime / 60).toStringAsFixed(1)} m)',
-              style: const TextStyle(fontSize: 11.5),
-            ),
-            Text(
-              'พนักงาน: ${station.workers} คน',
-              style: const TextStyle(fontSize: 11.5),
-            ),
-            if (station.nextStationIds.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: station.nextStationIds.map((nextId) {
-                  final nextSt =
-                      state.stations.where((s) => s.id == nextId).firstOrNull;
-                  if (nextSt == null) return const SizedBox.shrink();
-                  final connId = '${station.id}->$nextId';
-                  final conn = state.resolvedConnections
-                      .where((c) => c.id == connId)
-                      .firstOrNull;
-                  final connColor =
-                      conn != null ? Color(conn.colorValue) : Colors.orange;
-
-                  return InputChip(
-                    avatar: CircleAvatar(
-                      backgroundColor: connColor,
-                      radius: 5,
-                    ),
-                    label: Text(nextSt.name,
-                        style: const TextStyle(fontSize: 10)),
-                    padding: EdgeInsets.zero,
-                    visualDensity: VisualDensity.compact,
-                    deleteIcon: const Icon(Icons.close, size: 12),
-                    onDeleted: () {
-                      notifier.linkStations(station.id, nextId);
-                    },
-                  );
-                }).toList(),
-              ),
-            ],
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 0),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    backgroundColor: isLinking
-                        ? theme.colorScheme.primaryContainer
-                        : null,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _linkingFromId = isLinking ? null : station.id;
-                    });
-                  },
-                  icon: Icon(isLinking ? Icons.close : Icons.link, size: 14),
-                  label: Text(
-                    isLinking ? 'ยกเลิก' : 'โยงเส้น',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              ],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.15),
+              blurRadius: isLinking ? 12 : 8,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // ================= TOP HEADER BOX (GM01) =================
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: headerBg,
+                  border: Border(
+                    bottom: BorderSide(
+                      color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE2E8F0),
+                      width: 1.2,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // Station Code (Bold GM01)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Text(
+                        displayCode,
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.cyanAccent : theme.colorScheme.primary,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Title / Machine Name
+                    Expanded(
+                      child: Text(
+                        displayTitle,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // Edit Button
+                    InkWell(
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AddStationDialog(
+                            notifier: notifier,
+                            initialStation: station,
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(3.0),
+                        child: Icon(Icons.edit_outlined, size: 15, color: Colors.grey.shade400),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    // Delete Button
+                    InkWell(
+                      onTap: () => notifier.removeStation(station.id),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(3.0),
+                        child: Icon(Icons.close_rounded, size: 15, color: Colors.red.shade400),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ================= BOTTOM BODY 2-COLUMN TABLE (CT | M) =================
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ----- LEFT COLUMN: CT (Cycle Time) -----
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'CT',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.blue.shade400,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Text('—', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${station.cycleTime.toStringAsFixed(1)} s',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              '(${(station.cycleTime / 60).toStringAsFixed(1)} min)',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Vertical Table Divider Line
+                      Container(
+                        width: 1.2,
+                        margin: const EdgeInsets.symmetric(horizontal: 8),
+                        color: isDark ? const Color(0xFF3F3F46) : const Color(0xFFE2E8F0),
+                      ),
+
+                      // ----- RIGHT COLUMN: M (Manpower / Workers) -----
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  'M',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.teal.shade400,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Text('—', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${station.workers} คน',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              '${station.valueType.toUpperCase()}${station.waitingTimeSec > 0 ? ' (W: ${station.waitingTimeSec.toInt()}s)' : ''}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: station.valueType == 'va'
+                                    ? Colors.green.shade600
+                                    : Colors.orange.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ================= FOOTER CONNECTOR / QUICK ACTIONS =================
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1F1F23) : const Color(0xFFF8FAFC),
+                  border: Border(
+                    top: BorderSide(
+                      color: isDark ? const Color(0xFF2E2E34) : const Color(0xFFF1F5F9),
+                      width: 1,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // Link Mode Button
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _linkingFromId = isLinking ? null : station.id;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isLinking
+                              ? Colors.amber.withValues(alpha: 0.2)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isLinking ? Icons.close : Icons.link,
+                              size: 13,
+                              color: isLinking ? Colors.amberAccent : Colors.grey.shade400,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              isLinking ? 'ยกเลิก' : 'โยงสาย',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isLinking ? Colors.amberAccent : Colors.grey.shade400,
+                                fontWeight: isLinking ? FontWeight.bold : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    // Arrow -> Quick Add Next Station Button ([+] button like in sketch)
+                    Tooltip(
+                      message: 'เพิ่มสถานีถัดไปต่อจากสถานีนี้ (Quick Add Next Station)',
+                      child: InkWell(
+                        onTap: () {
+                          final nextPos =
+                              Offset(station.position.dx + 360, station.position.dy);
+                          showDialog(
+                            context: context,
+                            builder: (_) => AddStationDialog(
+                              notifier: notifier,
+                              fromStationId: station.id,
+                              suggestedPosition: nextPos,
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: Colors.blue.withValues(alpha: 0.4), width: 0.8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '➔',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blueAccent,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(width: 3),
+                              Icon(Icons.add, size: 13, color: Colors.blueAccent),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================= WIP / BUFFER BADGE (VSM ▽ Inventory Box) =================
+  Widget _buildWipBufferBadge(
+    BuildContext context,
+    LineConnection conn,
+    WorkstationData fromSt,
+    WorkstationData toSt,
+    LineBalancingNotifier notifier,
+    bool isDark,
+  ) {
+    final wipQty = toSt.bufferQuantity;
+    final wireColor = Color(conn.colorValue);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF27272A) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: wireColor.withValues(alpha: 0.8),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Inverted Triangle (IE / VSM WIP Inventory Symbol ▽)
+          InkWell(
+            onTap: () => _showWipEditDialog(context, toSt, notifier),
+            borderRadius: BorderRadius.circular(4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '▽',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.amber,
+                    height: 1.0,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  wipQty > 0 ? '$wipQty ชิ้น' : 'WIP',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 1,
+            height: 14,
+            color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+          ),
+          const SizedBox(width: 2),
+          // Plus Button to insert intermediate station
+          Tooltip(
+            message: 'แทรกสถานีงานตรงนี้ (Insert Station)',
+            child: InkWell(
+              onTap: () {
+                final insertPos = Offset(
+                  (fromSt.position.dx + toSt.position.dx) / 2,
+                  (fromSt.position.dy + toSt.position.dy) / 2,
+                );
+                showDialog(
+                  context: context,
+                  builder: (_) => AddStationDialog(
+                    notifier: notifier,
+                    fromStationId: fromSt.id,
+                    suggestedPosition: insertPos,
+                  ),
+                );
+              },
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.all(2.0),
+                child: Icon(
+                  Icons.add_rounded,
+                  size: 16,
+                  color: isDark ? Colors.tealAccent : Colors.teal.shade700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showWipEditDialog(
+    BuildContext context,
+    WorkstationData targetStation,
+    LineBalancingNotifier notifier,
+  ) {
+    final bufferController =
+        TextEditingController(text: targetStation.bufferQuantity.toString());
+    final waitController = TextEditingController(
+        text: targetStation.waitingTimeSec.toStringAsFixed(1));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Text('▽ ',
+                style: TextStyle(
+                    color: Colors.amber,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20)),
+            Text('ตั้งค่าสต็อกระหว่างกระบวนการ (WIP Buffer)'),
+          ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('สถานีปลายทาง: ${targetStation.name}',
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: bufferController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'จำนวนสต็อก WIP พักรอ (ชิ้น / ชิ้นงาน)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.inventory_2_outlined),
+                  suffixText: 'ชิ้น',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: waitController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'เวลารอคอยก่อนเข้าสถานี (Waiting Time)',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.timer_outlined),
+                  suffixText: 'วินาที',
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () {
+              final buf = int.tryParse(bufferController.text.trim()) ??
+                  targetStation.bufferQuantity;
+              final wt = double.tryParse(waitController.text.trim()) ??
+                  targetStation.waitingTimeSec;
+              notifier.updateStation(
+                targetStation.id,
+                targetStation.name,
+                targetStation.cycleTime,
+                machineId: targetStation.machineId,
+                machineName: targetStation.machineName,
+                workers: targetStation.workers,
+                laborCost: targetStation.laborCost,
+                energyCost: targetStation.energyCost,
+                materialCost: targetStation.materialCost,
+                otherCost: targetStation.otherCost,
+                waitingTimeSec: wt,
+                bufferQuantity: buf,
+              );
+              Navigator.pop(ctx);
+            },
+            child: const Text('บันทึก'),
+          ),
+        ],
       ),
     );
   }
@@ -867,8 +1341,8 @@ class _WokwiWirePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const double nodeWidth = 240;
-    const double nodeHeight = 130;
+    const double nodeWidth = 260;
+    const double nodeHeight = 150;
     const double centerOffset = 2000.0;
 
     for (final conn in connections) {
