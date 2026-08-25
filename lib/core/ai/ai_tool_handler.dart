@@ -667,7 +667,8 @@ class AiToolHandler {
       }
       final machineId = machine['machine_id'].toString();
       final machineNo = machine['machine_no'].toString();
-      final uid = AuthService.currentUser?.userId ?? '00000000-0000-0000-0001-000000000001';
+      final adminUser = await DbHelper.queryOne("SELECT user_id FROM users LIMIT 1");
+      final uid = adminUser?['user_id']?.toString() ?? '00000000-0000-0000-0001-000000000001';
 
       for (final st in ['stage1', 'stage2', 'stage3']) {
         final exists = await DbHelper.query(
