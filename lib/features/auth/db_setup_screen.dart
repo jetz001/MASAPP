@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logger/logger.dart';
+import 'package:path/path.dart' as p;
 import '../../core/config/app_config.dart';
 import '../../core/utils/crypto_utils.dart';
 import '../../core/database/db_connection.dart';
@@ -89,22 +90,31 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['db', 'sqlite', 'sqlite3'],
-      dialogTitle: 'เลือกไฟล์ฐานข้อมูล MASAPP',
-    );
-    if (result != null && result.files.single.path != null) {
-      setState(() => _pathCtrl.text = result.files.single.path!);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['db', 'sqlite', 'sqlite3'],
+        dialogTitle: 'เลือกไฟล์ฐานข้อมูล MASAPP',
+      );
+      if (result != null && result.files.isNotEmpty && result.files.single.path != null) {
+        setState(() => _pathCtrl.text = result.files.single.path!);
+      }
+    } catch (e) {
+      Logger().e('Error picking file: $e');
     }
   }
 
   Future<void> _selectFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'เลือกโฟลเดอร์สำหรับสร้างฐานข้อมูลใหม่',
-    );
-    if (result != null) {
-      setState(() => _pathCtrl.text = '$result\\masapp.db');
+    try {
+      final result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'เลือกโฟลเดอร์สำหรับสร้างฐานข้อมูลใหม่',
+      );
+      if (result != null && result.trim().isNotEmpty) {
+        final folder = result.trim().replaceAll('/', '\\');
+        setState(() => _pathCtrl.text = p.join(folder, 'masapp.db'));
+      }
+    } catch (e) {
+      Logger().e('Error selecting folder: $e');
     }
   }
 
@@ -304,7 +314,10 @@ class _DbSetupScreenState extends ConsumerState<DbSetupScreen>
       }
 
       await AppConfigService.save(config);
-      await DbConnection.instance.connect(config);
+      await DbConnection.instance.connect(
+        config,
+        skipInitialization: _isCreatingNew,
+      );
       setState(() {
         _statusOk = true;
         _statusMessage = null;

@@ -18,6 +18,7 @@ import 'machine_provider.dart';
 import 'utils/machine_form_utils.dart';
 import 'utils/asset_tag_utils.dart';
 import 'widgets/approval_dialog.dart';
+import 'widgets/machine_repair_history_dialog.dart';
 import 'widgets/machine_bom_step.dart';
 
 final _log = Logger();
@@ -909,6 +910,21 @@ class _MachineIntakeFormScreenState
             ],
           ),
           const Spacer(),
+          if (_savedMachineId != null && _initialMachine != null) ...[
+            OutlinedButton.icon(
+              onPressed: () => MachineRepairHistoryDialog.show(context, _initialMachine!),
+              icon: const HugeIcon(
+                icon: HugeIcons.strokeRoundedClock01,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              label: const Text('ประวัติการซ่อม'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+          ],
           OutlinedButton.icon(
             onPressed: _printManualForm,
             icon: const Icon(Icons.print_outlined, size: 18),

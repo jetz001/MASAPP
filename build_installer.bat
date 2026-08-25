@@ -34,6 +34,9 @@ set ISCC_PATH="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if not exist %ISCC_PATH% (
     set ISCC_PATH="C:\Program Files\Inno Setup 6\ISCC.exe"
 )
+if not exist %ISCC_PATH% (
+    set ISCC_PATH="%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
+)
 
 if exist %ISCC_PATH% (
     echo [5/5] Compiling MASAPP Installer (.exe)...

@@ -1621,38 +1621,103 @@ class DbInitializer {
       final seedSql = await rootBundle.loadString(_seedAsset);
       final statements = _splitSqlStatements(seedSql);
 
+      int executed = 0;
+      int skipped = 0;
       for (final statement in statements) {
-        await db.execute(statement);
+        try {
+          await db.execute(statement);
+          executed++;
+        } catch (e) {
+          skipped++;
+          _log.w('Seed statement skipped: ${e.toString().split(':').first}');
+        }
       }
 
-      _log.i('Seed data inserted with ${statements.length} statements');
+      _log.i('Seed data processed: $executed executed, $skipped skipped from ${statements.length} statements');
     } catch (e) {
       _log.e('Error seeding data: $e');
-      rethrow;
     }
   }
 
-  /// Helper to split SQL file into individual statements while removing comments.
+  /// Helper to split SQL file into individual statements while removing comments and preserving strings.
   static List<String> _splitSqlStatements(String sql) {
     if (sql.isEmpty) return [];
 
-    // 1. Split by semicolon
-    final parts = sql.split(';');
     final statements = <String>[];
+    final buffer = StringBuffer();
+    bool inSingleQuote = false;
+    bool inDoubleQuote = false;
+    bool inLineComment = false;
+    bool inBlockComment = false;
 
-    for (var part in parts) {
-      // 2. Process each part: remove line comments (starting with --)
-      final lines = part.split('\n');
-      final processedLines = lines.where((line) {
-        final trimmedLine = line.trim();
-        return trimmedLine.isNotEmpty && !trimmedLine.startsWith('--');
-      }).toList();
+    for (int i = 0; i < sql.length; i++) {
+      final char = sql[i];
+      final nextChar = (i + 1 < sql.length) ? sql[i + 1] : '';
 
-      // 3. Rejoin and check if there's actual SQL content
-      final statement = processedLines.join('\n').trim();
-      if (statement.isNotEmpty) {
-        statements.add(statement);
+      // Check comments
+      if (!inSingleQuote && !inDoubleQuote) {
+        if (!inLineComment && !inBlockComment) {
+          if (char == '-' && nextChar == '-') {
+            inLineComment = true;
+            i++; // skip next '-'
+            continue;
+          }
+          if (char == '/' && nextChar == '*') {
+            inBlockComment = true;
+            i++; // skip next '*'
+            continue;
+          }
+        } else if (inLineComment) {
+          if (char == '\n' || char == '\r') {
+            inLineComment = false;
+            buffer.write('\n');
+          }
+          continue;
+        } else if (inBlockComment) {
+          if (char == '*' && nextChar == '/') {
+            inBlockComment = false;
+            i++; // skip next '/'
+          }
+          continue;
+        }
       }
+
+      if (inLineComment || inBlockComment) continue;
+
+      // Handle quotes
+      if (char == "'" && !inDoubleQuote) {
+        if (inSingleQuote && nextChar == "'") {
+          buffer.write("''");
+          i++;
+          continue;
+        }
+        inSingleQuote = !inSingleQuote;
+        buffer.write(char);
+        continue;
+      }
+
+      if (char == '"' && !inSingleQuote) {
+        inDoubleQuote = !inDoubleQuote;
+        buffer.write(char);
+        continue;
+      }
+
+      // Handle semicolon delimiter
+      if (char == ';' && !inSingleQuote && !inDoubleQuote) {
+        final stmt = buffer.toString().trim();
+        if (stmt.isNotEmpty) {
+          statements.add(stmt);
+        }
+        buffer.clear();
+        continue;
+      }
+
+      buffer.write(char);
+    }
+
+    final remaining = buffer.toString().trim();
+    if (remaining.isNotEmpty) {
+      statements.add(remaining);
     }
 
     return statements;

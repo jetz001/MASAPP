@@ -1,6 +1,4 @@
-/// Machine Intake domain models
-library;
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
 
 enum MachineStatus { normal, breakdown, pm, am, offline, decommissioned }
@@ -531,6 +529,156 @@ class MachineToolItem {
       status: m['status'] as String? ?? 'available',
       quantity: m['quantity'] as int? ?? 1,
       notes: m['notes'] as String?,
+    );
+  }
+}
+
+class MachineRepairRecord {
+  final String woId;
+  final String woNo;
+  final String title;
+  final String? description;
+  final String? failureSymptom;
+  final String? actionTaken;
+  final String status;
+  final String priority;
+  final DateTime? createdAt;
+  final DateTime? completedAt;
+  final DateTime? actualStartTime;
+  final DateTime? actualEndTime;
+  final int downtimeMinutes;
+  final double totalCost;
+  final double partsCost;
+  final double laborCost;
+  final String? reportedByName;
+  final String? assignedToName;
+  final String? failureType;
+  final String? causeCategory;
+  final String? rootCause;
+  final String? why1;
+  final String? why2;
+  final String? why3;
+  final String? why4;
+  final String? why5;
+  final String? outsourceVendorName;
+  final String? outsourceRepairDetails;
+  final List<Map<String, dynamic>> partsUsed;
+
+  const MachineRepairRecord({
+    required this.woId,
+    required this.woNo,
+    required this.title,
+    this.description,
+    this.failureSymptom,
+    this.actionTaken,
+    required this.status,
+    required this.priority,
+    this.createdAt,
+    this.completedAt,
+    this.actualStartTime,
+    this.actualEndTime,
+    this.downtimeMinutes = 0,
+    this.totalCost = 0.0,
+    this.partsCost = 0.0,
+    this.laborCost = 0.0,
+    this.reportedByName,
+    this.assignedToName,
+    this.failureType,
+    this.causeCategory,
+    this.rootCause,
+    this.why1,
+    this.why2,
+    this.why3,
+    this.why4,
+    this.why5,
+    this.outsourceVendorName,
+    this.outsourceRepairDetails,
+    this.partsUsed = const [],
+  });
+
+  factory MachineRepairRecord.fromMap(
+    Map<String, dynamic> map, {
+    List<Map<String, dynamic>>? parts,
+  }) {
+    List<Map<String, dynamic>> partsList = parts ?? [];
+    if (partsList.isEmpty && map['parts_used_json'] != null) {
+      try {
+        final decoded = jsonDecode(map['parts_used_json'].toString());
+        if (decoded is List) {
+          partsList = decoded.whereType<Map<String, dynamic>>().toList();
+        }
+      } catch (_) {}
+    }
+
+    final startedAt = map['started_at'] != null
+        ? DateTime.tryParse(map['started_at'].toString())
+        : (map['actual_start_time'] != null
+            ? DateTime.tryParse(map['actual_start_time'].toString())
+            : null);
+    final completedAt = map['completed_at'] != null
+        ? DateTime.tryParse(map['completed_at'].toString())
+        : (map['actual_end_time'] != null
+            ? DateTime.tryParse(map['actual_end_time'].toString())
+            : null);
+
+    int downtime = (map['downtime_minutes'] as num?)?.toInt() ?? 0;
+    if (downtime == 0) {
+      if (map['actual_hours'] != null) {
+        downtime = ((map['actual_hours'] as num).toDouble() * 60).round();
+      } else if (startedAt != null && completedAt != null) {
+        downtime = completedAt.difference(startedAt).inMinutes;
+      }
+    }
+
+    double totalCost = (map['total_cost'] as num?)?.toDouble() ?? 0.0;
+    if (totalCost == 0.0 && partsList.isNotEmpty) {
+      for (final p in partsList) {
+        final q = (p['quantity'] as num?)?.toDouble() ?? 1.0;
+        final c = (p['unit_cost'] as num?)?.toDouble() ??
+            (p['unit_price'] as num?)?.toDouble() ??
+            0.0;
+        totalCost += (q * c);
+      }
+    }
+
+    final rootCause = (map['root_cause'] as String?)?.isNotEmpty == true
+        ? map['root_cause'] as String?
+        : map['failure_cause'] as String?;
+
+    return MachineRepairRecord(
+      woId: map['wo_id'] as String? ?? '',
+      woNo: map['wo_no'] as String? ?? '',
+      title: map['title'] as String? ?? '',
+      description: map['description'] as String?,
+      failureSymptom: map['failure_symptom'] as String?,
+      actionTaken: map['action_taken'] as String? ??
+          map['correction_action'] as String? ??
+          map['preventive_action'] as String?,
+      status: map['status'] as String? ?? 'pending',
+      priority: map['priority'] as String? ?? 'normal',
+      createdAt: map['created_at'] != null
+          ? DateTime.tryParse(map['created_at'].toString())
+          : null,
+      completedAt: completedAt,
+      actualStartTime: startedAt,
+      actualEndTime: completedAt,
+      downtimeMinutes: downtime,
+      totalCost: totalCost,
+      partsCost: (map['parts_cost'] as num?)?.toDouble() ?? 0.0,
+      laborCost: (map['labor_cost'] as num?)?.toDouble() ?? 0.0,
+      reportedByName: map['reported_by_name'] as String?,
+      assignedToName: map['assigned_to_name'] as String?,
+      failureType: map['failure_type'] as String?,
+      causeCategory: map['cause_category'] as String?,
+      rootCause: rootCause,
+      why1: map['why_1'] as String?,
+      why2: map['why_2'] as String?,
+      why3: map['why_3'] as String?,
+      why4: map['why_4'] as String?,
+      why5: map['why_5'] as String?,
+      outsourceVendorName: map['outsource_vendor_name'] as String?,
+      outsourceRepairDetails: map['outsource_repair_details'] as String?,
+      partsUsed: partsList,
     );
   }
 }

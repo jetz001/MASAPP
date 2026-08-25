@@ -12,6 +12,7 @@ import '../../features/auth/auth_provider.dart';
 import 'machine_models.dart';
 import 'machine_provider.dart';
 import 'widgets/approval_dialog.dart';
+import 'widgets/machine_repair_history_dialog.dart';
 import 'utils/machine_form_utils.dart';
 import '../dashboard/dashboard_screen.dart';
 
@@ -377,7 +378,7 @@ class _MachineTable extends StatelessWidget {
                 _HeaderCell('Handover', flex: 2),
                 _HeaderCell('ติดตั้ง', flex: 2),
                 _HeaderCell('Hrs', flex: 1),
-                _HeaderCell('Actions', flex: 2),
+                _HeaderCell('Actions', flex: 3),
               ],
             ),
           ),
@@ -587,33 +588,52 @@ class _MachineRow extends ConsumerWidget {
               ),
               // Actions
               Expanded(
-                flex: 2,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    _ImageHoverIcon(attachments: machine.attachments),
-                    if (machine.attachments.isNotEmpty) const SizedBox(width: 8),
-                    IconButton(
-                      icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
-                      onPressed: onEdit,
-                      tooltip: 'แก้ไข',
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                    if (user?.isEngineerOrAbove == true && 
-                        machine.stage3Status != HandoverStatus.approved)
+                flex: 3,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      _ImageHoverIcon(attachments: machine.attachments),
+                      if (machine.attachments.isNotEmpty) const SizedBox(width: 6),
                       IconButton(
                         icon: const HugeIcon(
-                          icon: HugeIcons.strokeRoundedStamp01,
+                          icon: HugeIcons.strokeRoundedClock01,
                           size: 16,
                           color: AppColors.primary,
                         ),
-                        onPressed: () => _showQuickApproval(context, ref),
-                        tooltip: 'ลงนามอนุมัติ (Approver)',
+                        onPressed: () => MachineRepairHistoryDialog.show(context, machine),
+                        tooltip: 'ดูประวัติการซ่อมบำรุง',
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
+                        onPressed: onEdit,
+                        tooltip: 'แก้ไข',
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      if (user?.isEngineerOrAbove == true && 
+                          machine.stage3Status != HandoverStatus.approved) ...[
+                        const SizedBox(width: 6),
+                        IconButton(
+                          icon: const HugeIcon(
+                            icon: HugeIcons.strokeRoundedStamp01,
+                            size: 16,
+                            color: AppColors.primary,
+                          ),
+                          onPressed: () => _showQuickApproval(context, ref),
+                          tooltip: 'ลงนามอนุมัติ (Approver)',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
                       IconButton(
                         icon: const Icon(Icons.print_outlined, size: 18, color: AppColors.primary),
                         onPressed: () async {
@@ -626,20 +646,23 @@ class _MachineRow extends ConsumerWidget {
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
-                    if (user?.isAdmin ?? false)
-                      IconButton(
-                        icon: const HugeIcon(
-                          icon: HugeIcons.strokeRoundedDelete02,
-                          size: 16,
+                      if (user?.isAdmin ?? false) ...[
+                        const SizedBox(width: 6),
+                        IconButton(
+                          icon: const HugeIcon(
+                            icon: HugeIcons.strokeRoundedDelete02,
+                            size: 16,
+                            color: AppColors.error,
+                          ),
+                          onPressed: onDelete,
+                          tooltip: 'ลบ',
                           color: AppColors.error,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
-                        onPressed: onDelete,
-                        tooltip: 'ลบ',
-                        color: AppColors.error,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                  ],
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ],

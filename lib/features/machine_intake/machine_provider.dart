@@ -853,6 +853,100 @@ class MachineRepository {
       params: {'id': machineId, 'unlocked': unlocked ? 1 : 0},
     );
   }
+
+  /// Fetch repair / work order history for a specific machine
+  Future<List<MachineRepairRecord>> fetchMachineRepairHistory(String machineId) async {
+    try {
+      final rows = await DbHelper.query('''
+        SELECT 
+          wo.wo_id,
+          wo.wo_no,
+          wo.title,
+          wo.description,
+          wo.failure_symptom,
+          wo.failure_cause,
+          wo.status,
+          wo.priority,
+          wo.started_at,
+          wo.completed_at,
+          wo.actual_hours,
+          wo.estimated_hours,
+          wo.created_at,
+          u1.full_name AS reported_by_name,
+          u2.full_name AS assigned_to_name,
+          rca.failure_type,
+          rca.cause_category,
+          rca.root_cause,
+          rca.correction_action AS action_taken,
+          rca.preventive_action,
+          rca.why_1,
+          rca.why_2,
+          rca.why_3,
+          rca.why_4,
+          rca.why_5
+        FROM work_orders wo
+        LEFT JOIN users u1 ON u1.user_id = wo.created_by
+        LEFT JOIN users u2 ON u2.user_id = wo.assigned_to
+        LEFT JOIN work_order_rca rca ON rca.wo_id = wo.wo_id
+        WHERE wo.machine_id = @id 
+           OR wo.snapshot_id IN (SELECT snapshot_id FROM machine_snapshots WHERE machine_id = @id)
+        ORDER BY wo.created_at DESC
+      ''', params: {'id': machineId});
+
+      if (rows.isEmpty) return [];
+
+      final woIds = rows.map((r) => r['wo_id'].toString()).toList();
+      final placeholders = List.generate(woIds.length, (i) => '@w$i').join(',');
+      final woParams = {for (var i = 0; i < woIds.length; i++) 'w$i': woIds[i]};
+
+      // Fetch parts safely
+      final partsByWo = <String, List<Map<String, dynamic>>>{};
+      try {
+        final partRows = await DbHelper.query('''
+          SELECT wop.wo_id, wop.quantity, sp.part_code, sp.part_name, sp.unit_cost
+          FROM work_order_parts wop
+          JOIN spare_parts sp ON sp.part_id = wop.part_id
+          WHERE wop.wo_id IN ($placeholders)
+        ''', params: woParams);
+        for (final pr in partRows) {
+          final wid = pr['wo_id'].toString();
+          partsByWo.putIfAbsent(wid, () => []).add(pr);
+        }
+      } catch (_) {}
+
+      // Fetch outsource safely
+      final outsourceByWo = <String, Map<String, dynamic>>{};
+      try {
+        final outRows = await DbHelper.query('''
+          SELECT wo_id, vendor_name, repair_details, actual_cost
+          FROM work_order_outsource
+          WHERE wo_id IN ($placeholders)
+        ''', params: woParams);
+        for (final outRow in outRows) {
+          final wid = outRow['wo_id'].toString();
+          outsourceByWo[wid] = outRow;
+        }
+      } catch (_) {}
+
+      return rows.map((r) {
+        final wid = r['wo_id'].toString();
+        final map = Map<String, dynamic>.from(r);
+        final parts = partsByWo[wid] ?? [];
+        final out = outsourceByWo[wid];
+        if (out != null) {
+          map['outsource_vendor_name'] = out['vendor_name'];
+          map['outsource_repair_details'] = out['repair_details'];
+          if (out['actual_cost'] != null) {
+            map['total_cost'] = (out['actual_cost'] as num).toDouble();
+          }
+        }
+        return MachineRepairRecord.fromMap(map, parts: parts);
+      }).toList();
+    } catch (e, st) {
+      debugPrint('Error fetching machine repair history: $e\n$st');
+      return [];
+    }
+  }
 }
 
 extension MachineModelCopy on MachineModel {
@@ -970,3 +1064,12 @@ final machineToolsProvider = FutureProvider.family<List<MachineToolItem>, String
   final repo = ref.watch(machineRepositoryProvider);
   return repo.fetchMachineTools(machineId);
 });
+
+final machineRepairHistoryProvider = FutureProvider.family<List<MachineRepairRecord>, String>((
+  ref,
+  machineId,
+) async {
+  final repo = ref.watch(machineRepositoryProvider);
+  return repo.fetchMachineRepairHistory(machineId);
+});
+
