@@ -283,9 +283,12 @@ class VectorDbService {
   static Future<void> syncWorkOrder(String woId) async {
     try {
       final rows = await DbHelper.query(
-        'SELECT wo_id, wo_no, title, description, failure_symptom, failure_cause, '
-        'action_taken, status, priority, machine_id '
-        'FROM work_orders WHERE wo_id = @id LIMIT 1',
+        'SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause, '
+        'wo.status, wo.priority, wo.machine_id, '
+        'rca.root_cause, rca.correction_action AS action_taken, rca.preventive_action '
+        'FROM work_orders wo '
+        'LEFT JOIN work_order_rca rca ON wo.wo_id = rca.wo_id '
+        'WHERE wo.wo_id = @id LIMIT 1',
         params: {'id': woId},
       );
       if (rows.isEmpty) return;
@@ -294,14 +297,16 @@ class VectorDbService {
       final woNo = wo['wo_no'] ?? '';
       final title = wo['title'] ?? 'ใบแจ้งซ่อม $woNo';
       final symptom = wo['failure_symptom'] ?? '';
-      final cause = wo['failure_cause'] ?? '';
+      final cause = wo['failure_cause'] ?? wo['root_cause'] ?? '';
       final action = wo['action_taken'] ?? '';
+      final preventive = wo['preventive_action'] ?? '';
       final desc = wo['description'] ?? '';
 
       final chunk = 'ใบแจ้งซ่อม: $woNo | หัวข้อ: $title\n'
           'อาการเสีย (Symptom): $symptom\n'
           'สาเหตุที่พบ (Cause/RCA): $cause\n'
           'วิธีแก้ไขและการซ่อม (Action Taken): $action\n'
+          '${preventive.toString().isNotEmpty ? 'แนวทางป้องกัน (Preventive Action): $preventive\n' : ''}'
           'รายละเอียดเพิ่มเติม: $desc';
 
       final emb = await EmbeddingService.getEmbedding(chunk);
@@ -946,26 +951,32 @@ class VectorDbService {
     try {
       // 1. Index Work Orders with solutions / symptoms / causes
       final woRows = await DbHelper.query('''
-        SELECT wo_id, wo_no, title, description, failure_symptom, failure_cause,
-               action_taken, status, priority, machine_id
-        FROM work_orders
-        WHERE (failure_symptom IS NOT NULL AND failure_symptom != '')
-           OR (action_taken IS NOT NULL AND action_taken != '')
-           OR (failure_cause IS NOT NULL AND failure_cause != '')
+        SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause,
+               wo.status, wo.priority, wo.machine_id,
+               rca.root_cause, rca.correction_action AS action_taken, rca.preventive_action
+        FROM work_orders wo
+        LEFT JOIN work_order_rca rca ON wo.wo_id = rca.wo_id
+        WHERE (wo.failure_symptom IS NOT NULL AND wo.failure_symptom != '')
+           OR (wo.failure_cause IS NOT NULL AND wo.failure_cause != '')
+           OR (rca.root_cause IS NOT NULL AND rca.root_cause != '')
+           OR (rca.correction_action IS NOT NULL AND rca.correction_action != '')
+           OR (wo.description IS NOT NULL AND wo.description != '')
       ''');
 
       for (final wo in woRows) {
         final woNo = wo['wo_no'] ?? '';
         final title = wo['title'] ?? 'ใบแจ้งซ่อม $woNo';
         final symptom = wo['failure_symptom'] ?? '';
-        final cause = wo['failure_cause'] ?? '';
+        final cause = wo['failure_cause'] ?? wo['root_cause'] ?? '';
         final action = wo['action_taken'] ?? '';
+        final preventive = wo['preventive_action'] ?? '';
         final desc = wo['description'] ?? '';
 
         final chunk = 'ใบแจ้งซ่อม: $woNo | หัวข้อ: $title\n'
             'อาการเสีย (Symptom): $symptom\n'
             'สาเหตุที่พบ (Cause/RCA): $cause\n'
             'วิธีแก้ไขและการซ่อม (Action Taken): $action\n'
+            '${preventive.toString().isNotEmpty ? 'แนวทางป้องกัน (Preventive Action): $preventive\n' : ''}'
             'รายละเอียดเพิ่มเติม: $desc';
 
         final emb = await EmbeddingService.getEmbedding(chunk);
