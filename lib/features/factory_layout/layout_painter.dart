@@ -194,120 +194,150 @@ class FactoryLayoutPainter extends CustomPainter {
       final rect = machine.bounds;
       final center = machine.position;
 
-      // 1. Draw Machine Footprint Box (2D Equipment Box)
+      // 1. Deep Drop Shadow (Makes it pop off any CAD/Blueprint drawing)
+      final shadowPaint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect.shift(const Offset(0, 4)), const Radius.circular(8)),
+        shadowPaint,
+      );
+
+      // 2. Selection Glow
       if (isSelected) {
-        // Selection Glow
         final glowPaint = Paint()
-          ..color = statusColor.withValues(alpha: 0.45)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+          ..color = statusColor.withValues(alpha: 0.6)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
         canvas.drawRRect(
-          RRect.fromRectAndRadius(rect.inflate(4), const Radius.circular(8)),
+          RRect.fromRectAndRadius(rect.inflate(6), const Radius.circular(12)),
           glowPaint,
         );
       }
 
-      // Box Background
-      final boxPaint = Paint()
-        ..color = Colors.white.withValues(alpha: 0.92)
+      // 3. Card Base Body
+      final bodyPaint = Paint()
+        ..color = const Color(0xFFFFFFFF)
         ..style = PaintingStyle.fill;
       canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        boxPaint,
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        bodyPaint,
       );
 
-      // Status Tint Overlay
-      final tintPaint = Paint()
-        ..color = statusColor.withValues(alpha: 0.15)
+      // 4. Header Bar (Vibrant Status Color - Solid & Highly Visible)
+      final double headerHeight = (rect.height * 0.42).clamp(24.0, 36.0);
+      final headerRect = Rect.fromLTWH(rect.left, rect.top, rect.width, headerHeight);
+      final headerPaint = Paint()
+        ..color = statusColor
         ..style = PaintingStyle.fill;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        tintPaint,
+      
+      // Top rounded corners for header
+      final headerRRect = RRect.fromRectAndCorners(
+        headerRect,
+        topLeft: const Radius.circular(8),
+        topRight: const Radius.circular(8),
       );
+      canvas.drawRRect(headerRRect, headerPaint);
 
-      // Box Border
-      final borderPaint = Paint()
-        ..color = isSelected ? Colors.blue.shade700 : statusColor
-        ..strokeWidth = isSelected ? 3.0 : 1.8
-        ..style = PaintingStyle.stroke;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
-        borderPaint,
-      );
-
-      // 2. Machine Number / Code Header (Bold)
-      final titlePainter = TextPainter(
-        text: TextSpan(
-          text: machine.machineNo,
-          style: TextStyle(
-            color: Colors.black87,
-            fontSize: (rect.height * 0.24).clamp(10.0, 14.0),
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.5,
-          ),
+      // 5. Header Content: Icon & Machine No (Bold White Text)
+      final machineNoSpan = TextSpan(
+        text: '⚙️ ${machine.machineNo}',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: (headerHeight * 0.52).clamp(11.0, 15.0),
+          fontWeight: FontWeight.w900,
+          letterSpacing: 0.5,
+          shadows: const [
+            Shadow(color: Colors.black45, blurRadius: 2, offset: Offset(0, 1)),
+          ],
         ),
+      );
+      final headerPainter = TextPainter(
+        text: machineNoSpan,
         textDirection: TextDirection.ltr,
         maxLines: 1,
         ellipsis: '...',
       );
-      titlePainter.layout(maxWidth: rect.width - 16);
+      headerPainter.layout(maxWidth: rect.width - 12);
+      headerPainter.paint(
+        canvas,
+        Offset(rect.left + (rect.width - headerPainter.width) / 2, headerRect.top + (headerHeight - headerPainter.height) / 2),
+      );
 
-      // Approximate dimensions text (e.g. 3.0m x 2.0m)
+      // 6. Body Content: Dimensions & Status Label (High Contrast Dark Text)
       final double widthM = machine.size.width / 50.0;
       final double heightM = machine.size.height / 50.0;
       final dimText = '${widthM.toStringAsFixed(1)}m × ${heightM.toStringAsFixed(1)}m';
 
-      final dimPainter = TextPainter(
-        text: TextSpan(
-          text: dimText,
-          style: TextStyle(
-            color: Colors.grey.shade700,
-            fontSize: (rect.height * 0.18).clamp(8.5, 11.0),
-            fontWeight: FontWeight.w600,
+      final bodyTextSpan = TextSpan(
+        children: [
+          TextSpan(
+            text: '$dimText\n',
+            style: TextStyle(
+              color: const Color(0xFF1E293B),
+              fontSize: ((rect.height - headerHeight) * 0.35).clamp(9.0, 12.0),
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
+          TextSpan(
+            text: machine.status.label,
+            style: TextStyle(
+              color: statusColor,
+              fontSize: ((rect.height - headerHeight) * 0.32).clamp(8.5, 11.0),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      );
+      final bodyPainter = TextPainter(
+        text: bodyTextSpan,
+        textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
-        maxLines: 1,
+        maxLines: 2,
       );
-      dimPainter.layout(maxWidth: rect.width - 8);
+      bodyPainter.layout(maxWidth: rect.width - 8);
 
-      // Center text inside box
-      final totalTextHeight = titlePainter.height + (rect.height > 35 ? dimPainter.height + 2 : 0);
-      final textStartY = center.dy - totalTextHeight / 2;
-
-      titlePainter.paint(
+      final bodyAreaHeight = rect.height - headerHeight;
+      bodyPainter.paint(
         canvas,
-        Offset(center.dx - titlePainter.width / 2, textStartY),
+        Offset(
+          rect.left + (rect.width - bodyPainter.width) / 2,
+          rect.top + headerHeight + (bodyAreaHeight - bodyPainter.height) / 2,
+        ),
       );
 
-      if (rect.height > 35) {
-        dimPainter.paint(
-          canvas,
-          Offset(center.dx - dimPainter.width / 2, textStartY + titlePainter.height + 2),
-        );
-      }
+      // 7. High-Contrast Border
+      final borderPaint = Paint()
+        ..color = isSelected ? const Color(0xFF2563EB) : statusColor
+        ..strokeWidth = isSelected ? 3.5 : 2.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+        borderPaint,
+      );
 
-      // 3. Status Badge Dot (Top-Right corner)
-      final badgeCenter = Offset(rect.right - 8, rect.top + 8);
-      final badgePaint = Paint()
+      // 8. Top Pin Landmark Flag (For fast identification from afar)
+      final pinCenter = Offset(rect.left + 12, rect.top - 8);
+      final pinBgPaint = Paint()
         ..color = statusColor
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(badgeCenter, 4.5, badgePaint);
-
-      final badgeBorder = Paint()
+      final pinBorderPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
-      canvas.drawCircle(badgeCenter, 4.5, badgeBorder);
+        ..strokeWidth = 2.0;
 
-      // 4. Corner Handles if Selected (indicates scalable / movable)
+      // Small Landmark Badge
+      canvas.drawCircle(pinCenter, 6.0, pinBgPaint);
+      canvas.drawCircle(pinCenter, 6.0, pinBorderPaint);
+
+      // 9. Resize Corner Handles (When Selected)
       if (isSelected) {
         final handlePaint = Paint()
-          ..color = Colors.blue.shade700
+          ..color = const Color(0xFF2563EB)
           ..style = PaintingStyle.fill;
         final handleBorder = Paint()
           ..color = Colors.white
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0;
+          ..strokeWidth = 1.5;
 
         for (final corner in [
           rect.topLeft,
@@ -315,8 +345,8 @@ class FactoryLayoutPainter extends CustomPainter {
           rect.bottomLeft,
           rect.bottomRight,
         ]) {
-          canvas.drawCircle(corner, 3.5, handlePaint);
-          canvas.drawCircle(corner, 3.5, handleBorder);
+          canvas.drawCircle(corner, 4.5, handlePaint);
+          canvas.drawCircle(corner, 4.5, handleBorder);
         }
       }
     }
