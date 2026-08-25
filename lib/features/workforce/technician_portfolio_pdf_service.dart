@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../action_plans/models/action_plan_model.dart';
+import 'technician_profile_provider.dart';
 import 'workforce_screen.dart';
 
 class TechnicianPortfolioPdfService {
@@ -14,6 +15,7 @@ class TechnicianPortfolioPdfService {
     required List<ActionPlanRecord> plans,
     required int kaizenPoints,
     required List<String> badges,
+    List<TechnicianAttachment> certificates = const [],
   }) async {
     final pdf = pw.Document();
 
@@ -22,6 +24,21 @@ class TechnicianPortfolioPdfService {
     final boldFontData = await rootBundle.load('assets/fonts/Prompt/Prompt-Bold.ttf');
     final regularFont = pw.Font.ttf(regularFontData);
     final boldFont = pw.Font.ttf(boldFontData);
+
+    // Pre-load certificate images if available
+    final certImages = <String, pw.MemoryImage>{};
+    for (final cert in certificates) {
+      final ext = cert.filePath.toLowerCase();
+      if (ext.endsWith('.png') || ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.webp')) {
+        final f = File(cert.filePath);
+        if (await f.exists()) {
+          try {
+            final bytes = await f.readAsBytes();
+            certImages[cert.attachmentId] = pw.MemoryImage(bytes);
+          } catch (_) {}
+        }
+      }
+    }
 
     pdf.addPage(
       pw.MultiPage(
@@ -204,9 +221,94 @@ class TechnicianPortfolioPdfService {
                   }),
                 ],
               ),
-            pw.SizedBox(height: 24),
+            pw.SizedBox(height: 14),
 
-            // 5. Verification & Recommendation Signature Box
+            // 5. Certificates & Training Credentials
+            pw.Text(
+              '3. ใบรับรองวิชาชีพและการฝึกอบรม (Certificates & Training Credentials)',
+              style: pw.TextStyle(font: boldFont, fontSize: 11, color: PdfColors.blueGrey900),
+            ),
+            pw.SizedBox(height: 4),
+            if (certificates.isEmpty)
+              pw.Text('ยังไม่มีการแนบใบรับรองหรือประวัติการอบรมในระบบ', style: pw.TextStyle(font: regularFont, fontSize: 9, color: PdfColors.grey500))
+            else ...[
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                columnWidths: const {
+                  0: pw.FixedColumnWidth(28),
+                  1: pw.FlexColumnWidth(4),
+                  2: pw.FixedColumnWidth(90),
+                  3: pw.FixedColumnWidth(80),
+                },
+                children: [
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    children: [
+                      _buildHeaderCell('#', boldFont),
+                      _buildHeaderCell('หลักสูตร / ชื่อเอกสารใบรับรอง', boldFont),
+                      _buildHeaderCell('วันที่บันทึก', boldFont),
+                      _buildHeaderCell('สถานะ', boldFont),
+                    ],
+                  ),
+                  ...certificates.asMap().entries.map((entry) {
+                    final idx = entry.key + 1;
+                    final c = entry.value;
+                    final uploadDate = c.uploadedAt.length >= 10 ? c.uploadedAt.substring(0, 10) : c.uploadedAt;
+                    return pw.TableRow(
+                      decoration: pw.BoxDecoration(color: idx % 2 == 0 ? PdfColor.fromHex('#F8FAFC') : PdfColors.white),
+                      children: [
+                        _buildDataCell('$idx', regularFont, align: pw.TextAlign.center),
+                        _buildDataCell(c.fileName, regularFont),
+                        _buildDataCell(uploadDate, regularFont, align: pw.TextAlign.center),
+                        _buildDataCell('ผ่านการรับรอง', boldFont, align: pw.TextAlign.center, color: PdfColor.fromHex('#047857')),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              if (certImages.isNotEmpty) ...[
+                pw.SizedBox(height: 10),
+                pw.Text('เอกสารแนบใบรับรอง (Certificate Previews):', style: pw.TextStyle(font: boldFont, fontSize: 9.5, color: PdfColors.blueGrey800)),
+                pw.SizedBox(height: 6),
+                pw.Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: certificates.where((c) => certImages.containsKey(c.attachmentId)).map((c) {
+                    final img = certImages[c.attachmentId]!;
+                    return pw.Container(
+                      width: 150,
+                      padding: const pw.EdgeInsets.all(4),
+                      decoration: pw.BoxDecoration(
+                        border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        color: PdfColors.white,
+                      ),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.center,
+                        children: [
+                          pw.Container(
+                            height: 95,
+                            width: 142,
+                            child: pw.Image(img, fit: pw.BoxFit.contain),
+                          ),
+                          pw.SizedBox(height: 4),
+                          pw.Text(
+                            c.fileName,
+                            style: pw.TextStyle(font: regularFont, fontSize: 7.5, color: PdfColors.grey800),
+                            maxLines: 1,
+                            overflow: pw.TextOverflow.clip,
+                            textAlign: pw.TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+            pw.SizedBox(height: 20),
+
+            // 6. Verification & Recommendation Signature Box
             pw.Container(
               padding: const pw.EdgeInsets.all(12),
               decoration: pw.BoxDecoration(

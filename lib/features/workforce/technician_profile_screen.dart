@@ -46,11 +46,15 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
   Future<void> _exportPortfolio(TechnicianProfile profile, KaizenPortfolioData portfolio) async {
     setState(() => _isExportingPortfolio = true);
     try {
+      final attachments = ref.read(technicianAttachmentsProvider(widget.userId)).value ?? [];
+      final certs = attachments.where((a) => a.documentType == 'certificate').toList();
+
       await TechnicianPortfolioPdfService.generateAndOpen(
         profile: profile,
         plans: portfolio.plans,
         kaizenPoints: portfolio.totalPoints,
         badges: portfolio.badges,
+        certificates: certs,
       );
     } catch (e) {
       if (mounted) {
