@@ -442,7 +442,7 @@ class _WorkPermitScreenState extends ConsumerState<WorkPermitScreen> {
                        WHERE permit_id=@pid''',
                     params: {
                       'pid': permit.permitId, 
-                      'uid': currentUser.userId,
+                      'uid': currentUid,
                       'eq': jsonEncode(selectedEquipments.toList()),
                       'rem': remarksCtrl.text.trim().isEmpty ? null : remarksCtrl.text.trim(),
                     },
