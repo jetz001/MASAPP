@@ -8,24 +8,18 @@ class FactoryLayoutPainter extends CustomPainter {
   final double zoomLevel;
   final Offset offset;
   final MachinePosition? selectedMachine;
-    final bool isAligning;
-    final bool showGrid; // Toggleable grid visibility
-    final double tempBgScale;
-    final Offset tempBgOffset;
-    final Map<String, Color> themeColors;
-  
-    FactoryLayoutPainter({
-      required this.layout,
-      this.backgroundImage,
-      required this.zoomLevel,
-      required this.offset,
-      this.selectedMachine,
-      this.isAligning = false,
-      this.showGrid = true,
-      this.tempBgScale = 1.0,
-      this.tempBgOffset = Offset.zero,
-      required this.themeColors,
-    });
+  final bool showGrid;
+  final Map<String, Color> themeColors;
+
+  FactoryLayoutPainter({
+    required this.layout,
+    this.backgroundImage,
+    required this.zoomLevel,
+    required this.offset,
+    this.selectedMachine,
+    this.showGrid = true,
+    required this.themeColors,
+  });
 
   @override
   void paint(Canvas canvas, Size canvasSize) {
@@ -33,108 +27,132 @@ class FactoryLayoutPainter extends CustomPainter {
     canvas.translate(offset.dx, offset.dy);
     canvas.scale(zoomLevel);
 
-    // Fixed layout bounds (e.g. 32m x 110m in pixels)
-    final fixedLayoutRect = Rect.fromLTWH(0, 0, layout.canvasSize.width, layout.canvasSize.height);
-
-    // 1. Base Layer (Background canvas)
+    // 1. Base infinite canvas background
     _drawBaseBackground(canvas, canvasSize);
 
-    // 2. Background Image Layer (Transformed)
-    // In Align mode, we allow the image to bleed outside the fixed layout rect
-    final double bgScale = isAligning ? tempBgScale : layout.backgroundScale;
-    final Offset bgOffset = isAligning ? tempBgOffset : layout.backgroundOffset;
+    // 2. Compute Auto-fit Layout Rect for Floor Plan
+    final layoutRect = _computeLayoutRect();
 
+    // 3. Draw Floor Plan Background & Document Base
+    _drawPlanBackground(canvas, layoutRect);
     if (backgroundImage != null) {
-      final imageRect = Rect.fromLTWH(
-        bgOffset.dx, 
-        bgOffset.dy, 
-        backgroundImage!.width * bgScale, 
-        backgroundImage!.height * bgScale
-      );
-      
-      // Draw white background and image for the floor plan
-      _drawPlanBackground(canvas, imageRect);
-      _drawFloorPlan(canvas, imageRect);
+      _drawFloorPlan(canvas, layoutRect);
     }
 
-    // Clip all relative layout items to the layout bounds if not aligning
-    // If aligning, we show them all over the background
-    if (!isAligning) {
-      canvas.save();
-      canvas.clipRect(fixedLayoutRect);
-    }
-
-    // 3. Activity Zones
+    // 4. Activity Zones (if any)
     _drawZones(canvas);
 
-    // 4. Grid Lines (Fixed to layout rect) - Now drawn AFTER zones for visibility
-    if (showGrid || isAligning) {
-       _drawGrid(canvas, fixedLayoutRect, isOverlay: isAligning);
+    // 5. Grid Lines (Fixed to layout bounds)
+    if (showGrid) {
+      _drawGrid(canvas, layoutRect);
     }
 
-    // 5. Machines & Status Labels
+    // 6. Machine Pin Dots
     _drawMachines(canvas);
 
-    if (!isAligning) {
-      canvas.restore();
-    }
-
-    // 6. Alignment Overlays
-    if (isAligning) {
-      // Draw a boundary around the fixed layout area
-      final borderPaint = Paint()
-        ..color = Colors.blue.withAlpha(200)
-        ..strokeWidth = 3.0
-        ..style = PaintingStyle.stroke;
-      canvas.drawRect(fixedLayoutRect, borderPaint);
-    }
+    // 7. Outer Plan Boundary Border
+    final borderPaint = Paint()
+      ..color = const Color(0xFF64748B).withValues(alpha: 0.5)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(layoutRect, const Radius.circular(8)),
+      borderPaint,
+    );
 
     canvas.restore();
   }
 
+  Rect _computeLayoutRect() {
+    final double canvasW = layout.canvasSize.width;
+    final double canvasH = layout.canvasSize.height;
+
+    if (backgroundImage != null) {
+      final double imgW = backgroundImage!.width.toDouble();
+      final double imgH = backgroundImage!.height.toDouble();
+      final double imgAspect = imgW / imgH;
+      final double canvasAspect = canvasW / canvasH;
+
+      double drawW, drawH;
+      double offsetX = 0, offsetY = 0;
+
+      if (imgAspect > canvasAspect) {
+        drawW = canvasW;
+        drawH = canvasW / imgAspect;
+        offsetY = (canvasH - drawH) / 2;
+      } else {
+        drawH = canvasH;
+        drawW = canvasH * imgAspect;
+        offsetX = (canvasW - drawW) / 2;
+      }
+      return Rect.fromLTWH(offsetX, offsetY, drawW, drawH);
+    }
+
+    return Rect.fromLTWH(0, 0, canvasW, canvasH);
+  }
+
   void _drawBaseBackground(Canvas canvas, Size size) {
-    // Fill the visible area with a neutral grey, but the actual canvas is already translated.
-    // We just fill a large enough area around the layout.
-    final paint = Paint()..color = themeColors['backgroundColor']?.withAlpha(100) ?? Colors.grey.withAlpha(50);
+    final paint = Paint()
+      ..color = themeColors['backgroundColor'] ?? const Color(0xFF0F172A);
     canvas.drawRect(
-      Rect.fromLTWH(-5000, -5000, 10000, 10000), 
+      const Rect.fromLTWH(-10000, -10000, 20000, 20000),
       paint,
     );
   }
 
   void _drawPlanBackground(Canvas canvas, Rect rect) {
-    final paint = Paint()
+    // Document drop shadow
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect.shift(const Offset(0, 8)), const Radius.circular(8)),
+      shadowPaint,
+    );
+
+    // Plan base paper fill
+    final basePaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.fill;
-    canvas.drawRect(rect, paint);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, const Radius.circular(8)),
+      basePaint,
+    );
   }
 
   void _drawFloorPlan(Canvas canvas, Rect dst) {
     final paint = Paint()
-      ..color = Colors.white.withValues(alpha: layout.backgroundOpacity)
-      ..filterQuality = FilterQuality.medium;
+      ..color = Colors.white.withValues(alpha: layout.backgroundOpacity.clamp(0.1, 1.0))
+      ..filterQuality = FilterQuality.high;
 
     final src = Rect.fromLTWH(
-        0, 0, backgroundImage!.width.toDouble(), backgroundImage!.height.toDouble());
+      0,
+      0,
+      backgroundImage!.width.toDouble(),
+      backgroundImage!.height.toDouble(),
+    );
 
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndRadius(dst, const Radius.circular(8)));
     canvas.drawImageRect(backgroundImage!, src, dst, paint);
+    canvas.restore();
   }
 
-  void _drawGrid(Canvas canvas, Rect rect, {bool isOverlay = false}) {
-    // 100% Blue as requested, with much thicker strokes
-    final gridPaint = Paint()
-      ..color = const Color(0xFF2196F3) // Colors.blue
-      ..strokeWidth = 4.0 // Extra thick for major grid
-      ..style = PaintingStyle.stroke;
+  void _drawGrid(Canvas canvas, Rect rect) {
+    const minorSize = 50.0; // 1 meter = 50px
+    const gridSize = 250.0; // 5 meters = 250px
 
-    const gridSize = 250.0; // 5 meters = 250 pixels (1m = 50px)
-    
-    // Draw minor grid (1m)
     final minorPaint = Paint()
-      ..color = const Color(0xFF2196F3).withValues(alpha: 0.5) // Slightly lighter but still very visible
-      ..strokeWidth = 2.0; // Thick for minor grid
-    
-    const minorSize = 50.0; // 1 meter = 50 pixels
+      ..color = const Color(0xFF3B82F6).withValues(alpha: 0.15)
+      ..strokeWidth = 1.0;
+
+    final majorPaint = Paint()
+      ..color = const Color(0xFF2563EB).withValues(alpha: 0.35)
+      ..strokeWidth = 2.0;
+
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndRadius(rect, const Radius.circular(8)));
+
     for (double x = rect.left; x <= rect.right; x += minorSize) {
       canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), minorPaint);
     }
@@ -142,39 +160,43 @@ class FactoryLayoutPainter extends CustomPainter {
       canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), minorPaint);
     }
 
-    // Draw major grid (5m)
     for (double x = rect.left; x <= rect.right; x += gridSize) {
-      canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), gridPaint);
+      canvas.drawLine(Offset(x, rect.top), Offset(x, rect.bottom), majorPaint);
     }
     for (double y = rect.top; y <= rect.bottom; y += gridSize) {
-      canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), gridPaint);
+      canvas.drawLine(Offset(rect.left, y), Offset(rect.right, y), majorPaint);
     }
+
+    canvas.restore();
   }
 
   void _drawZones(Canvas canvas) {
     for (final zone in layout.zones) {
-      // Zone background
       final zonePaint = Paint()
-        ..color = zone.color.withAlpha(40)
+        ..color = zone.color.withValues(alpha: 0.15)
         ..style = PaintingStyle.fill;
-      canvas.drawRect(zone.bounds, zonePaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(zone.bounds, const Radius.circular(6)),
+        zonePaint,
+      );
 
-      // Zone border
       final borderPaint = Paint()
-        ..color = zone.color.withAlpha(150)
+        ..color = zone.color.withValues(alpha: 0.6)
         ..strokeWidth = 1.5
         ..style = PaintingStyle.stroke;
-      canvas.drawRect(zone.bounds, borderPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(zone.bounds, const Radius.circular(6)),
+        borderPaint,
+      );
 
-      // Zone label
       final textPainter = TextPainter(
         text: TextSpan(
           text: zone.name,
           style: TextStyle(
-            color: (themeColors['labelColor'] ?? Colors.black).withValues(alpha: 0.5),
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
+            color: zone.color,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.8,
           ),
         ),
         textDirection: TextDirection.ltr,
@@ -182,173 +204,102 @@ class FactoryLayoutPainter extends CustomPainter {
       textPainter.layout();
       textPainter.paint(
         canvas,
-        Offset(zone.bounds.left + 12, zone.bounds.top + 12),
+        Offset(zone.bounds.left + 8, zone.bounds.top + 8),
       );
     }
   }
 
+  /// Draw sleek Pin Dot Markers with mini code labels
   void _drawMachines(Canvas canvas) {
     for (final machine in layout.machines) {
       final isSelected = selectedMachine?.machineId == machine.machineId;
       final statusColor = machine.status.color;
-      final rect = machine.bounds;
       final center = machine.position;
 
-      // 1. Deep Drop Shadow (Makes it pop off any CAD/Blueprint drawing)
+      // 1. Drop Shadow for Dot
       final shadowPaint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.35)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect.shift(const Offset(0, 4)), const Radius.circular(8)),
-        shadowPaint,
-      );
+        ..color = Colors.black.withValues(alpha: isSelected ? 0.45 : 0.25)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, isSelected ? 8 : 4);
+      canvas.drawCircle(center.translate(0, 2), isSelected ? 13 : 10, shadowPaint);
 
-      // 2. Selection Glow
+      // 2. Selection Glow Ring
       if (isSelected) {
-        final glowPaint = Paint()
-          ..color = statusColor.withValues(alpha: 0.6)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(rect.inflate(6), const Radius.circular(12)),
-          glowPaint,
-        );
+        final ringPaint = Paint()
+          ..color = const Color(0xFF2563EB).withValues(alpha: 0.35)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4.0;
+        canvas.drawCircle(center, 16, ringPaint);
       }
 
-      // 3. Card Base Body
-      final bodyPaint = Paint()
-        ..color = const Color(0xFFFFFFFF)
+      // 3. Pin Outer Border (Thick White border for maximum contrast against any drawing)
+      final outerBorder = Paint()
+        ..color = Colors.white
         ..style = PaintingStyle.fill;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-        bodyPaint,
-      );
+      canvas.drawCircle(center, isSelected ? 12 : 9.5, outerBorder);
 
-      // 4. Header Bar (Vibrant Status Color - Solid & Highly Visible)
-      final double headerHeight = (rect.height * 0.42).clamp(24.0, 36.0);
-      final headerRect = Rect.fromLTWH(rect.left, rect.top, rect.width, headerHeight);
-      final headerPaint = Paint()
+      // 4. Pin Inner Status Color Dot
+      final dotPaint = Paint()
         ..color = statusColor
         ..style = PaintingStyle.fill;
-      
-      // Top rounded corners for header
-      final headerRRect = RRect.fromRectAndCorners(
-        headerRect,
-        topLeft: const Radius.circular(8),
-        topRight: const Radius.circular(8),
-      );
-      canvas.drawRRect(headerRRect, headerPaint);
+      canvas.drawCircle(center, isSelected ? 9 : 7.5, dotPaint);
 
-      // 5. Header Content: Icon & Machine No (Bold White Text)
-      final machineNoSpan = TextSpan(
-        text: '⚙️ ${machine.machineNo}',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: (headerHeight * 0.52).clamp(11.0, 15.0),
+      // 5. Mini Label Tag above dot (e.g. ST-05)
+      final textSpan = TextSpan(
+        text: machine.machineNo,
+        style: const TextStyle(
+          color: Color(0xFF0F172A),
+          fontSize: 9.5,
           fontWeight: FontWeight.w900,
-          letterSpacing: 0.5,
-          shadows: const [
-            Shadow(color: Colors.black45, blurRadius: 2, offset: Offset(0, 1)),
-          ],
+          letterSpacing: 0.3,
         ),
       );
-      final headerPainter = TextPainter(
-        text: machineNoSpan,
+      final textPainter = TextPainter(
+        text: textSpan,
         textDirection: TextDirection.ltr,
-        maxLines: 1,
-        ellipsis: '...',
       );
-      headerPainter.layout(maxWidth: rect.width - 12);
-      headerPainter.paint(
-        canvas,
-        Offset(rect.left + (rect.width - headerPainter.width) / 2, headerRect.top + (headerHeight - headerPainter.height) / 2),
+      textPainter.layout();
+
+      final double tagW = textPainter.width + 10;
+      const double tagH = 16.0;
+      final tagRect = Rect.fromCenter(
+        center: Offset(center.dx, center.dy - 14),
+        width: tagW,
+        height: tagH,
       );
 
-      // 6. Body Content: Dimensions & Status Label (High Contrast Dark Text)
-      final double widthM = machine.size.width / 50.0;
-      final double heightM = machine.size.height / 50.0;
-      final dimText = '${widthM.toStringAsFixed(1)}m × ${heightM.toStringAsFixed(1)}m';
-
-      final bodyTextSpan = TextSpan(
-        children: [
-          TextSpan(
-            text: '$dimText\n',
-            style: TextStyle(
-              color: const Color(0xFF1E293B),
-              fontSize: ((rect.height - headerHeight) * 0.35).clamp(9.0, 12.0),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          TextSpan(
-            text: machine.status.label,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: ((rect.height - headerHeight) * 0.32).clamp(8.5, 11.0),
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      );
-      final bodyPainter = TextPainter(
-        text: bodyTextSpan,
-        textAlign: TextAlign.center,
-        textDirection: TextDirection.ltr,
-        maxLines: 2,
-      );
-      bodyPainter.layout(maxWidth: rect.width - 8);
-
-      final bodyAreaHeight = rect.height - headerHeight;
-      bodyPainter.paint(
-        canvas,
-        Offset(
-          rect.left + (rect.width - bodyPainter.width) / 2,
-          rect.top + headerHeight + (bodyAreaHeight - bodyPainter.height) / 2,
-        ),
+      // Tag drop shadow
+      final tagShadow = Paint()
+        ..color = Colors.black.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(tagRect.shift(const Offset(0, 1.5)), const Radius.circular(4)),
+        tagShadow,
       );
 
-      // 7. High-Contrast Border
-      final borderPaint = Paint()
-        ..color = isSelected ? const Color(0xFF2563EB) : statusColor
-        ..strokeWidth = isSelected ? 3.5 : 2.0
+      // Tag background
+      final tagBgPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(tagRect, const Radius.circular(4)),
+        tagBgPaint,
+      );
+
+      // Tag border
+      final tagBorderPaint = Paint()
+        ..color = isSelected ? const Color(0xFF2563EB) : statusColor.withValues(alpha: 0.85)
+        ..strokeWidth = isSelected ? 1.8 : 1.0
         ..style = PaintingStyle.stroke;
       canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(8)),
-        borderPaint,
+        RRect.fromRectAndRadius(tagRect, const Radius.circular(4)),
+        tagBorderPaint,
       );
 
-      // 8. Top Pin Landmark Flag (For fast identification from afar)
-      final pinCenter = Offset(rect.left + 12, rect.top - 8);
-      final pinBgPaint = Paint()
-        ..color = statusColor
-        ..style = PaintingStyle.fill;
-      final pinBorderPaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.0;
-
-      // Small Landmark Badge
-      canvas.drawCircle(pinCenter, 6.0, pinBgPaint);
-      canvas.drawCircle(pinCenter, 6.0, pinBorderPaint);
-
-      // 9. Resize Corner Handles (When Selected)
-      if (isSelected) {
-        final handlePaint = Paint()
-          ..color = const Color(0xFF2563EB)
-          ..style = PaintingStyle.fill;
-        final handleBorder = Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5;
-
-        for (final corner in [
-          rect.topLeft,
-          rect.topRight,
-          rect.bottomLeft,
-          rect.bottomRight,
-        ]) {
-          canvas.drawCircle(corner, 4.5, handlePaint);
-          canvas.drawCircle(corner, 4.5, handleBorder);
-        }
-      }
+      // Render Text
+      textPainter.paint(
+        canvas,
+        Offset(tagRect.left + (tagW - textPainter.width) / 2, tagRect.top + (tagH - textPainter.height) / 2),
+      );
     }
   }
 
@@ -359,7 +310,6 @@ class FactoryLayoutPainter extends CustomPainter {
         selectedMachine != oldDelegate.selectedMachine ||
         zoomLevel != oldDelegate.zoomLevel ||
         showGrid != oldDelegate.showGrid ||
-        isAligning != oldDelegate.isAligning ||
         offset != oldDelegate.offset ||
         themeColors != oldDelegate.themeColors;
   }

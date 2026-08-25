@@ -143,6 +143,7 @@ CREATE TABLE machines (
   supplier_id     TEXT REFERENCES suppliers(supplier_id),
   handover_completed INTEGER NOT NULL DEFAULT 0,
   handover_conclusion TEXT, -- pass, fail
+  is_edit_unlocked INTEGER NOT NULL DEFAULT 0,
   is_active       INTEGER NOT NULL DEFAULT 1,
   notes           TEXT,
   created_by      TEXT REFERENCES users(user_id),

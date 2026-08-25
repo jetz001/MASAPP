@@ -48,7 +48,6 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
   late final TextEditingController _energyCostController;
   late final TextEditingController _materialCostController;
   late final TextEditingController _otherCostController;
-  late final TextEditingController _bufferController;
 
   @override
   void initState() {
@@ -74,7 +73,6 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
       _energyCostController = TextEditingController(text: s.energyCost.toStringAsFixed(2));
       _materialCostController = TextEditingController(text: s.materialCost.toStringAsFixed(2));
       _otherCostController = TextEditingController(text: s.otherCost.toStringAsFixed(2));
-      _bufferController = TextEditingController(text: s.bufferQuantity.toString());
     } else {
       _nameController = TextEditingController(text: 'Station');
       _cycleTimeController = TextEditingController(text: '20.0');
@@ -83,7 +81,6 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
       _energyCostController = TextEditingController(text: '0.0');
       _materialCostController = TextEditingController(text: '0.0');
       _otherCostController = TextEditingController(text: '0.0');
-      _bufferController = TextEditingController(text: '0');
     }
   }
 

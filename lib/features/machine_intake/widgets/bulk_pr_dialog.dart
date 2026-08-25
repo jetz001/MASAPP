@@ -5,7 +5,6 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/database/db_helper.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
-import '../machine_provider.dart';
 import '../machine_models.dart';
 
 class BulkPRDialog extends ConsumerStatefulWidget {

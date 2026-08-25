@@ -61,23 +61,30 @@ class MachinePosition {
     this.brand,
     this.model,
     required this.position,
-    this.size = const Size(60, 50),
+    this.size = const Size(42, 24),
     required this.zoneId,
     this.status = MachineLayoutStatus.normal,
     this.lastUpdated,
   });
 
   /// Get the bounding rectangle for this machine
-  Rect get bounds => Rect.fromLTWH(
-    position.dx - size.width / 2,
-    position.dy - size.height / 2,
-    size.width,
-    size.height,
+  Rect get bounds => Rect.fromCenter(
+    center: position,
+    width: size.width,
+    height: size.height,
   );
 
-  /// Check if point is within machine bounds
-  bool contains(Offset point) {
-    return bounds.contains(point);
+  /// Get the scaled bounding rectangle for this machine
+  Rect getBounds([double scale = 1.0]) => Rect.fromCenter(
+    center: position,
+    width: size.width * scale,
+    height: size.height * scale,
+  );
+
+  /// Check if point is within machine pin / dot click area
+  bool contains(Offset point, [double scale = 1.0]) {
+    final double hitRadius = 22.0 * scale;
+    return (point - position).distance <= hitRadius || getBounds(scale).contains(point);
   }
 
   MachinePosition copyWith({
@@ -215,10 +222,10 @@ class FactoryLayout {
   }
 
   /// Find machine at position (with zoom/pan offset)
-  MachinePosition? getMachineAt(Offset point) {
+  MachinePosition? getMachineAt(Offset point, [double markerScale = 1.0]) {
     // Search in reverse order (top-most first)
     for (int i = machines.length - 1; i >= 0; i--) {
-      if (machines[i].contains(point)) {
+      if (machines[i].contains(point, markerScale)) {
         return machines[i];
       }
     }

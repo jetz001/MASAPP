@@ -199,115 +199,165 @@ class LayoutListScreen extends ConsumerWidget {
     String? selectedFilePath;
     String? selectedFileName = layout.backgroundPath != null ? p.basename(layout.backgroundPath!) : null;
     bool backgroundCleared = false;
+    bool showDimensions = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('แก้ไขพื้นที่โรงงาน'),
+          title: const Row(
+            children: [
+              Icon(Icons.edit_location_alt_rounded, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('แก้ไขพื้นที่โรงงาน'),
+            ],
+          ),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'ชื่อพื้นที่',
+            child: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'ชื่อพื้นที่ (Area Name) *',
+                      hintText: 'เช่น อาคาร 1, แผนกผลิต 2, โกดังจัดเก็บ',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.business_rounded),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: widthCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Width (m)',
-                          suffixText: 'm',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  const SizedBox(height: 16),
+                  const Text('รูปภาพผังพื้น หรือ เอกสาร PDF (Floor Plan)', 
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(10),
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    ),
+                    child: Column(
+                      children: [
+                        if (selectedFileName != null && !backgroundCleared)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    selectedFileName!.toLowerCase().endsWith('.pdf') 
+                                        ? Icons.picture_as_pdf_rounded 
+                                        : Icons.image_rounded, 
+                                    size: 18, 
+                                    color: Colors.blue,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(selectedFileName!, 
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                      overflow: TextOverflow.ellipsis),
+                                  ),
+                                  InkWell(
+                                    onTap: () => setState(() {
+                                      selectedFilePath = null;
+                                      selectedFileName = null;
+                                      backgroundCleared = true;
+                                    }),
+                                    child: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.upload_file_rounded, size: 18),
+                            label: Text(selectedFileName == null || backgroundCleared ? 'เลือกไฟล์ PDF หรือรูปภาพ (PNG/JPG)' : 'เปลี่ยนไฟล์ผังใหม่'),
+                            onPressed: () async {
+                              final result = await FilePicker.platform.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+                              );
+                              if (result != null && result.files.single.path != null) {
+                                setState(() {
+                                  selectedFilePath = result.files.single.path;
+                                  selectedFileName = result.files.single.name;
+                                  backgroundCleared = false;
+                                });
+                              }
+                            },
+                          ),
+                         ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Optional Dimensions Toggle
+                  InkWell(
+                    onTap: () => setState(() => showDimensions = !showDimensions),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(showDimensions ? Icons.expand_less : Icons.expand_more, size: 18, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          const Text('ระบุขนาดพื้นที่จริง กว้าง × ยาว (ไม่บังคับ)', 
+                              style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextField(
-                        controller: heightCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Length (m)',
-                          suffixText: 'm',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text('รูปผังพื้น (Floor Plan)', 
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                    borderRadius: BorderRadius.circular(8),
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
                   ),
-                  child: Column(
-                    children: [
-                      if (selectedFileName != null && !backgroundCleared)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.file_present_rounded, size: 16, color: Colors.blue),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(selectedFileName!, 
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close_rounded, size: 16),
-                                onPressed: () => setState(() {
-                                  selectedFilePath = null;
-                                  selectedFileName = null;
-                                  backgroundCleared = true;
-                                }),
-                              ),
-                            ],
+                  if (showDimensions) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: widthCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'ความกว้าง (Width)',
+                              suffixText: 'ม.',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           ),
                         ),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.upload_file_rounded, size: 18),
-                          label: Text(selectedFileName == null || backgroundCleared ? 'เลือกไฟล์ PDF หรือรูปภาพ' : 'เปลี่ยนไฟล์'),
-                          onPressed: () async {
-                            final result = await FilePicker.platform.pickFiles(
-                              type: FileType.custom,
-                              allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
-                            );
-                            if (result != null && result.files.single.path != null) {
-                              setState(() {
-                                selectedFilePath = result.files.single.path;
-                                selectedFileName = result.files.single.name;
-                                backgroundCleared = false;
-                              });
-                            }
-                          },
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: heightCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'ความยาว (Length)',
+                              suffixText: 'ม.',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
                         ),
-                       ),
-                    ],
-                  ),
-                ),
-              ],
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
-            ElevatedButton(
+            FilledButton(
               onPressed: () async {
-                if (nameCtrl.text.isEmpty) return;
+                if (nameCtrl.text.trim().isEmpty) return;
 
                 final repo = ref.read(layoutRepositoryProvider);
                 
@@ -331,18 +381,19 @@ class LayoutListScreen extends ConsumerWidget {
                 
                 await repo.updateLayout(
                   layoutId: layout.layoutId,
-                  name: nameCtrl.text,
+                  name: nameCtrl.text.trim(),
                   widthM: double.tryParse(widthCtrl.text) ?? layout.widthM,
                   heightM: double.tryParse(heightCtrl.text) ?? layout.heightM,
                   backgroundPath: finalBgPath,
                 );
 
                 ref.invalidate(layoutListProvider);
+                ref.invalidate(currentLayoutProvider);
 
                 if (context.mounted) {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('อัปเดตพื้นที่: ${nameCtrl.text}')),
+                    SnackBar(content: Text('อัปเดตพื้นที่: ${nameCtrl.text.trim()}')),
                   );
                 }
               },
@@ -359,7 +410,7 @@ class LayoutListScreen extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('ยืนยันการลบพื้นที่'),
-        content: Text('คุณต้องการลบพื้นที่ "${layout.name}" ใช่หรือไม่?\n\n* ข้อมูลมาร์กเกอร์เครื่องจักรในพื้นที่นี้จะถูกลบออกทั้งหมด'),
+        content: Text('คุณต้องการลบพื้นที่ "${layout.name}" ใช่หรือไม่?\n\n* ข้อมูลตำแหน่งเครื่องจักรในพื้นที่นี้จะถูกลบออกทั้งหมด'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
           ElevatedButton(
@@ -379,119 +430,168 @@ class LayoutListScreen extends ConsumerWidget {
 
   void _showAddLayoutDialog(BuildContext context, WidgetRef ref) {
     final nameCtrl = TextEditingController();
-    final widthCtrl = TextEditingController(text: '32.0');
+    final widthCtrl = TextEditingController(text: '30.0');
     final heightCtrl = TextEditingController(text: '20.0');
     String? selectedFilePath;
     String? selectedFileName;
+    bool showDimensions = false;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('สร้างพื้นที่โรงงานใหม่'),
+          title: const Row(
+            children: [
+              Icon(Icons.add_business_rounded, color: AppColors.primary),
+              SizedBox(width: 10),
+              Text('สร้างพื้นที่โรงงานใหม่'),
+            ],
+          ),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Area Name',
-                    hintText: 'e.g., Assembly Line A, Warehouse 1',
+            child: SizedBox(
+              width: 440,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'ชื่อพื้นที่ (Area Name) *',
+                      hintText: 'เช่น อาคาร 1, แผนกผลิต Flexo, โกดังสินค้า',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.business_rounded),
+                    ),
+                    autofocus: true,
                   ),
-                  autofocus: true,
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: widthCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Width (m)',
-                          suffixText: 'm',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  const SizedBox(height: 16),
+                  const Text('รูปภาพผังพื้น หรือ เอกสาร PDF (Floor Plan)', 
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+                      borderRadius: BorderRadius.circular(10),
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    ),
+                    child: Column(
+                      children: [
+                        if (selectedFileName != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    selectedFileName!.toLowerCase().endsWith('.pdf') 
+                                        ? Icons.picture_as_pdf_rounded 
+                                        : Icons.image_rounded, 
+                                    size: 18, 
+                                    color: Colors.blue,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(selectedFileName!, 
+                                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                      overflow: TextOverflow.ellipsis),
+                                  ),
+                                  InkWell(
+                                    onTap: () => setState(() {
+                                      selectedFilePath = null;
+                                      selectedFileName = null;
+                                    }),
+                                    child: const Icon(Icons.close_rounded, size: 18, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.upload_file_rounded, size: 18),
+                            label: Text(selectedFileName == null ? 'เลือกไฟล์ PDF หรือรูปภาพ (PNG/JPG)' : 'เปลี่ยนไฟล์ผัง'),
+                            onPressed: () async {
+                              final result = await FilePicker.platform.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+                              );
+                              if (result != null && result.files.single.path != null) {
+                                setState(() {
+                                  selectedFilePath = result.files.single.path;
+                                  selectedFileName = result.files.single.name;
+                                });
+                              }
+                            },
+                          ),
+                         ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Optional Dimensions Toggle
+                  InkWell(
+                    onTap: () => setState(() => showDimensions = !showDimensions),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(showDimensions ? Icons.expand_less : Icons.expand_more, size: 18, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          const Text('ระบุขนาดพื้นที่จริง กว้าง × ยาว (ไม่บังคับ)', 
+                              style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextField(
-                        controller: heightCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Length (m)',
-                          suffixText: 'm',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text('Floor Plan Background (Optional)', 
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-                    borderRadius: BorderRadius.circular(8),
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
                   ),
-                  child: Column(
-                    children: [
-                      if (selectedFileName != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.file_present_rounded, size: 16, color: Colors.blue),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(selectedFileName!, 
-                                  style: const TextStyle(fontSize: 12),
-                                  overflow: TextOverflow.ellipsis),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close_rounded, size: 16),
-                                onPressed: () => setState(() {
-                                  selectedFilePath = null;
-                                  selectedFileName = null;
-                                }),
-                              ),
-                            ],
+                  if (showDimensions) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: widthCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'ความกว้าง (Width)',
+                              suffixText: 'ม.',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           ),
                         ),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.upload_file_rounded, size: 18),
-                          label: Text(selectedFileName == null ? 'Select PDF or Image' : 'Change File'),
-                          onPressed: () async {
-                            final result = await FilePicker.platform.pickFiles(
-                              type: FileType.custom,
-                              allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
-                            );
-                            if (result != null && result.files.single.path != null) {
-                              setState(() {
-                                selectedFilePath = result.files.single.path;
-                                selectedFileName = result.files.single.name;
-                              });
-                            }
-                          },
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: heightCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'ความยาว (Length)',
+                              suffixText: 'ม.',
+                              isDense: true,
+                              border: OutlineInputBorder(),
+                            ),
+                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          ),
                         ),
-                       ),
-                    ],
-                  ),
-                ),
-              ],
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
-            ElevatedButton(
+            FilledButton(
               onPressed: () async {
-                if (nameCtrl.text.isEmpty) return;
+                if (nameCtrl.text.trim().isEmpty) return;
 
                 final repo = ref.read(layoutRepositoryProvider);
                 final user = ref.read(authProvider);
@@ -511,8 +611,8 @@ class LayoutListScreen extends ConsumerWidget {
                 }
                 
                 final id = await repo.createLayout(
-                  name: nameCtrl.text,
-                  widthM: double.tryParse(widthCtrl.text) ?? 32.0,
+                  name: nameCtrl.text.trim(),
+                  widthM: double.tryParse(widthCtrl.text) ?? 30.0,
                   heightM: double.tryParse(heightCtrl.text) ?? 20.0,
                   backgroundPath: finalBgPath,
                   createdBy: user?.userId,
@@ -524,11 +624,11 @@ class LayoutListScreen extends ConsumerWidget {
                 if (context.mounted) {
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Created area: ${nameCtrl.text}')),
+                    SnackBar(content: Text('สร้างพื้นที่สำเร็จ: ${nameCtrl.text.trim()}')),
                   );
                 }
               },
-              child: const Text('Create'),
+              child: const Text('สร้างพื้นที่'),
             ),
           ],
         ),

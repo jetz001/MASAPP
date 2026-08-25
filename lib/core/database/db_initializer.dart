@@ -212,6 +212,14 @@ class DbInitializer {
             'ALTER TABLE machines ADD COLUMN handover_conclusion TEXT',
           );
         }
+        if (!machinesTableInfo.any(
+          (col) => col['name'] == 'is_edit_unlocked',
+        )) {
+          _log.i('Migration: Adding is_edit_unlocked to machines...');
+          await db.execute(
+            'ALTER TABLE machines ADD COLUMN is_edit_unlocked INTEGER NOT NULL DEFAULT 0',
+          );
+        }
 
         // 8. Add layout background columns (Added 2026-04-21)
         // 8. Add layout background columns (Added 2026-04-21)

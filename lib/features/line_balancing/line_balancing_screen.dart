@@ -84,8 +84,8 @@ class LineBalancingScreen extends ConsumerWidget {
             tabs: [
               Tab(icon: Icon(Icons.dashboard), text: 'Dashboard'),
               Tab(
-                icon: Icon(Icons.account_tree),
-                text: 'Line Management (Graph)',
+                icon: Icon(Icons.account_tree_outlined),
+                text: 'Line Flow (ผังกระบวนการ)',
               ),
             ],
           ),

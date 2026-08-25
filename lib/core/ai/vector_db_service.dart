@@ -283,7 +283,7 @@ class VectorDbService {
   static Future<void> syncWorkOrder(String woId) async {
     try {
       final rows = await DbHelper.query(
-        'SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause, '
+        'SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause, wo.closure_notes, '
         'wo.status, wo.priority, wo.machine_id, '
         'rca.root_cause, rca.correction_action AS action_taken, rca.preventive_action '
         'FROM work_orders wo '
@@ -298,7 +298,9 @@ class VectorDbService {
       final title = wo['title'] ?? 'ใบแจ้งซ่อม $woNo';
       final symptom = wo['failure_symptom'] ?? '';
       final cause = wo['failure_cause'] ?? wo['root_cause'] ?? '';
-      final action = wo['action_taken'] ?? '';
+      final action = (wo['action_taken'] != null && wo['action_taken'].toString().isNotEmpty)
+          ? wo['action_taken']
+          : (wo['closure_notes'] ?? '');
       final preventive = wo['preventive_action'] ?? '';
       final desc = wo['description'] ?? '';
 
@@ -951,7 +953,7 @@ class VectorDbService {
     try {
       // 1. Index Work Orders with solutions / symptoms / causes
       final woRows = await DbHelper.query('''
-        SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause,
+        SELECT wo.wo_id, wo.wo_no, wo.title, wo.description, wo.failure_symptom, wo.failure_cause, wo.closure_notes,
                wo.status, wo.priority, wo.machine_id,
                rca.root_cause, rca.correction_action AS action_taken, rca.preventive_action
         FROM work_orders wo
@@ -960,6 +962,7 @@ class VectorDbService {
            OR (wo.failure_cause IS NOT NULL AND wo.failure_cause != '')
            OR (rca.root_cause IS NOT NULL AND rca.root_cause != '')
            OR (rca.correction_action IS NOT NULL AND rca.correction_action != '')
+           OR (wo.closure_notes IS NOT NULL AND wo.closure_notes != '')
            OR (wo.description IS NOT NULL AND wo.description != '')
       ''');
 
@@ -968,7 +971,9 @@ class VectorDbService {
         final title = wo['title'] ?? 'ใบแจ้งซ่อม $woNo';
         final symptom = wo['failure_symptom'] ?? '';
         final cause = wo['failure_cause'] ?? wo['root_cause'] ?? '';
-        final action = wo['action_taken'] ?? '';
+        final action = (wo['action_taken'] != null && wo['action_taken'].toString().isNotEmpty)
+            ? wo['action_taken']
+            : (wo['closure_notes'] ?? '');
         final preventive = wo['preventive_action'] ?? '';
         final desc = wo['description'] ?? '';
 

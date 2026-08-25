@@ -13,6 +13,7 @@ final _log = Logger();
 final isScanningProvider = StateProvider<bool>((ref) => false);
 final isEditModeProvider = StateProvider<bool>((ref) => false);
 final isAligningModeProvider = StateProvider<bool>((ref) => false);
+final markerScaleProvider = StateProvider<double>((ref) => 1.0);
 
 /// Temporary state for background alignment (unsaved)
 final tempBgScaleProvider = StateProvider<double>((ref) => 1.0);
@@ -50,25 +51,33 @@ class LayoutRepository {
               ((zoneRow['x_end'] as num) - (zoneRow['x_start'] as num)).toDouble(),
               ((zoneRow['y_end'] as num) - (zoneRow['y_start'] as num)).toDouble(),
             ),
-            color: zoneRow['background_color'] != null
-                ? Color(int.parse(zoneRow['background_color'].toString().replaceAll('#', ''), radix: 16) | 0xFF000000)
-                : Colors.green,
+            color: Color(int.parse(
+                (zoneRow['color_hex'] as String? ?? '#3B82F6')
+                    .replaceFirst('#', '0xFF'))),
           ),
         );
       }
 
-      // Load machines
+      // Load machine positions with details
       final machineRows = await DbHelper.query(
-        '''SELECT mp.*, m.machine_no, m.brand, m.model, m.status
+        '''SELECT mp.*, m.machine_no, m.brand, m.model, m.status 
            FROM machine_positions mp
-           JOIN machines m ON m.machine_id = mp.machine_id
-           WHERE mp.layout_id = @id
-           ORDER BY mp.created_at''',
+           LEFT JOIN machines m ON mp.machine_id = m.machine_id
+           WHERE mp.layout_id = @id''',
         params: {'id': layoutId},
       );
 
+      final double widthM = (row['width_m'] as num?)?.toDouble() ?? 30.0;
+      final double heightM = (row['height_m'] as num?)?.toDouble() ?? 20.0;
+      final double scale = ((row['scale_pixel_per_m'] as num?)?.toDouble() ?? 50.0).clamp(30.0, 100.0);
+
       final machines = <MachinePosition>[];
       for (final machineRow in machineRows) {
+        final double rawW = (machineRow['width'] as num?)?.toDouble() ?? 42.0;
+        final double rawH = (machineRow['height'] as num?)?.toDouble() ?? 24.0;
+        final double finalW = rawW > 60.0 ? 42.0 : rawW;
+        final double finalH = rawH > 35.0 ? 24.0 : rawH;
+
         machines.add(
           MachinePosition(
             positionId: machineRow['position_id'] as String,
@@ -81,10 +90,7 @@ class LayoutRepository {
               (machineRow['x_position'] as num).toDouble(),
               (machineRow['y_position'] as num).toDouble(),
             ),
-            size: Size(
-              (machineRow['width'] as num?)?.toDouble() ?? 60,
-              (machineRow['height'] as num?)?.toDouble() ?? 50,
-            ),
+            size: Size(finalW, finalH),
             zoneId: machineRow['zone_id'] as String? ?? '',
             status: _parseStatus(machineRow['status'] as String?),
             lastUpdated: machineRow['updated_at'] != null
@@ -93,10 +99,6 @@ class LayoutRepository {
           ),
         );
       }
-
-      final double widthM = (row['width_m'] as num?)?.toDouble() ?? 32.0;
-      final double heightM = (row['height_m'] as num?)?.toDouble() ?? 20.0;
-      final double scale = (row['scale_pixel_per_m'] as num?)?.toDouble() ?? 10.0;
 
       return FactoryLayout(
         layoutId: layoutId,
@@ -142,6 +144,34 @@ class LayoutRepository {
         'scale': scale,
         'ox': offset.dx,
         'oy': offset.dy,
+      },
+    );
+  }
+
+  /// Add machine position
+  Future<void> addMachinePosition({
+    required String layoutId,
+    required String machineId,
+    required Offset position,
+    Size? size,
+    String? statusColor,
+  }) async {
+    final positionId = 'pos_${machineId}_${DateTime.now().millisecondsSinceEpoch}';
+    final machineSize = size ?? const Size(42, 24);
+    await DbHelper.execute(
+      '''INSERT INTO machine_positions (
+           position_id, layout_id, machine_id, 
+           x_position, y_position, width, height, status_color
+         ) VALUES (@pid, @lid, @mid, @x, @y, @w, @h, @color)''',
+      params: {
+        'pid': positionId,
+        'lid': layoutId,
+        'mid': machineId,
+        'x': position.dx,
+        'y': position.dy,
+        'w': machineSize.width,
+        'h': machineSize.height,
+        'color': statusColor ?? '#10B981',
       },
     );
   }
@@ -209,9 +239,9 @@ class LayoutRepository {
       return rows
           .map(
             (row) {
-              final double widthM = (row['width_m'] as num?)?.toDouble() ?? 32.0;
+              final double widthM = (row['width_m'] as num?)?.toDouble() ?? 30.0;
               final double heightM = (row['height_m'] as num?)?.toDouble() ?? 20.0;
-              final double scale = (row['scale_pixel_per_m'] as num?)?.toDouble() ?? 10.0;
+              final double scale = ((row['scale_pixel_per_m'] as num?)?.toDouble() ?? 50.0).clamp(30.0, 100.0);
               
               return FactoryLayout(
                 layoutId: row['layout_id'] as String,
@@ -251,9 +281,9 @@ class LayoutRepository {
   Future<String> createLayout({
     required String name,
     String? description,
-    double widthM = 32.0,
+    double widthM = 30.0,
     double heightM = 20.0,
-    double scale = 10.0,
+    double scale = 50.0,
     String? backgroundPath,
     double backgroundOpacity = 1.0,
     String? createdBy,

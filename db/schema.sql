@@ -133,6 +133,7 @@ CREATE TABLE machines (
   purchase_cost   NUMERIC(15,2),
   supplier_id     UUID REFERENCES suppliers(supplier_id),
   handover_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_edit_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
   is_active       BOOLEAN NOT NULL DEFAULT TRUE,
   notes           TEXT,
   created_by      UUID REFERENCES users(user_id),

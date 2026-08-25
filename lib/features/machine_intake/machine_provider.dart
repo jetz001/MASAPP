@@ -869,10 +869,26 @@ class MachineRepository {
 
   /// Toggle the editing permission for a specific machine (Admin feature)
   Future<void> updateEditUnlock(String machineId, bool unlocked) async {
-    await DbHelper.execute(
-      'UPDATE machines SET is_edit_unlocked = @unlocked WHERE machine_id = @id',
-      params: {'id': machineId, 'unlocked': unlocked ? 1 : 0},
-    );
+    try {
+      await DbHelper.execute(
+        'UPDATE machines SET is_edit_unlocked = @unlocked WHERE machine_id = @id',
+        params: {'id': machineId, 'unlocked': unlocked ? 1 : 0},
+      );
+    } catch (e) {
+      if (e.toString().contains('no such column: is_edit_unlocked')) {
+        try {
+          await DbHelper.execute(
+            'ALTER TABLE machines ADD COLUMN is_edit_unlocked INTEGER NOT NULL DEFAULT 0',
+          );
+        } catch (_) {}
+        await DbHelper.execute(
+          'UPDATE machines SET is_edit_unlocked = @unlocked WHERE machine_id = @id',
+          params: {'id': machineId, 'unlocked': unlocked ? 1 : 0},
+        );
+      } else {
+        rethrow;
+      }
+    }
   }
 
   /// Fetch repair / work order history for a specific machine
