@@ -30,6 +30,7 @@ class _MachineIntakeListScreenState
   String? _statusFilter;
   String? _categoryFilter;
   String _searchQuery = '';
+  bool _refreshing = false;
 
   @override
   void dispose() {
@@ -43,6 +44,40 @@ class _MachineIntakeListScreenState
     categoryId: _categoryFilter,
   );
 
+  Future<void> _refreshMachineRegistry({bool showFeedback = false}) async {
+    if (_refreshing) {
+      return;
+    }
+
+    setState(() => _refreshing = true);
+    try {
+      ref.invalidate(machineListProvider);
+      ref.invalidate(dashboardStatsProvider);
+      await ref.read(machineListProvider(_filter).future);
+      if (showFeedback && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('รีเฟรชรายการทะเบียนเครื่องจักรเรียบร้อยแล้ว'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('รีเฟรชรายการไม่สำเร็จ: $e'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _refreshing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider);
@@ -52,7 +87,10 @@ class _MachineIntakeListScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Page header
-        _PageHeader(user: user, onNew: () => context.go('/machine-registry/new')),
+        _PageHeader(
+          user: user,
+          onNew: () => context.go('/machine-registry/new'),
+        ),
 
         // Toolbar
         Padding(
@@ -74,7 +112,11 @@ class _MachineIntakeListScreenState
                     hintText: 'ค้นหาเครื่องจักร...',
                     prefixIcon: Padding(
                       padding: EdgeInsets.all(12),
-                      child: HugeIcon(icon: HugeIcons.strokeRoundedSearch01, size: 18, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      child: HugeIcon(
+                        icon: HugeIcons.strokeRoundedSearch01,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     contentPadding: EdgeInsets.symmetric(
                       vertical: 10,
@@ -123,24 +165,43 @@ class _MachineIntakeListScreenState
                   () => _statusFilter = _statusFilter == 'pm' ? null : 'pm',
                 ),
               ),
+              const SizedBox(width: AppSpacing.xs),
+              _FilterChip(
+                label: 'หยุดใช้งาน',
+                selected: _statusFilter == 'offline',
+                color: AppColors.machineOffline,
+                onTap: () => setState(
+                  () => _statusFilter = _statusFilter == 'offline'
+                      ? null
+                      : 'offline',
+                ),
+              ),
 
               const Spacer(),
               // Refresh
               IconButton(
-                icon: HugeIcon(
-                  icon: HugeIcons.strokeRoundedRefresh,
-                  size: 18,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                onPressed: () => ref.invalidate(machineListProvider(_filter)),
+                icon: _refreshing
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : HugeIcon(
+                        icon: HugeIcons.strokeRoundedRefresh,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                onPressed: _refreshing
+                    ? null
+                    : () => _refreshMachineRegistry(showFeedback: true),
                 tooltip: 'รีเฟรช',
               ),
               Text(
                 machineAsync.whenOrNull(data: (l) => '${l.length} รายการ') ??
                     '',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -159,10 +220,10 @@ class _MachineIntakeListScreenState
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => _ErrorState(
                 error: e.toString(),
-                onRetry: () => ref.invalidate(machineListProvider(_filter)),
+                onRetry: () => _refreshMachineRegistry(),
               ),
               data: (machines) => machines.isEmpty
-                  ? const _EmptyState()
+                  ? _EmptyState(filteredByOffline: _statusFilter == 'offline')
                   : _MachineTable(
                       machines: machines,
                       user: user,
@@ -200,7 +261,7 @@ class _MachineIntakeListScreenState
     if (confirmed == true) {
       try {
         await ref.read(machineRepositoryProvider).deleteMachine(machineId);
-        ref.invalidate(machineListProvider(_filter));
+        ref.invalidate(machineListProvider);
         ref.invalidate(dashboardStatsProvider);
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -251,15 +312,18 @@ class _PageHeader extends StatelessWidget {
                     size: 24,
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Text('ทะเบียนเครื่องจักร', style: AppTextStyles.headlineLarge),
+                  Text(
+                    'ทะเบียนเครื่องจักร',
+                    style: AppTextStyles.headlineLarge,
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
                 'Machine Registry — ข้อมูลหลักเครื่องจักรทั้งหมดและการรับมอบ',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -267,7 +331,11 @@ class _PageHeader extends StatelessWidget {
           if (user?.canWrite('machine_intake') ?? false)
             ElevatedButton.icon(
               onPressed: onNew,
-              icon: const HugeIcon(icon: HugeIcons.strokeRoundedPlusSign, size: 18, color: Colors.white),
+              icon: const HugeIcon(
+                icon: HugeIcons.strokeRoundedPlusSign,
+                size: 18,
+                color: Colors.white,
+              ),
               label: const Text('เพิ่มเครื่องจักรใหม่'),
             ),
         ],
@@ -470,13 +538,16 @@ class _MachineRow extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(machine.machineName ?? machine.brand ?? '-', style: AppTextStyles.bodyMedium),
+                    Text(
+                      machine.machineName ?? machine.brand ?? '-',
+                      style: AppTextStyles.bodyMedium,
+                    ),
                     if (machine.model != null)
                       Text(
                         machine.model!,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                   ],
@@ -488,8 +559,8 @@ class _MachineRow extends ConsumerWidget {
                 child: Text(
                   machine.serialNo ?? '-',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -503,7 +574,13 @@ class _MachineRow extends ConsumerWidget {
                 ),
               ),
               // Status
-              Expanded(flex: 2, child: _StatusBadge(status: machine.status)),
+              Expanded(
+                flex: 2,
+                child: _StatusBadge(
+                  status: machine.status,
+                  statusReason: machine.specs?.statusReason,
+                ),
+              ),
               Expanded(
                 flex: 2,
                 child: machine.stage3Status == HandoverStatus.approved
@@ -526,40 +603,40 @@ class _MachineRow extends ConsumerWidget {
                         ],
                       )
                     : (machine.stage3Status == HandoverStatus.passed
-                        ? const Row(
-                            children: [
-                              Icon(
-                                Icons.check_circle_outline_rounded,
-                                color: AppColors.primary,
-                                size: 16,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'ตรวจรับแล้ว',
-                                style: TextStyle(
+                          ? const Row(
+                              children: [
+                                Icon(
+                                  Icons.check_circle_outline_rounded,
                                   color: AppColors.primary,
-                                  fontSize: 12,
+                                  size: 16,
                                 ),
-                              ),
-                            ],
-                          )
-                        : const Row(
-                            children: [
-                              Icon(
-                                Icons.pending_outlined,
-                                color: AppColors.warning,
-                                size: 16,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                'รอดำเนินการ',
-                                style: TextStyle(
+                                SizedBox(width: 4),
+                                Text(
+                                  'ตรวจรับแล้ว',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const Row(
+                              children: [
+                                Icon(
+                                  Icons.pending_outlined,
                                   color: AppColors.warning,
-                                  fontSize: 12,
+                                  size: 16,
                                 ),
-                              ),
-                            ],
-                          )),
+                                SizedBox(width: 4),
+                                Text(
+                                  'รอดำเนินการ',
+                                  style: TextStyle(
+                                    color: AppColors.warning,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            )),
               ),
               // Install Date
               Expanded(
@@ -567,8 +644,8 @@ class _MachineRow extends ConsumerWidget {
                 child: Text(
                   DateFormatters.formatDate(machine.installationDate),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               // Running Hours
@@ -582,8 +659,8 @@ class _MachineRow extends ConsumerWidget {
                         )
                       : '-',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
               // Actions
@@ -597,28 +674,34 @@ class _MachineRow extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       _ImageHoverIcon(attachments: machine.attachments),
-                      if (machine.attachments.isNotEmpty) const SizedBox(width: 6),
+                      if (machine.attachments.isNotEmpty)
+                        const SizedBox(width: 6),
                       IconButton(
                         icon: const HugeIcon(
                           icon: HugeIcons.strokeRoundedClock01,
                           size: 16,
                           color: AppColors.primary,
                         ),
-                        onPressed: () => MachineRepairHistoryDialog.show(context, machine),
+                        onPressed: () =>
+                            MachineRepairHistoryDialog.show(context, machine),
                         tooltip: 'ดูประวัติการซ่อมบำรุง',
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
                       const SizedBox(width: 6),
                       IconButton(
-                        icon: const HugeIcon(icon: HugeIcons.strokeRoundedEdit01, size: 16, color: AppColors.textSecondary),
+                        icon: const HugeIcon(
+                          icon: HugeIcons.strokeRoundedEdit01,
+                          size: 16,
+                          color: AppColors.textSecondary,
+                        ),
                         onPressed: onEdit,
                         tooltip: 'แก้ไข',
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(),
                       ),
-                      if (user?.isEngineerOrAbove == true && 
+                      if (user?.isEngineerOrAbove == true &&
                           machine.stage3Status != HandoverStatus.approved) ...[
                         const SizedBox(width: 6),
                         IconButton(
@@ -635,9 +718,15 @@ class _MachineRow extends ConsumerWidget {
                       ],
                       const SizedBox(width: 6),
                       IconButton(
-                        icon: const Icon(Icons.print_outlined, size: 18, color: AppColors.primary),
+                        icon: const Icon(
+                          Icons.print_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
                         onPressed: () async {
-                          final fullMachine = await ref.read(machineRepositoryProvider).fetchById(machine.machineId!);
+                          final fullMachine = await ref
+                              .read(machineRepositoryProvider)
+                              .fetchById(machine.machineId!);
                           if (fullMachine != null) {
                             MachineFormUtils.generateIntakeReport(fullMachine);
                           }
@@ -694,7 +783,8 @@ class _MachineRow extends ConsumerWidget {
 
 class _StatusBadge extends StatelessWidget {
   final MachineStatus status;
-  const _StatusBadge({required this.status});
+  final String? statusReason;
+  const _StatusBadge({required this.status, this.statusReason});
 
   Color get _color {
     switch (status) {
@@ -724,7 +814,7 @@ class _StatusBadge extends StatelessWidget {
       case MachineStatus.am:
         return 'AM';
       case MachineStatus.offline:
-        return 'หยุด';
+        return 'หยุดใช้งาน';
       case MachineStatus.decommissioned:
         return 'ปลดระวาง';
     }
@@ -732,32 +822,58 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: _color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(AppRadius.full),
-        border: Border.all(color: _color.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(color: _color, shape: BoxShape.circle),
+    final normalizedReason = statusReason?.trim();
+    final showReason =
+        status == MachineStatus.offline &&
+        normalizedReason != null &&
+        normalizedReason.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: _color.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(AppRadius.full),
+            border: Border.all(color: _color.withValues(alpha: 0.4)),
           ),
-          const SizedBox(width: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: _color,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                _label,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _color,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showReason) ...[
+          const SizedBox(height: 4),
           Text(
-            _label,
-            style: TextStyle(
-              fontSize: 11,
-              color: _color,
-              fontWeight: FontWeight.w600,
+            normalizedReason,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -765,12 +881,17 @@ class _StatusBadge extends StatelessWidget {
 // ─── Empty / Error States ─────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final bool filteredByOffline;
+  const _EmptyState({this.filteredByOffline = false});
   @override
   Widget build(BuildContext context) {
     return EmptyView(
-      title: 'ยังไม่มีเครื่องจักรในระบบ',
-      description: 'กดปุ่ม "รับเครื่องจักรใหม่" เพื่อเริ่มต้น',
+      title: filteredByOffline
+          ? 'ไม่พบเครื่องที่หยุดใช้งาน'
+          : 'ยังไม่มีเครื่องจักรในระบบ',
+      description: filteredByOffline
+          ? 'ลองล้างตัวกรองหรืออัปเดตสถานะเครื่องจากหน้าแก้ไขหลังรับมอบ'
+          : 'กดปุ่ม "รับเครื่องจักรใหม่" เพื่อเริ่มต้น',
       onButtonTap: () {}, // Optional: refresh action
     );
   }
@@ -800,8 +921,8 @@ class _ErrorState extends StatelessWidget {
             child: Text(
               error,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               softWrap: true,
               overflow: TextOverflow.ellipsis,
               maxLines: 5,
@@ -829,7 +950,10 @@ class _ImageHoverIcon extends StatelessWidget {
       final path = att['file_path'] as String?;
       if (path != null) {
         final lower = path.toLowerCase();
-        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp')) {
+        if (lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.webp')) {
           return path;
         }
       }
@@ -848,28 +972,37 @@ class _ImageHoverIcon extends StatelessWidget {
         color: AppColors.bgSurface,
         borderRadius: BorderRadius.circular(8),
         boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 4)),
+          BoxShadow(
+            color: Colors.black26,
+            blurRadius: 10,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       richMessage: WidgetSpan(
         child: Container(
           constraints: const BoxConstraints(maxHeight: 200, maxWidth: 200),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
           clipBehavior: Clip.antiAlias,
           child: Image.file(
             File(imagePath),
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Padding(
+            errorBuilder: (context, error, stackTrace) => const Padding(
               padding: EdgeInsets.all(8.0),
-              child: Text('Image not found', style: TextStyle(color: AppColors.error)),
+              child: Text(
+                'Image not found',
+                style: TextStyle(color: AppColors.error),
+              ),
             ),
           ),
         ),
       ),
       child: IconButton(
-        icon: const HugeIcon(icon: HugeIcons.strokeRoundedImage01, size: 16, color: AppColors.primary),
+        icon: const HugeIcon(
+          icon: HugeIcons.strokeRoundedImage01,
+          size: 16,
+          color: AppColors.primary,
+        ),
         onPressed: () {},
         padding: EdgeInsets.zero,
         constraints: const BoxConstraints(),

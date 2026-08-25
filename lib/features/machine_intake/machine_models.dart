@@ -6,12 +6,18 @@ enum MachineStatus { normal, breakdown, pm, am, offline, decommissioned }
 extension MachineStatusColor on MachineStatus {
   Color get color {
     switch (this) {
-      case MachineStatus.normal: return Colors.green;
-      case MachineStatus.breakdown: return Colors.red;
-      case MachineStatus.pm: return Colors.orange;
-      case MachineStatus.am: return Colors.blue;
-      case MachineStatus.offline: return Colors.grey;
-      case MachineStatus.decommissioned: return Colors.black54;
+      case MachineStatus.normal:
+        return Colors.green;
+      case MachineStatus.breakdown:
+        return Colors.red;
+      case MachineStatus.pm:
+        return Colors.orange;
+      case MachineStatus.am:
+        return Colors.blue;
+      case MachineStatus.offline:
+        return Colors.grey;
+      case MachineStatus.decommissioned:
+        return Colors.black54;
     }
   }
 }
@@ -179,8 +185,8 @@ class MachineModel {
           ? DateTime.tryParse(m['created_at'].toString())
           : null,
       totalRunningHours: (m['total_running_hours'] as num?)?.toDouble(),
-      stage3Status: m['stage3_status'] != null 
-          ? HandoverInfo.parseStatus(m['stage3_status'].toString()) 
+      stage3Status: m['stage3_status'] != null
+          ? HandoverInfo.parseStatus(m['stage3_status'].toString())
           : HandoverStatus.pending,
     );
   }
@@ -255,7 +261,7 @@ class MachineModel {
       stage1: stage1 ?? this.stage1,
       stage2: stage2 ?? this.stage2,
       stage3: stage3 ?? this.stage3,
-      stage3Status: this.stage3Status,
+      stage3Status: stage3Status,
       totalRunningHours: totalRunningHours,
       attachments: attachments ?? this.attachments,
     );
@@ -277,6 +283,7 @@ class MachineSpecs {
   final double? fuelConsumptionRate;
   final String? fuelType;
   final int? defaultWorkers;
+  final Map<String, dynamic> extraSpecs;
 
   const MachineSpecs({
     this.powerKw,
@@ -293,9 +300,11 @@ class MachineSpecs {
     this.fuelConsumptionRate,
     this.fuelType,
     this.defaultWorkers,
+    this.extraSpecs = const {},
   });
 
   factory MachineSpecs.fromMap(Map<String, dynamic> map) {
+    final extraSpecs = _parseExtraSpecs(map['extra_specs']);
     return MachineSpecs(
       powerKw: (map['power_kw'] as num?)?.toDouble(),
       voltageV: (map['voltage_v'] as num?)?.toDouble(),
@@ -311,7 +320,17 @@ class MachineSpecs {
       fuelConsumptionRate: (map['fuel_consumption_rate'] as num?)?.toDouble(),
       fuelType: map['fuel_type'] as String?,
       defaultWorkers: map['default_workers'] as int?,
+      extraSpecs: extraSpecs,
     );
+  }
+
+  String? get statusReason {
+    final value = extraSpecs['status_reason'];
+    if (value == null) {
+      return null;
+    }
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
   }
 
   Map<String, dynamic> toMap() {
@@ -330,7 +349,38 @@ class MachineSpecs {
       'fuel_consumption_rate': fuelConsumptionRate,
       'fuel_type': fuelType,
       'default_workers': defaultWorkers,
+      'extra_specs': extraSpecs.isEmpty ? null : jsonEncode(extraSpecs),
     };
+  }
+
+  static Map<String, dynamic> _parseExtraSpecs(dynamic rawValue) {
+    if (rawValue == null) {
+      return const {};
+    }
+
+    if (rawValue is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(rawValue);
+    }
+
+    if (rawValue is Map) {
+      return rawValue.map((key, value) => MapEntry(key.toString(), value));
+    }
+
+    if (rawValue is String && rawValue.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawValue);
+        if (decoded is Map<String, dynamic>) {
+          return decoded;
+        }
+        if (decoded is Map) {
+          return decoded.map((key, value) => MapEntry(key.toString(), value));
+        }
+      } catch (_) {
+        return const {};
+      }
+    }
+
+    return const {};
   }
 }
 
@@ -373,20 +423,19 @@ class HandoverInfo {
     DateTime? approvedAt,
     String? notes,
     List<ChecklistResult>? results,
-  }) =>
-      HandoverInfo(
-        handoverId: handoverId ?? this.handoverId,
-        stage: stage ?? this.stage,
-        status: status ?? this.status,
-        performedBy: performedBy ?? this.performedBy,
-        approvedBy: approvedBy ?? this.approvedBy,
-        performerName: performerName ?? this.performerName,
-        approverName: approverName ?? this.approverName,
-        performedAt: performedAt ?? this.performedAt,
-        approvedAt: approvedAt ?? this.approvedAt,
-        notes: notes ?? this.notes,
-        results: results ?? this.results,
-      );
+  }) => HandoverInfo(
+    handoverId: handoverId ?? this.handoverId,
+    stage: stage ?? this.stage,
+    status: status ?? this.status,
+    performedBy: performedBy ?? this.performedBy,
+    approvedBy: approvedBy ?? this.approvedBy,
+    performerName: performerName ?? this.performerName,
+    approverName: approverName ?? this.approverName,
+    performedAt: performedAt ?? this.performedAt,
+    approvedAt: approvedAt ?? this.approvedAt,
+    notes: notes ?? this.notes,
+    results: results ?? this.results,
+  );
 
   factory HandoverInfo.fromMap(Map<String, dynamic> m) => HandoverInfo(
     handoverId: m['handover_id']?.toString(),
@@ -452,12 +501,12 @@ class ChecklistResult {
   });
 
   factory ChecklistResult.fromMap(Map<String, dynamic> m) => ChecklistResult(
-        resultId: m['result_id']?.toString(),
-        itemName: m['item_name']?.toString() ?? '',
-        result: m['result']?.toString(),
-        actualValue: m['actual_value']?.toString(),
-        remarks: m['remarks']?.toString(),
-      );
+    resultId: m['result_id']?.toString(),
+    itemName: m['item_name']?.toString() ?? '',
+    result: m['result']?.toString(),
+    actualValue: m['actual_value']?.toString(),
+    remarks: m['remarks']?.toString(),
+  );
 }
 
 class MachineBomItem {
@@ -613,13 +662,13 @@ class MachineRepairRecord {
     final startedAt = map['started_at'] != null
         ? DateTime.tryParse(map['started_at'].toString())
         : (map['actual_start_time'] != null
-            ? DateTime.tryParse(map['actual_start_time'].toString())
-            : null);
+              ? DateTime.tryParse(map['actual_start_time'].toString())
+              : null);
     final completedAt = map['completed_at'] != null
         ? DateTime.tryParse(map['completed_at'].toString())
         : (map['actual_end_time'] != null
-            ? DateTime.tryParse(map['actual_end_time'].toString())
-            : null);
+              ? DateTime.tryParse(map['actual_end_time'].toString())
+              : null);
 
     int downtime = (map['downtime_minutes'] as num?)?.toInt() ?? 0;
     if (downtime == 0) {
@@ -634,7 +683,8 @@ class MachineRepairRecord {
     if (totalCost == 0.0 && partsList.isNotEmpty) {
       for (final p in partsList) {
         final q = (p['quantity'] as num?)?.toDouble() ?? 1.0;
-        final c = (p['unit_cost'] as num?)?.toDouble() ??
+        final c =
+            (p['unit_cost'] as num?)?.toDouble() ??
             (p['unit_price'] as num?)?.toDouble() ??
             0.0;
         totalCost += (q * c);
@@ -651,7 +701,8 @@ class MachineRepairRecord {
       title: map['title'] as String? ?? '',
       description: map['description'] as String?,
       failureSymptom: map['failure_symptom'] as String?,
-      actionTaken: map['action_taken'] as String? ??
+      actionTaken:
+          map['action_taken'] as String? ??
           map['correction_action'] as String? ??
           map['preventive_action'] as String?,
       status: map['status'] as String? ?? 'pending',

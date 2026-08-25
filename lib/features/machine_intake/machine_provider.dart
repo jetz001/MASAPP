@@ -57,11 +57,13 @@ class MachineRepository {
         m.machine_id, m.machine_no, m.machine_name, m.asset_no, m.brand, m.model, m.serial_no,
         m.status, m.location, m.installation_date, m.purchase_cost,
         m.handover_completed, m.handover_conclusion, m.is_active, m.notes, m.created_at,
+        ms.extra_specs,
         mc.name AS category_name,
         d.dept_name,
         COALESCE(rh.cumulative_hours, 0) AS total_running_hours,
         mh_s3.status AS stage3_status
       FROM machines m
+      LEFT JOIN machine_specs ms ON ms.machine_id = m.machine_id
       LEFT JOIN machine_categories mc ON mc.category_id = m.category_id
       LEFT JOIN departments d ON d.dept_id = m.dept_id
       LEFT JOIN (
@@ -101,7 +103,13 @@ class MachineRepository {
     return rows.map((row) {
       final mid = row['machine_id'] as String;
       final m = MachineModel.fromMap(row);
-      return m.copyWithDetails(attachments: attachmentsByMachine[mid] ?? []);
+      final specs = row['extra_specs'] != null
+          ? MachineSpecs.fromMap(row)
+          : null;
+      return m.copyWithDetails(
+        specs: specs,
+        attachments: attachmentsByMachine[mid] ?? [],
+      );
     }).toList();
   }
 
@@ -214,11 +222,11 @@ class MachineRepository {
         '''
           INSERT INTO machines (
             machine_id, machine_no, machine_name, asset_no, brand, model, serial_no,
-            category_id, dept_id, location, installation_date,
+            category_id, dept_id, location, status, installation_date,
             warranty_expiry, purchase_cost, supplier_id, notes, handover_conclusion, created_by
           ) VALUES (
             @id, @machine_no, @machine_name, @asset_no, @brand, @model, @serial_no,
-            @category_id, @dept_id, @location, @installation_date,
+            @category_id, @dept_id, @location, @status, @installation_date,
             @warranty_expiry, @purchase_cost, @supplier_id, @notes, @handover_conclusion, @created_by
           )
         ''',
@@ -232,11 +240,11 @@ class MachineRepository {
             INSERT INTO machine_specs (
               spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
               capacity, capacity_unit, weight_kg, dim_length_mm,
-              dim_width_mm, dim_height_mm, rpm
+              dim_width_mm, dim_height_mm, rpm, extra_specs
             ) VALUES (
               @sid, @machine_id, @power_kw, @voltage_v, @current_a, @frequency_hz,
               @capacity, @capacity_unit, @weight_kg, @dim_length_mm,
-              @dim_width_mm, @dim_height_mm, @rpm
+              @dim_width_mm, @dim_height_mm, @rpm, @extra_specs
             )
           ''',
           params: specsData
@@ -272,7 +280,7 @@ class MachineRepository {
         UPDATE machines SET
           machine_no = @machine_no, machine_name = @machine_name, asset_no = @asset_no,
           brand = @brand, model = @model, serial_no = @serial_no,
-          category_id = @category_id, dept_id = @dept_id,
+          category_id = @category_id, dept_id = @dept_id, status = @status,
           location = @location, installation_date = @installation_date,
            warranty_expiry = @warranty_expiry, purchase_cost = @purchase_cost,
            supplier_id = @supplier_id, notes = @notes,
@@ -296,7 +304,8 @@ class MachineRepository {
               frequency_hz = @frequency_hz, capacity = @capacity,
               capacity_unit = @capacity_unit, weight_kg = @weight_kg,
               dim_length_mm = @dim_length_mm, dim_width_mm = @dim_width_mm,
-              dim_height_mm = @dim_height_mm, rpm = @rpm
+              dim_height_mm = @dim_height_mm, rpm = @rpm,
+              extra_specs = @extra_specs
             WHERE machine_id = @machine_id
             ''', params: specsData..['machine_id'] = machineId);
         } else {
@@ -306,11 +315,11 @@ class MachineRepository {
             INSERT INTO machine_specs (
               spec_id, machine_id, power_kw, voltage_v, current_a, frequency_hz,
               capacity, capacity_unit, weight_kg, dim_length_mm,
-              dim_width_mm, dim_height_mm, rpm
+              dim_width_mm, dim_height_mm, rpm, extra_specs
             ) VALUES (
               @sid, @machine_id, @power_kw, @voltage_v, @current_a, @frequency_hz,
               @capacity, @capacity_unit, @weight_kg, @dim_length_mm,
-              @dim_width_mm, @dim_height_mm, @rpm
+              @dim_width_mm, @dim_height_mm, @rpm, @extra_specs
             )
             ''',
             params: specsData
@@ -484,11 +493,7 @@ class MachineRepository {
           INSERT INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
           VALUES (@hid, @mid, @stage, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
           ''',
-          params: {
-            'hid': const Uuid().v4(),
-            'mid': machineId,
-            'stage': s,
-          },
+          params: {'hid': const Uuid().v4(), 'mid': machineId, 'stage': s},
         );
       }
     }
@@ -892,9 +897,12 @@ class MachineRepository {
   }
 
   /// Fetch repair / work order history for a specific machine
-  Future<List<MachineRepairRecord>> fetchMachineRepairHistory(String machineId) async {
+  Future<List<MachineRepairRecord>> fetchMachineRepairHistory(
+    String machineId,
+  ) async {
     try {
-      final rows = await DbHelper.query('''
+      final rows = await DbHelper.query(
+        '''
         SELECT 
           wo.wo_id,
           wo.wo_no,
@@ -928,7 +936,9 @@ class MachineRepository {
         WHERE wo.machine_id = @id 
            OR wo.snapshot_id IN (SELECT snapshot_id FROM machine_snapshots WHERE machine_id = @id)
         ORDER BY wo.created_at DESC
-      ''', params: {'id': machineId});
+      ''',
+        params: {'id': machineId},
+      );
 
       if (rows.isEmpty) return [];
 
@@ -1094,19 +1104,20 @@ final machineBomProvider = FutureProvider.family<List<MachineBomItem>, String>((
   return repo.fetchMachineBom(machineId);
 });
 
-final machineToolsProvider = FutureProvider.family<List<MachineToolItem>, String>((
-  ref,
-  machineId,
-) async {
-  final repo = ref.watch(machineRepositoryProvider);
-  return repo.fetchMachineTools(machineId);
-});
+final machineToolsProvider =
+    FutureProvider.family<List<MachineToolItem>, String>((
+      ref,
+      machineId,
+    ) async {
+      final repo = ref.watch(machineRepositoryProvider);
+      return repo.fetchMachineTools(machineId);
+    });
 
-final machineRepairHistoryProvider = FutureProvider.family<List<MachineRepairRecord>, String>((
-  ref,
-  machineId,
-) async {
-  final repo = ref.watch(machineRepositoryProvider);
-  return repo.fetchMachineRepairHistory(machineId);
-});
-
+final machineRepairHistoryProvider =
+    FutureProvider.family<List<MachineRepairRecord>, String>((
+      ref,
+      machineId,
+    ) async {
+      final repo = ref.watch(machineRepositoryProvider);
+      return repo.fetchMachineRepairHistory(machineId);
+    });
