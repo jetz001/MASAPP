@@ -38,6 +38,7 @@ class LineGraphCanvas extends ConsumerStatefulWidget {
 }
 
 class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
+  bool _isStaticFlowMode = true; // Default: Static Flow (ผังงานตายตัว ไม่โยกไปมา)
   String? _linkingFromId;
   String? _selectedConnectionId;
   int _selectedColorIndex = 2; // Default Orange
@@ -70,263 +71,505 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 1. Wokwi Top Color Palette & Controls Toolbar
+        // 1. Top Controls & Mode Switcher Toolbar
         _buildWokwiToolbar(context, state, notifier, selectedConn, isDark),
 
-        // 2. Interactive Canvas
+        // 2. Main View (Static Flow vs Freeform Canvas)
         Expanded(
-          child: Container(
-            color: isDark ? const Color(0xFF18181B) : const Color(0xFF242426),
-            child: Stack(
-              children: [
-                InteractiveViewer(
-                  transformationController: _transformController,
-                  constrained: false,
-                  boundaryMargin: const EdgeInsets.all(4000),
-                  minScale: 0.1,
-                  maxScale: 2.5,
-                  child: SizedBox(
-                    width: 4000,
-                    height: 4000,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTapUp: (details) {
-                        final localPos = details.localPosition;
-                        _handleCanvasTap(localPos, connections, state.stations);
-                      },
-                      onDoubleTapDown: (details) {
-                        final localPos = details.localPosition;
-                        _handleCanvasDoubleTap(
-                            localPos, connections, state.stations, notifier);
-                      },
-                      child: Stack(
-                        children: [
-                          // Background Grid
-                          CustomPaint(
-                            size: const Size(4000, 4000),
-                            painter: _GridBackgroundPainter(isDark: isDark),
-                          ),
-
-                          // Draw Wires / Lines
-                          CustomPaint(
-                            size: const Size(4000, 4000),
-                            painter: _WokwiWirePainter(
-                              stations: state.stations,
-                              connections: connections,
-                              selectedConnectionId: _selectedConnectionId,
-                              linkingFromId: _linkingFromId,
-                              theme: theme,
-                            ),
-                          ),
-
-                          // Draggable Waypoint Handles for Selected Connection (ดึงหลบสิ่งกีดขวาง)
-                          if (selectedConn != null) ...[
-                            ..._buildWaypointHandles(
-                                selectedConn, state.stations, notifier),
-                          ],
-
-                          // Draw Workstation Nodes
-                          ...state.stations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final station = entry.value;
-                            final isLinking = _linkingFromId == station.id;
-                            final isLinkTarget = _linkingFromId != null &&
-                                _linkingFromId != station.id;
-
-                            return Positioned(
-                              left: station.position.dx + centerOffset,
-                              top: station.position.dy + centerOffset,
-                              child: GestureDetector(
-                                onPanUpdate: _linkingFromId == null
-                                    ? (details) {
-                                        // Compensate for current zoom/scale so box tracks mouse 1:1
-                                        final scale = _transformController.value
-                                            .getMaxScaleOnAxis();
-                                        final canvasDelta = scale > 0
-                                            ? (details.delta / scale)
-                                            : details.delta;
-                                        final newPos =
-                                            station.position + canvasDelta;
-                                        notifier.updateStationPosition(
-                                            station.id, newPos);
-                                      }
-                                    : null,
-                                onPanEnd: _linkingFromId == null
-                                    ? (_) {
-                                        notifier.saveCurrentLine();
-                                      }
-                                    : null,
-                                onTap: () {
-                                  if (_linkingFromId != null &&
-                                      _linkingFromId != station.id) {
-                                    notifier.linkStations(
-                                      _linkingFromId!,
-                                      station.id,
-                                      defaultColor: kWokwiColors[
-                                              _selectedColorIndex]
-                                          .toARGB32(),
-                                    );
-                                    setState(() {
-                                      _linkingFromId = null;
-                                    });
-                                  }
-                                },
-                                onDoubleTap: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (_) => AddStationDialog(
-                                      notifier: notifier,
-                                      initialStation: station,
-                                    ),
-                                  );
-                                },
-                                child: _buildStationCard(
-                                  station,
-                                  index,
-                                  isLinking,
-                                  isLinkTarget,
-                                  state,
-                                  notifier,
-                                  theme,
-                                  isDark,
-                                ),
-                              ),
-                            );
-                          }),
-
-                          // Draw WIP / Buffer Badges on Connections (VSM ▽ Inventory Box)
-                          ...connections.map((conn) {
-                            final fromSt = state.stations
-                                .where((s) => s.id == conn.fromStationId)
-                                .firstOrNull;
-                            final toSt = state.stations
-                                .where((s) => s.id == conn.toStationId)
-                                .firstOrNull;
-                            if (fromSt == null || toSt == null) {
-                              return const SizedBox.shrink();
-                            }
-
-                            final startPos = Offset(
-                              fromSt.position.dx + centerOffset + nodeWidth,
-                              fromSt.position.dy + centerOffset + (nodeHeight / 2),
-                            );
-                            final endPos = Offset(
-                              toSt.position.dx + centerOffset,
-                              toSt.position.dy + centerOffset + (nodeHeight / 2),
-                            );
-
-                            Offset midPos;
-                            if (conn.waypoints.isNotEmpty) {
-                              final midIndex = conn.waypoints.length ~/ 2;
-                              midPos = conn.waypoints[midIndex];
-                            } else {
-                              midPos = Offset(
-                                (startPos.dx + endPos.dx) / 2,
-                                (startPos.dy + endPos.dy) / 2,
-                              );
-                            }
-
-                            return Positioned(
-                              left: midPos.dx - 48,
-                              top: midPos.dy - 16,
-                              child: _buildWipBufferBadge(
-                                context,
-                                conn,
-                                fromSt,
-                                toSt,
-                                notifier,
-                                isDark,
-                              ),
-                            );
-                          }),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Zoom & Reset controls
-                Positioned(
-                  bottom: 16,
-                  right: 16,
-                  child: Column(
-                    children: [
-                      FloatingActionButton.small(
-                        heroTag: 'zoomIn',
-                        child: const Icon(Icons.zoom_in),
-                        onPressed: () {
-                          final matrix = _transformController.value.clone();
-                          matrix.scaleByDouble(1.2, 1.2, 1.0, 1.0);
-                          _transformController.value = matrix;
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        heroTag: 'zoomOut',
-                        child: const Icon(Icons.zoom_out),
-                        onPressed: () {
-                          final matrix = _transformController.value.clone();
-                          matrix.scaleByDouble(1 / 1.2, 1 / 1.2, 1.0, 1.0);
-                          _transformController.value = matrix;
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                      FloatingActionButton.small(
-                        heroTag: 'reset',
-                        child: const Icon(Icons.home),
-                        onPressed: () {
-                          _transformController.value =
-                              Matrix4.translationValues(-1500.0, -1500.0, 0.0);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-
-                // 4. Empty State Banner
-                if (state.stations.isEmpty)
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                      decoration: BoxDecoration(
-                        color: (isDark ? const Color(0xFF1E1E24) : Colors.white).withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.account_tree_outlined, size: 48, color: Colors.orange.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            'ยังไม่มีสถานีงานในสายการผลิตนี้',
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'กดปุ่ม "+ เพิ่มสถานี" ด้านบน หรือให้ AI Assistant ช่วยจัดผังสายการผลิต',
-                            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+          child: _isStaticFlowMode
+              ? _buildStaticFlowView(context, state, notifier, theme, isDark)
+              : _buildFreeformCanvasView(
+                  context, state, notifier, theme, isDark, connections, selectedConn),
         ),
       ],
     );
   }
 
-  // Wokwi Toolbar at Top
+  // ================= 1. STATIC FLOW VIEW (ผังกระบวนการแบบตายตัว ไม่โยกไปมา) =================
+  Widget _buildStaticFlowView(
+    BuildContext context,
+    LineBalancingState state,
+    LineBalancingNotifier notifier,
+    ThemeData theme,
+    bool isDark,
+  ) {
+    if (state.stations.isEmpty) {
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          decoration: BoxDecoration(
+            color: (isDark ? const Color(0xFF1E1E24) : Colors.white)
+                .withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.precision_manufacturing_outlined,
+                  size: 56, color: Colors.blue.shade400),
+              const SizedBox(height: 16),
+              Text(
+                'ยังไม่มีสถานีงานในสายการผลิตนี้',
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'กดปุ่ม "เพิ่มสถานีแรก" เพื่อเริ่มสร้างผังขั้นตอนการผลิตแบบตายตัว',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (_) => AddStationDialog(notifier: notifier),
+                  );
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('เพิ่มสถานีแรก'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      color: isDark ? const Color(0xFF131316) : const Color(0xFFF1F5F9),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
+        scrollDirection: Axis.horizontal,
+        child: SingleChildScrollView(
+          scrollDirection: Axis.vertical,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              for (int i = 0; i < state.stations.length; i++) ...[
+                final station = state.stations[i];
+                final nextStation = i < state.stations.length - 1
+                    ? state.stations[i + 1]
+                    : null;
+                final isLinking = _linkingFromId == station.id;
+                final isLinkTarget =
+                    _linkingFromId != null && _linkingFromId != station.id;
+
+                // 1. Station Card (Static / Solid)
+                GestureDetector(
+                  onTap: () {
+                    if (_linkingFromId != null &&
+                        _linkingFromId != station.id) {
+                      notifier.linkStations(
+                        _linkingFromId!,
+                        station.id,
+                        defaultColor: kWokwiColors[_selectedColorIndex]
+                            .toARGB32(),
+                      );
+                      setState(() => _linkingFromId = null);
+                    }
+                  },
+                  onDoubleTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AddStationDialog(
+                        notifier: notifier,
+                        initialStation: station,
+                      ),
+                    );
+                  },
+                  child: _buildStationCard(
+                    station,
+                    i,
+                    isLinking,
+                    isLinkTarget,
+                    state,
+                    notifier,
+                    theme,
+                    isDark,
+                  ),
+                ),
+
+                // 2. Flow Connector & WIP Buffer between Station i and Station i+1
+                if (i < state.stations.length - 1 && nextStation != null) ...[
+                  _buildStaticFlowConnector(
+                    fromSt: station,
+                    toSt: nextStation,
+                    state: state,
+                    notifier: notifier,
+                    theme: theme,
+                    isDark: isDark,
+                  ),
+                ],
+              ],
+
+              // 3. Add Next Station Button at end of sequence
+              const SizedBox(width: 24),
+              _buildStaticAddStationButton(
+                  context, notifier, state.stations.lastOrNull, isDark),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStaticFlowConnector({
+    required WorkstationData fromSt,
+    required WorkstationData toSt,
+    required LineBalancingState state,
+    required LineBalancingNotifier notifier,
+    required ThemeData theme,
+    required bool isDark,
+  }) {
+    final connId = '${fromSt.id}->${toSt.id}';
+    final conn = state.resolvedConnections
+        .where((c) => c.id == connId)
+        .firstOrNull;
+    final wireColor =
+        conn != null ? Color(conn.colorValue) : const Color(0xFFFB8C00);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Arrow Line (──➔)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 28,
+                height: 3,
+                decoration: BoxDecoration(
+                  color: wireColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Icon(Icons.arrow_forward_rounded, size: 20, color: wireColor),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // WIP Buffer (▽ WIP: X ชิ้น)
+          _buildWipBufferBadge(
+            context,
+            conn ??
+                LineConnection(
+                  id: connId,
+                  fromStationId: fromSt.id,
+                  toStationId: toSt.id,
+                  colorValue: wireColor.toARGB32(),
+                ),
+            fromSt,
+            toSt,
+            notifier,
+            isDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStaticAddStationButton(
+    BuildContext context,
+    LineBalancingNotifier notifier,
+    WorkstationData? lastStation,
+    bool isDark,
+  ) {
+    return InkWell(
+      onTap: () {
+        final nextPos = lastStation != null
+            ? Offset(lastStation.position.dx + 360, lastStation.position.dy)
+            : Offset.zero;
+        showDialog(
+          context: context,
+          builder: (_) => AddStationDialog(
+            notifier: notifier,
+            fromStationId: lastStation?.id,
+            suggestedPosition: nextPos,
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 170,
+        height: nodeHeight,
+        decoration: BoxDecoration(
+          color: isDark
+              ? const Color(0xFF27272A).withValues(alpha: 0.5)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.blue.withValues(alpha: 0.4),
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.add_rounded,
+                  size: 24, color: Colors.blueAccent),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'เพิ่มสถานีถัดไป',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueAccent,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              lastStation != null
+                  ? 'ต่อจาก ${lastStation.name}'
+                  : 'เริ่มผังการผลิต',
+              style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================= 2. FREEFORM CANVAS VIEW (ผืนผ้าใบอิสระ) =================
+  Widget _buildFreeformCanvasView(
+    BuildContext context,
+    LineBalancingState state,
+    LineBalancingNotifier notifier,
+    ThemeData theme,
+    bool isDark,
+    List<LineConnection> connections,
+    LineConnection? selectedConn,
+  ) {
+    return Container(
+      color: isDark ? const Color(0xFF18181B) : const Color(0xFF242426),
+      child: Stack(
+        children: [
+          InteractiveViewer(
+            transformationController: _transformController,
+            constrained: false,
+            boundaryMargin: const EdgeInsets.all(4000),
+            minScale: 0.1,
+            maxScale: 2.5,
+            child: SizedBox(
+              width: 4000,
+              height: 4000,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTapUp: (details) {
+                  final localPos = details.localPosition;
+                  _handleCanvasTap(localPos, connections, state.stations);
+                },
+                onDoubleTapDown: (details) {
+                  final localPos = details.localPosition;
+                  _handleCanvasDoubleTap(
+                      localPos, connections, state.stations, notifier);
+                },
+                child: Stack(
+                  children: [
+                    // Background Grid
+                    CustomPaint(
+                      size: const Size(4000, 4000),
+                      painter: _GridBackgroundPainter(isDark: isDark),
+                    ),
+
+                    // Draw Wires / Lines
+                    CustomPaint(
+                      size: const Size(4000, 4000),
+                      painter: _WokwiWirePainter(
+                        stations: state.stations,
+                        connections: connections,
+                        selectedConnectionId: _selectedConnectionId,
+                        linkingFromId: _linkingFromId,
+                        theme: theme,
+                      ),
+                    ),
+
+                    // Draggable Waypoint Handles for Selected Connection
+                    if (selectedConn != null) ...[
+                      ..._buildWaypointHandles(
+                          selectedConn, state.stations, notifier),
+                    ],
+
+                    // Draw Workstation Nodes
+                    ...state.stations.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final station = entry.value;
+                      final isLinking = _linkingFromId == station.id;
+                      final isLinkTarget = _linkingFromId != null &&
+                          _linkingFromId != station.id;
+
+                      return Positioned(
+                        left: station.position.dx + centerOffset,
+                        top: station.position.dy + centerOffset,
+                        child: GestureDetector(
+                          onPanUpdate: _linkingFromId == null
+                              ? (details) {
+                                  final scale = _transformController.value
+                                      .getMaxScaleOnAxis();
+                                  final canvasDelta = scale > 0
+                                      ? (details.delta / scale)
+                                      : details.delta;
+                                  final newPos =
+                                      station.position + canvasDelta;
+                                  notifier.updateStationPosition(
+                                      station.id, newPos);
+                                }
+                              : null,
+                          onPanEnd: _linkingFromId == null
+                              ? (_) {
+                                  notifier.saveCurrentLine();
+                                }
+                              : null,
+                          onTap: () {
+                            if (_linkingFromId != null &&
+                                _linkingFromId != station.id) {
+                              notifier.linkStations(
+                                _linkingFromId!,
+                                station.id,
+                                defaultColor: kWokwiColors[
+                                        _selectedColorIndex]
+                                    .toARGB32(),
+                              );
+                              setState(() {
+                                _linkingFromId = null;
+                              });
+                            }
+                          },
+                          onDoubleTap: () {
+                            showDialog(
+                              context: context,
+                              builder: (_) => AddStationDialog(
+                                notifier: notifier,
+                                initialStation: station,
+                              ),
+                            );
+                          },
+                          child: _buildStationCard(
+                            station,
+                            index,
+                            isLinking,
+                            isLinkTarget,
+                            state,
+                            notifier,
+                            theme,
+                            isDark,
+                          ),
+                        ),
+                      );
+                    }),
+
+                    // Draw WIP / Buffer Badges on Connections
+                    ...connections.map((conn) {
+                      final fromSt = state.stations
+                          .where((s) => s.id == conn.fromStationId)
+                          .firstOrNull;
+                      final toSt = state.stations
+                          .where((s) => s.id == conn.toStationId)
+                          .firstOrNull;
+                      if (fromSt == null || toSt == null) {
+                        return const SizedBox.shrink();
+                      }
+
+                      final startPos = Offset(
+                        fromSt.position.dx + centerOffset + nodeWidth,
+                        fromSt.position.dy + centerOffset + (nodeHeight / 2),
+                      );
+                      final endPos = Offset(
+                        toSt.position.dx + centerOffset,
+                        toSt.position.dy + centerOffset + (nodeHeight / 2),
+                      );
+
+                      Offset midPos;
+                      if (conn.waypoints.isNotEmpty) {
+                        final midIndex = conn.waypoints.length ~/ 2;
+                        midPos = conn.waypoints[midIndex];
+                      } else {
+                        midPos = Offset(
+                          (startPos.dx + endPos.dx) / 2,
+                          (startPos.dy + endPos.dy) / 2,
+                        );
+                      }
+
+                      return Positioned(
+                        left: midPos.dx - 48,
+                        top: midPos.dy - 16,
+                        child: _buildWipBufferBadge(
+                          context,
+                          conn,
+                          fromSt,
+                          toSt,
+                          notifier,
+                          isDark,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // Zoom & Reset controls
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: Column(
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'zoomIn',
+                  child: const Icon(Icons.zoom_in),
+                  onPressed: () {
+                    final matrix = _transformController.value.clone();
+                    matrix.scaleByDouble(1.2, 1.2, 1.0, 1.0);
+                    _transformController.value = matrix;
+                  },
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'zoomOut',
+                  child: const Icon(Icons.zoom_out),
+                  onPressed: () {
+                    final matrix = _transformController.value.clone();
+                    matrix.scaleByDouble(1 / 1.2, 1 / 1.2, 1.0, 1.0);
+                    _transformController.value = matrix;
+                  },
+                ),
+                const SizedBox(height: 8),
+                FloatingActionButton.small(
+                  heroTag: 'reset',
+                  child: const Icon(Icons.home),
+                  onPressed: () {
+                    _transformController.value =
+                        Matrix4.translationValues(-1500.0, -1500.0, 0.0);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ================= 3. TOP TOOLBAR & CONTROLS =================
   Widget _buildWokwiToolbar(
     BuildContext context,
     LineBalancingState state,
@@ -358,94 +601,139 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
         spacing: 12,
         runSpacing: 8,
         children: [
-          // 0-9 Wokwi Color Swatches Palette
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (int i = 0; i < kWokwiColors.length; i++) ...[
-                _buildColorSwatchButton(
-                  index: i,
-                  color: kWokwiColors[i],
-                  selectedConn: selectedConn,
-                  notifier: notifier,
-                ),
-                if (i < kWokwiColors.length - 1) const SizedBox(width: 4),
-              ],
+          // Mode Switcher: Static Flow (Default) vs Canvas
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment<bool>(
+                value: true,
+                icon: Icon(Icons.view_timeline_outlined, size: 16),
+                label: Text('ผังตายตัว (Static Flow)',
+                    style:
+                        TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+              ButtonSegment<bool>(
+                value: false,
+                icon: Icon(Icons.account_tree_outlined, size: 16),
+                label: Text('ผืนผ้าใบ (Canvas)',
+                    style: TextStyle(fontSize: 12)),
+              ),
             ],
+            selected: {_isStaticFlowMode},
+            onSelectionChanged: (val) {
+              setState(() => _isStaticFlowMode = val.first);
+            },
+            style: SegmentedButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
           ),
 
-          // Delete wire button (Trash icon)
-          if (selectedConn != null) ...[
-            IconButton(
-              icon: const Icon(Icons.delete_outline_rounded,
-                  color: Colors.redAccent, size: 20),
-              tooltip: 'ลบเส้นที่เลือก (Delete Wire)',
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.red.withValues(alpha: 0.15),
-                padding: const EdgeInsets.all(6),
-                minimumSize: Size.zero,
-              ),
+          if (_isStaticFlowMode) ...[
+            // Quick Add Button in Static Mode
+            FilledButton.tonalIcon(
               onPressed: () {
-                notifier.removeConnection(selectedConn.id);
-                setState(() => _selectedConnectionId = null);
+                showDialog(
+                  context: context,
+                  builder: (_) => AddStationDialog(
+                    notifier: notifier,
+                    fromStationId: state.stations.lastOrNull?.id,
+                  ),
+                );
               },
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('เพิ่มสถานีงาน',
+                  style: TextStyle(fontSize: 12)),
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              ),
             ),
 
-            // Toggle 90-degree Orthogonal / Bezier Curve
-            IconButton(
-              icon: Icon(
-                selectedConn.isCurved
-                    ? Icons.rounded_corner_rounded
-                    : Icons.polyline_rounded,
-                color: Colors.amberAccent,
-                size: 20,
+            // Quick Stats
+            Text(
+              '📊 ${state.stations.length} สถานี | CT รวม: ${state.totalCycleTime.toStringAsFixed(1)}s (${(state.totalCycleTime / 60).toStringAsFixed(1)}m)',
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
               ),
-              tooltip: selectedConn.isCurved
-                  ? 'เปลี่ยนเป็นเส้นมุมฉาก 90° (Wokwi Orthogonal)'
-                  : 'เปลี่ยนเป็นเส้นโค้งมน (Smooth Curve)',
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.amber.withValues(alpha: 0.15),
-                padding: const EdgeInsets.all(6),
-                minimumSize: Size.zero,
-              ),
-              onPressed: () {
-                notifier.toggleConnectionCurved(selectedConn.id);
-              },
+            ),
+          ] else ...[
+            // 0-9 Wokwi Color Swatches Palette (Canvas Mode)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (int i = 0; i < kWokwiColors.length; i++) ...[
+                  _buildColorSwatchButton(
+                    index: i,
+                    color: kWokwiColors[i],
+                    selectedConn: selectedConn,
+                    notifier: notifier,
+                  ),
+                  if (i < kWokwiColors.length - 1) const SizedBox(width: 4),
+                ],
+              ],
             ),
 
-            // Add Waypoint Button
-            TextButton.icon(
-              icon: const Icon(Icons.add_location_alt_rounded,
-                  size: 16, color: Colors.tealAccent),
-              label: const Text('เพิ่มจุดดึงหลบ',
-                  style: TextStyle(fontSize: 12, color: Colors.tealAccent)),
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.teal.withValues(alpha: 0.15),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: Size.zero,
-              ),
-              onPressed: () {
-                _addDefaultWaypointToConnection(
-                    selectedConn, state.stations, notifier);
-              },
-            ),
-
-            // Reset Waypoints Button
-            if (selectedConn.waypoints.isNotEmpty)
-              TextButton.icon(
-                icon: const Icon(Icons.refresh_rounded,
-                    size: 14, color: Colors.grey),
-                label: const Text('ล้างจุดดัด',
-                    style: TextStyle(fontSize: 11, color: Colors.grey)),
-                style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            // Delete wire button (Trash icon)
+            if (selectedConn != null) ...[
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded,
+                    color: Colors.redAccent, size: 20),
+                tooltip: 'ลบเส้นที่เลือก (Delete Wire)',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.red.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.all(6),
                   minimumSize: Size.zero,
                 ),
                 onPressed: () {
-                  notifier.updateConnectionWaypoints(selectedConn.id, []);
+                  notifier.removeConnection(selectedConn.id);
+                  setState(() => _selectedConnectionId = null);
                 },
               ),
+
+              // Toggle 90-degree Orthogonal / Bezier Curve
+              IconButton(
+                icon: Icon(
+                  selectedConn.isCurved
+                      ? Icons.rounded_corner_rounded
+                      : Icons.polyline_rounded,
+                  color: Colors.amberAccent,
+                  size: 20,
+                ),
+                tooltip: selectedConn.isCurved
+                    ? 'เปลี่ยนเป็นเส้นมุมฉาก 90° (Wokwi Orthogonal)'
+                    : 'เปลี่ยนเป็นเส้นโค้งมน (Smooth Curve)',
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.amber.withValues(alpha: 0.15),
+                  padding: const EdgeInsets.all(6),
+                  minimumSize: Size.zero,
+                ),
+                onPressed: () {
+                  notifier.toggleConnectionCurved(selectedConn.id);
+                },
+              ),
+
+              // Add Waypoint Button
+              TextButton.icon(
+                icon: const Icon(Icons.add_location_alt_rounded,
+                    size: 16, color: Colors.tealAccent),
+                label: const Text('เพิ่มจุดดึงหลบ',
+                    style:
+                        TextStyle(fontSize: 12, color: Colors.tealAccent)),
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.teal.withValues(alpha: 0.15),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                ),
+                onPressed: () {
+                  _addDefaultWaypointToConnection(
+                      selectedConn, state.stations, notifier);
+                },
+              ),
+            ],
           ],
 
           // Selected Info & Hint
@@ -1002,6 +1290,68 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
                   ),
                 ),
               ),
+
+              // ================= LOOP-BACK / BRANCH BADGES =================
+              if (station.nextStationIds.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF222227) : const Color(0xFFF1F5F9),
+                    border: Border(
+                      top: BorderSide(
+                        color: isDark ? const Color(0xFF2E2E34) : const Color(0xFFE2E8F0),
+                        width: 0.8,
+                      ),
+                    ),
+                  ),
+                  child: Wrap(
+                    spacing: 4,
+                    runSpacing: 3,
+                    children: station.nextStationIds.map((nextId) {
+                      final nextSt = state.stations.where((s) => s.id == nextId).firstOrNull;
+                      if (nextSt == null) return const SizedBox.shrink();
+                      final nextIdx = state.stations.indexWhere((s) => s.id == nextId);
+                      final isLoopBack = nextIdx != -1 && nextIdx <= stationIndex;
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: isLoopBack
+                              ? Colors.amber.withValues(alpha: 0.15)
+                              : Colors.blue.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: isLoopBack
+                                ? Colors.amber.withValues(alpha: 0.5)
+                                : Colors.blue.withValues(alpha: 0.3),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              isLoopBack ? Icons.replay_rounded : Icons.trending_flat_rounded,
+                              size: 11,
+                              color: isLoopBack ? Colors.amber : Colors.blueAccent,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              isLoopBack ? 'วนกลับ: ${nextSt.name}' : 'ต่อไปยัง: ${nextSt.name}',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                color: isLoopBack ? (isDark ? Colors.amberAccent : Colors.amber.shade900) : (isDark ? Colors.cyanAccent : Colors.blue.shade800),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ],
 
               // ================= FOOTER CONNECTOR / QUICK ACTIONS =================
               Container(
