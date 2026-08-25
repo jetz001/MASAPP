@@ -92,12 +92,13 @@ IMPORTANT CONSTRAINTS:
 DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules):
 - Machine Documents/Assets: Call `manage_machine_assets` (action: attach_document, remove_document, set_cover_image).
 - Machines: Call `manage_machines` (action: insert / update / delete / approve / approve_handover / attach_document). Also supports bulk `machines` list for importing machines or documents. Automatically ensures all 3 Handover stages are created and ready for sign-off.
-- Locations & Layout: Call `manage_locations` (action: create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).
-- PM/AM Master Plans: Call `manage_pm_plans` (action: create_plan, update_plan, delete_plan, add_task, delete_task).
+- Locations & Layout: Call `manage_locations` (action: create_layout, approve_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).
+- PM/AM Master Plans: Call `manage_pm_plans` (action: create_plan, approve_plan, update_plan, delete_plan, add_task, delete_task).
 - PM/AM Schedules: Call `manage_pm_schedules` (action: create_schedule, update_status, record_execution, delete_schedule).
-- Work Orders & RCA: Call `manage_work_orders` (action: create_order, update_order, record_labor, record_rca, delete_order).
-- Outsource Vendors / Contractors: Call `manage_contractors` (action: create_contractor, update_contractor, delete_contractor).
-- Work Permits: Call `manage_work_permits` (action: create_permit, update_status, update_safety_check, delete_permit).
+- Work Orders & RCA: Call `manage_work_orders` (action: create_order, approve_order, update_order, record_labor, record_rca, delete_order).
+- Outsource Vendors / Contractors: Call `manage_contractors` (action: create_contractor, approve_contractor, update_contractor, delete_contractor).
+- Work Permits: Call `manage_work_permits` (action: create_permit, approve_permit, update_status, update_safety_check, delete_permit).
+- Action Plans & Problem Solving: Call `manage_action_plans` (action: save_rca_plan, update_action_step, close_action_plan, query).
 - Spare Parts & Inventory: Call `manage_spare_parts` (action: create_part, update_part, delete_part, record_transaction, link_machine).
 - Tools & Equipment: Call `manage_tools` (action: create_tool, update_tool, delete_tool, record_transaction).
 - OEE Logs: Call `manage_oee_logs` (action: record_log, update_log, delete_log).

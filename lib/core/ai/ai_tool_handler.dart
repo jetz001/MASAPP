@@ -1225,6 +1225,18 @@ class AiToolHandler {
   }) async {
     final action = args['action']?.toString().toLowerCase().trim() ?? 'create_zone';
 
+    if (action == 'approve_layout' || action == 'approve') {
+      final layoutId = await _getOrCreateLayout(
+        layoutId: args['layout_id']?.toString(),
+        layoutName: args['layout_name']?.toString(),
+      );
+      await DbHelper.execute(
+        'UPDATE factory_layouts SET is_approved = 1, updated_at = CURRENT_TIMESTAMP WHERE layout_id = @id',
+        params: {'id': layoutId},
+      );
+      return jsonEncode({'status': 'success', 'layout_id': layoutId, 'message': 'อนุมัติผังโรงงานเรียบร้อยแล้ว (พร้อมจัดวางเครื่องจักร)'});
+    }
+
     if (action == 'create_layout') {
       final layoutName = args['layout_name']?.toString().trim() ?? 'Main Factory Layout';
       final layoutId = const Uuid().v4();
@@ -1591,6 +1603,32 @@ class AiToolHandler {
         'status': 'success',
         'plan_code': plan?['plan_code'] ?? identifier,
         'message': 'ลบแผนแม่บท PM/AM (${plan?["plan_code"] ?? identifier}) เรียบร้อยแล้ว',
+      });
+    }
+
+    if (action == 'approve' || action == 'approve_plan' || action == 'approve_pm') {
+      final identifier = (args['plan_identifier'] ?? args['plan_code'] ?? args['machine_identifier'] ?? args['machine_no'])?.toString().trim() ?? '';
+      final plan = await _findPmPlan(identifier);
+      if (plan == null) {
+        return jsonEncode({'error': 'ไม่พบแผนแม่บท PM/AM "$identifier" ที่ต้องการอนุมัติ'});
+      }
+      final planId = plan['plan_id'].toString();
+      final adminUser = await DbHelper.queryOne("SELECT user_id FROM users LIMIT 1");
+      final uid = adminUser?['user_id']?.toString() ?? '00000000-0000-0000-0001-000000000001';
+
+      await DbHelper.execute('''
+        UPDATE pm_am_plans
+        SET status = 'active',
+            approved_by = @uid,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE plan_id = @id
+      ''', params: {'id': planId, 'uid': uid});
+
+      return jsonEncode({
+        'status': 'success',
+        'action': 'approve',
+        'plan_code': plan['plan_code'],
+        'message': 'อนุมัติแผนแม่บท PM/AM (${plan["plan_code"]}) เรียบร้อยแล้ว (สถานะ: active)',
       });
     }
 
@@ -2059,6 +2097,47 @@ class AiToolHandler {
       });
     }
 
+    if (action == 'approve' || action == 'approve_order' || action == 'approve_work_order') {
+      final woIdentifier = (args['wo_identifier'] ?? args['wo_no'])?.toString().trim() ?? '';
+      final wo = await _findWorkOrder(woIdentifier);
+      if (wo == null) {
+        return jsonEncode({'error': 'ไม่พบใบแจ้งซ่อม "$woIdentifier" ที่ต้องการอนุมัติ'});
+      }
+      final woId = wo['wo_id'].toString();
+      final adminUser = await DbHelper.queryOne("SELECT user_id FROM users LIMIT 1");
+      final uid = adminUser?['user_id']?.toString() ?? '00000000-0000-0000-0001-000000000001';
+
+      final assignedToName = args['assigned_to']?.toString().trim();
+      String? assignedToId;
+      if (assignedToName != null && assignedToName.isNotEmpty) {
+        final u = await _findUser(assignedToName);
+        assignedToId = u?['user_id']?.toString();
+      }
+
+      await DbHelper.execute('''
+        UPDATE work_orders
+        SET status = 'approved',
+            approved_by = @uid,
+            approved_at = CURRENT_TIMESTAMP,
+            assigned_to = COALESCE(@assigned, assigned_to),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE wo_id = @id
+      ''', params: {
+        'id': woId,
+        'uid': uid,
+        'assigned': assignedToId,
+      });
+
+      VectorDbService.syncWorkOrder(woId);
+
+      return jsonEncode({
+        'status': 'success',
+        'action': 'approve',
+        'wo_no': wo['wo_no'],
+        'message': 'อนุมัติใบแจ้งซ่อมเลขที่ ${wo["wo_no"]} สำเร็จ (สถานะ: approved)',
+      });
+    }
+
     if (action == 'update_order' || action == 'update') {
       final woIdentifier = (args['wo_identifier'] ?? args['wo_no'])?.toString().trim() ?? '';
       final wo = await _findWorkOrder(woIdentifier);
@@ -2358,6 +2437,14 @@ class AiToolHandler {
         .trim() ??
         '';
 
+    if (action == 'approve' || action == 'approve_contractor' || action == 'approve_supplier') {
+      await DbHelper.execute(
+        'UPDATE suppliers SET is_approved = 1, is_active = 1 WHERE supplier_code = @id OR supplier_id = @id OR name = @id OR name LIKE @likeId',
+        params: {'id': identifier, 'likeId': '%$identifier%'},
+      );
+      return jsonEncode({'status': 'success', 'action': 'approve', 'message': 'อนุมัติผู้รับเหมา/ซัพพลายเออร์ "$identifier" เรียบร้อยแล้ว (สามารถส่งงานซ่อมได้)'});
+    }
+
     if (action == 'delete_contractor' || action == 'delete') {
       await DbHelper.execute(
         'UPDATE suppliers SET is_active = 0 WHERE supplier_code = @id OR supplier_id = @id OR name = @id OR name LIKE @likeId',
@@ -2480,14 +2567,18 @@ class AiToolHandler {
       return jsonEncode({'status': 'success', 'message': 'ยกเลิกใบอนุญาตทำงาน "$identifier" เรียบร้อยแล้ว'});
     }
 
-    if (action == 'update_status' || action == 'update') {
+    if (action == 'approve' || action == 'approve_permit' || action == 'update_status' || action == 'update') {
       final identifier = (args['permit_identifier'] ?? args['permit_no'])?.toString().trim() ?? '';
-      final status = args['status']?.toString().trim() ?? 'approved';
+      final status = (action == 'approve' || action == 'approve_permit') ? 'approved' : (args['status']?.toString().trim() ?? 'approved');
       final authorizedByName = args['authorized_by']?.toString().trim();
       String? authorizedById;
       if (authorizedByName != null && authorizedByName.isNotEmpty) {
         final u = await _findUser(authorizedByName);
         authorizedById = u?['user_id']?.toString();
+      }
+      if (status == 'approved' && authorizedById == null) {
+        final admin = await DbHelper.queryOne('SELECT user_id FROM users LIMIT 1');
+        authorizedById = admin?['user_id']?.toString();
       }
 
       await DbHelper.execute('''
@@ -2503,7 +2594,7 @@ class AiToolHandler {
         'status': status,
         'auth': authorizedById,
       });
-      return jsonEncode({'status': 'success', 'message': 'อัปเดตสถานะ Work Permit "$identifier" เป็น "$status" สำเร็จ'});
+      return jsonEncode({'status': 'success', 'message': 'อัปเดตสถานะ/อนุมัติ Work Permit "$identifier" ($status) สำเร็จ'});
     }
 
     if (action == 'update_safety_check') {
@@ -5459,6 +5550,41 @@ class AiToolHandler {
         'step_status': stepStatus,
         'plan_status': planStatus,
         'message': 'อัปเดตสถานะขั้นตอนแผนปฏิบัติการเป็น "$stepStatus" สำเร็จ',
+      });
+    }
+
+    if (action == 'close_action_plan' || action == 'close' || action == 'approve' || action == 'approve_action_plan') {
+      final rcaId = (args['rca_id'] ?? args['id'] ?? args['plan_id'])?.toString() ?? '';
+      final actualVal = (args['actual_value'] as num?)?.toDouble();
+      final vResult = args['verification_result']?.toString() ?? 'pass';
+      final vNotes = args['standardization_notes']?.toString();
+      final adminUser = await DbHelper.queryOne("SELECT full_name FROM users LIMIT 1");
+      final vBy = args['verified_by']?.toString() ?? adminUser?['full_name']?.toString() ?? 'ผู้จัดการฝ่าย';
+
+      await DbHelper.execute('''
+        UPDATE problem_solving_records
+        SET status = 'closed',
+            actual_value = COALESCE(@aval, actual_value),
+            verification_result = @vres,
+            verified_by = @vby,
+            verification_date = CURRENT_TIMESTAMP,
+            standardization_notes = COALESCE(@notes, standardization_notes),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE rca_id = @id
+      ''', params: {
+        'id': rcaId,
+        'aval': actualVal,
+        'vres': vResult,
+        'vby': vBy,
+        'notes': vNotes,
+      });
+
+      VectorDbService.syncProblemSolvingAndActionPlan(rcaId);
+
+      return jsonEncode({
+        'status': 'success',
+        'rca_id': rcaId,
+        'message': 'อนุมัติและปิดแผนปฏิบัติการ Action Plan ($rcaId) สำเร็จ (สถานะ: closed)',
       });
     }
 

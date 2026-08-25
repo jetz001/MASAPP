@@ -679,8 +679,7 @@ class WorkOrderDetailScreen extends ConsumerWidget {
               future: DbHelper.query('''SELECT user_id, full_name, role 
                    FROM users 
                    WHERE is_active = 1 
-                     AND role IN ('technician', 'engineer')
-                   ORDER BY full_name'''),
+                   ORDER BY (CASE WHEN role IN ('technician', 'engineer') THEN 0 ELSE 1 END), full_name'''),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
