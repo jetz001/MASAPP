@@ -277,167 +277,281 @@ class _FactoryLayoutScreenState extends ConsumerState<FactoryLayoutScreen> {
   void _showAddMachineMarkerDialog(BuildContext context, WidgetRef ref, FactoryLayout layout) {
     // Reset selection when opening dialog
     ref.read(_selectedMachinesProvider.notifier).state = {};
+    double widthM = 3.0; // Default 3.0 meters
+    double lengthM = 2.0; // Default 2.0 meters
 
     showDialog(
       context: context,
-      builder: (context) => Consumer(
-        builder: (context, ref, _) {
-          final searchQuery = ref.watch(_machineSearchProvider);
-          final selectedIds = ref.watch(_selectedMachinesProvider);
-          final machinesAsync = ref.watch(machineListProvider(MachineListFilter(searchQuery: searchQuery)));
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => Consumer(
+          builder: (context, ref, _) {
+            final searchQuery = ref.watch(_machineSearchProvider);
+            final selectedIds = ref.watch(_selectedMachinesProvider);
+            final machinesAsync = ref.watch(machineListProvider(MachineListFilter(searchQuery: searchQuery)));
 
-          return AlertDialog(
-            title: Row(
-              children: [
-                const Icon(Icons.add_location_alt_rounded, color: AppColors.primary),
-                const SizedBox(width: 12),
-                const Text('เลือกเครื่องจักรลงผัง'),
-              ],
-            ),
-            content: CallbackShortcuts(
-              bindings: {
-                const SingleActivator(LogicalKeyboardKey.escape): () {
-                  Navigator.pop(context);
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.add_location_alt_rounded, color: AppColors.primary),
+                  SizedBox(width: 12),
+                  Text('วางเครื่องจักรลงผังโรงงาน'),
+                ],
+              ),
+              content: CallbackShortcuts(
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.escape): () {
+                    Navigator.pop(context);
+                  },
                 },
-              },
-              child: SizedBox(
-                width: 500,
-                height: 600,
-                child: Column(
-                  children: [
-                    TextField(
-                      decoration: InputDecoration(
-                        hintText: 'ค้นหา รหัส หรือ ชื่อเครื่องจักร...',
-                        prefixIcon: const Icon(Icons.search),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        filled: true,
-                        fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
-                      ),
-                      onChanged: (v) => ref.read(_machineSearchProvider.notifier).state = v,
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: machinesAsync.when(
-                        data: (machines) {
-                          // Filter out machines already on this layout AND machines not yet approved
-                          final placedIds = layout.machines.map((m) => m.machineId).toSet();
-                          final available = machines.where((m) => 
-                            !placedIds.contains(m.machineId) && 
-                            m.stage3Status == HandoverStatus.approved
-                          ).toList();
-  
-                          if (available.isEmpty) {
-                            return Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey.withAlpha(100)),
-                                  const SizedBox(height: 16),
-                                  const Text('ไม่พบเครื่องจักรที่อนุมัติแล้ว (Approved) หรือยังไม่ได้ลงผัง', 
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(color: Colors.grey)),
-                                ],
-                              ),
-                            );
-                          }
-  
-                          return ListView.separated(
-                            itemCount: available.length,
-                            separatorBuilder: (context, index) => const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final m = available[index];
-                              final isSelected = selectedIds.contains(m.machineId);
-  
-                              return ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: m.status.color.withAlpha(40),
-                                  child: Text(m.machineNo.characters.take(1).toString(), 
-                                      style: TextStyle(color: m.status.color, fontWeight: FontWeight.bold)),
+                child: SizedBox(
+                  width: 540,
+                  height: 620,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Dimension Configuration Box (กว้าง x ยาว คร่าวๆ)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.25),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.straighten_rounded, size: 16, color: AppColors.primary),
+                                SizedBox(width: 6),
+                                Text(
+                                  'ขนาดพื้นที่วางเครื่องจักรคร่าวๆ (กว้าง × ยาว)',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
                                 ),
-                                title: Text(m.machineNo, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                subtitle: Text(m.machineName ?? '-'),
-                                trailing: Checkbox(
-                                  value: isSelected,
-                                  onChanged: (val) {
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: widthM.toStringAsFixed(1),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(
+                                      labelText: 'ความกว้าง (Width)',
+                                      suffixText: 'ม.',
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    onChanged: (val) {
+                                      final v = double.tryParse(val);
+                                      if (v != null && v > 0) widthM = v;
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: lengthM.toStringAsFixed(1),
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: const InputDecoration(
+                                      labelText: 'ความยาว (Length)',
+                                      suffixText: 'ม.',
+                                      isDense: true,
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    onChanged: (val) {
+                                      final v = double.tryParse(val);
+                                      if (v != null && v > 0) lengthM = v;
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                const Text('ขนาดมาตรฐาน:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                                for (final preset in [
+                                  {'label': '2.0 × 3.0 ม.', 'w': 2.0, 'h': 3.0},
+                                  {'label': '2.5 × 4.0 ม.', 'w': 2.5, 'h': 4.0},
+                                  {'label': '3.0 × 5.0 ม.', 'w': 3.0, 'h': 5.0},
+                                  {'label': '4.0 × 6.0 ม.', 'w': 4.0, 'h': 6.0},
+                                ]) ...[
+                                  InkWell(
+                                    onTap: () {
+                                      setDialogState(() {
+                                        widthM = preset['w'] as double;
+                                        lengthM = preset['h'] as double;
+                                      });
+                                    },
+                                    child: Chip(
+                                      label: Text(preset['label'] as String, style: const TextStyle(fontSize: 10.5)),
+                                      padding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
+                                      backgroundColor: (widthM == preset['w'] && lengthM == preset['h'])
+                                          ? Theme.of(context).colorScheme.primaryContainer
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Machine Search
+                      TextField(
+                        decoration: InputDecoration(
+                          hintText: 'ค้นหา รหัส หรือ ชื่อเครื่องจักร...',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          filled: true,
+                          fillColor: Theme.of(context).colorScheme.surfaceContainerLow,
+                          isDense: true,
+                        ),
+                        onChanged: (v) => ref.read(_machineSearchProvider.notifier).state = v,
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Machine List
+                      Expanded(
+                        child: machinesAsync.when(
+                          data: (machines) {
+                            // Filter out machines already on this layout AND machines not yet approved
+                            final placedIds = layout.machines.map((m) => m.machineId).toSet();
+                            final available = machines.where((m) => 
+                              !placedIds.contains(m.machineId) && 
+                              m.stage3Status == HandoverStatus.approved
+                            ).toList();
+    
+                            if (available.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.inventory_2_outlined, size: 48, color: Colors.grey.withAlpha(100)),
+                                    const SizedBox(height: 16),
+                                    const Text('ไม่พบเครื่องจักรที่อนุมัติแล้ว (Approved) หรือยังไม่ได้ลงผัง', 
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(color: Colors.grey)),
+                                  ],
+                                ),
+                              );
+                            }
+    
+                            return ListView.separated(
+                              itemCount: available.length,
+                              separatorBuilder: (context, index) => const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final m = available[index];
+                                final isSelected = selectedIds.contains(m.machineId);
+    
+                                return ListTile(
+                                  dense: true,
+                                  leading: CircleAvatar(
+                                    backgroundColor: m.status.color.withAlpha(40),
+                                    child: Text(m.machineNo.characters.take(1).toString(), 
+                                        style: TextStyle(color: m.status.color, fontWeight: FontWeight.bold)),
+                                  ),
+                                  title: Text(m.machineNo, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  subtitle: Text(m.machineName ?? '-'),
+                                  trailing: Checkbox(
+                                    value: isSelected,
+                                    onChanged: (val) {
+                                      final current = Set<String>.from(ref.read(_selectedMachinesProvider));
+                                      if (val == true) {
+                                        current.add(m.machineId!);
+                                      } else {
+                                        current.remove(m.machineId);
+                                      }
+                                      ref.read(_selectedMachinesProvider.notifier).state = current;
+                                    },
+                                  ),
+                                  onTap: () {
                                     final current = Set<String>.from(ref.read(_selectedMachinesProvider));
-                                    if (val == true) {
-                                      current.add(m.machineId!);
-                                    } else {
+                                    if (isSelected) {
                                       current.remove(m.machineId);
+                                    } else {
+                                      current.add(m.machineId!);
                                     }
                                     ref.read(_selectedMachinesProvider.notifier).state = current;
                                   },
-                                ),
-                                onTap: () {
-                                  final current = Set<String>.from(ref.read(_selectedMachinesProvider));
-                                  if (isSelected) {
-                                    current.remove(m.machineId);
-                                  } else {
-                                    current.add(m.machineId!);
-                                  }
-                                  ref.read(_selectedMachinesProvider.notifier).state = current;
-                                },
-                              );
-                            },
-                          );
-                        },
-                        loading: () => const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(),
-                              SizedBox(height: 16),
-                              Text('กำลังดึงข้อมูลจาก Registry...'),
-                            ],
+                                );
+                              },
+                            );
+                          },
+                          loading: () => const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(),
+                                SizedBox(height: 16),
+                                Text('กำลังดึงข้อมูลจาก Registry...'),
+                              ],
+                            ),
                           ),
+                          error: (err, _) => Center(child: Text('Error: $err')),
                         ),
-                        error: (err, _) => Center(child: Text('Error: $err')),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              ElevatedButton(
-                onPressed: selectedIds.isEmpty ? null : () async {
-                  final centerX = layout.canvasSize.width / 2;
-                  final centerY = layout.canvasSize.height / 2;
-                  
-                  final machines = machinesAsync.valueOrNull ?? [];
-                  
-                  for (final mid in selectedIds) {
-                    final m = machines.firstWhere((element) => element.machineId == mid);
-                    final positionId = 'pos_${mid}_${DateTime.now().millisecondsSinceEpoch}';
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
+                FilledButton.icon(
+                  icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                  onPressed: selectedIds.isEmpty ? null : () async {
+                    final centerX = layout.canvasSize.width / 2;
+                    final centerY = layout.canvasSize.height / 2;
+                    
+                    final machines = machinesAsync.valueOrNull ?? [];
+                    final boxW = (widthM * 50.0).clamp(30.0, 600.0);
+                    final boxH = (lengthM * 50.0).clamp(30.0, 600.0);
+                    
+                    int offsetIdx = 0;
+                    for (final mid in selectedIds) {
+                      final m = machines.firstWhere((element) => element.machineId == mid);
+                      final positionId = 'pos_${mid}_${DateTime.now().millisecondsSinceEpoch}';
+                      final posX = centerX + (offsetIdx * 40.0) - ((selectedIds.length - 1) * 20.0);
+                      final posY = centerY + (offsetIdx * 30.0) - ((selectedIds.length - 1) * 15.0);
+                      offsetIdx++;
 
-                    await DbHelper.execute(
-                      '''INSERT INTO machine_positions (
-                           position_id, layout_id, machine_id, 
-                           x_position, y_position, width, height, status_color
-                         ) VALUES (@pid, @lid, @mid_param, @x, @y, @w, @h, @color)''',
-                      params: {
-                        'pid': positionId,
-                        'lid': layout.layoutId,
-                        'mid_param': mid,
-                        'x': centerX,
-                        'y': centerY,
-                        'w': 60.0,
-                        'h': 50.0,
-                        'color': m.status.color.toHex(),
-                      },
-                    );
-                  }
+                      await DbHelper.execute(
+                        '''INSERT INTO machine_positions (
+                             position_id, layout_id, machine_id, 
+                             x_position, y_position, width, height, status_color
+                           ) VALUES (@pid, @lid, @mid_param, @x, @y, @w, @h, @color)''',
+                        params: {
+                          'pid': positionId,
+                          'lid': layout.layoutId,
+                          'mid_param': mid,
+                          'x': posX,
+                          'y': posY,
+                          'w': boxW,
+                          'h': boxH,
+                          'color': m.status.color.toHex(),
+                        },
+                      );
+                    }
 
-                  ref.invalidate(currentLayoutProvider);
-                  ref.invalidate(dashboardStatsProvider);
-                  if (context.mounted) Navigator.pop(context);
-                },
-                child: Text('เพิ่มที่เลือก (${selectedIds.length})'),
-              ),
-            ],
-          );
-        },
+                    ref.invalidate(currentLayoutProvider);
+                    ref.invalidate(dashboardStatsProvider);
+                    if (context.mounted) Navigator.pop(context);
+                  },
+                  label: Text('วางลงผัง (${selectedIds.length} เครื่อง)'),
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -737,6 +851,13 @@ class _MachineDetailPanel extends ConsumerWidget {
           // Zone
           _DetailRow(label: 'โซน', value: machine.zoneId),
 
+          // Dimensions (กว้าง x ยาว)
+          _DetailRow(
+            label: 'ขนาดพื้นที่เครื่องจักร (กว้าง × ยาว)',
+            value:
+                '${(machine.size.width / 50.0).toStringAsFixed(1)} ม. × ${(machine.size.height / 50.0).toStringAsFixed(1)} ม. (${machine.size.width.toInt()} × ${machine.size.height.toInt()} px)',
+          ),
+
           // Position
           _DetailRow(
             label: 'ตำแหน่ง (พิกัด)',
@@ -751,7 +872,20 @@ class _MachineDetailPanel extends ConsumerWidget {
               value: _formatDate(machine.lastUpdated!),
             ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Edit Dimensions Button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.aspect_ratio_rounded, size: 18),
+              label: const Text('ปรับขนาด กว้าง × ยาว'),
+              onPressed: () {
+                _showEditMachineDimensionDialog(context, ref, machine);
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
 
           SizedBox(
             width: double.infinity,
@@ -803,50 +937,155 @@ class _MachineDetailPanel extends ConsumerWidget {
               },
             ),
           ),
-          if (ref.watch(isEditModeProvider)) ...[
-            const SizedBox(height: 16),
-            const Divider(),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.delete_sweep_rounded, size: 18),
-                label: const Text('Remove Marker'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red.withAlpha(20),
-                  foregroundColor: Colors.red,
-                  elevation: 0,
-                ),
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Remove Marker'),
-                      content: Text('Remove ${machine.machineNo} from this layout?'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-                          onPressed: () => Navigator.pop(context, true), 
-                          child: const Text('Remove'),
-                        ),
-                      ],
-                    ),
-                  );
-
-                  if (confirm == true) {
-                    await ref.read(layoutRepositoryProvider).deleteMachinePosition(
-                      ref.read(selectedLayoutIdProvider)!,
-                      machine.positionId,
-                    );
-                    ref.invalidate(currentLayoutProvider);
-                    ref.invalidate(dashboardStatsProvider);
-                    ref.read(selectedMachineProvider.notifier).state = null;
-                  }
-                },
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.delete_sweep_rounded, size: 18),
+              label: const Text('นำเครื่องจักรออกจากผัง'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red.withAlpha(20),
+                foregroundColor: Colors.red,
+                elevation: 0,
               ),
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('ยืนยันนำออกจากผัง'),
+                    content: Text('ต้องการนำเครื่องจักร ${machine.machineNo} ออกจากผังโรงงานนี้หรือไม่?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('ยกเลิก')),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                        onPressed: () => Navigator.pop(context, true), 
+                        child: const Text('นำออก'),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (confirm == true) {
+                  await ref.read(layoutRepositoryProvider).deleteMachinePosition(
+                    ref.read(selectedLayoutIdProvider)!,
+                    machine.positionId,
+                  );
+                  ref.invalidate(currentLayoutProvider);
+                  ref.invalidate(dashboardStatsProvider);
+                  ref.read(selectedMachineProvider.notifier).state = null;
+                }
+              },
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditMachineDimensionDialog(BuildContext context, WidgetRef ref, MachinePosition machine) {
+    double currentWidthM = machine.size.width / 50.0;
+    double currentLengthM = machine.size.height / 50.0;
+    final wCtrl = TextEditingController(text: currentWidthM.toStringAsFixed(1));
+    final hCtrl = TextEditingController(text: currentLengthM.toStringAsFixed(1));
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.aspect_ratio_rounded, color: AppColors.primary),
+            const SizedBox(width: 10),
+            Text('ปรับขนาด ${machine.machineNo}'),
           ],
+        ),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('เครื่องจักร: ${machine.machineNo}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: wCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'ความกว้าง (Width)',
+                        suffixText: 'ม.',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: hCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'ความยาว (Length)',
+                        suffixText: 'ม.',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Text('เลือกขนาดมาตรฐานเร็ว:', style: TextStyle(fontSize: 11, color: Colors.grey)),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final preset in [
+                    {'label': '2.0 × 3.0 ม.', 'w': 2.0, 'h': 3.0},
+                    {'label': '2.5 × 4.0 ม.', 'w': 2.5, 'h': 4.0},
+                    {'label': '3.0 × 5.0 ม.', 'w': 3.0, 'h': 5.0},
+                    {'label': '4.0 × 6.0 ม.', 'w': 4.0, 'h': 6.0},
+                  ]) ...[
+                    InkWell(
+                      onTap: () {
+                        wCtrl.text = (preset['w'] as double).toStringAsFixed(1);
+                        hCtrl.text = (preset['h'] as double).toStringAsFixed(1);
+                      },
+                      child: Chip(
+                        label: Text(preset['label'] as String, style: const TextStyle(fontSize: 10.5)),
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+          FilledButton(
+            onPressed: () async {
+              final newW = (double.tryParse(wCtrl.text.trim()) ?? currentWidthM) * 50.0;
+              final newH = (double.tryParse(hCtrl.text.trim()) ?? currentLengthM) * 50.0;
+              final newSize = Size(newW.clamp(30.0, 600.0), newH.clamp(30.0, 600.0));
+
+              await ref.read(layoutRepositoryProvider).updateMachineSize(
+                ref.read(selectedLayoutIdProvider)!,
+                machine.machineId,
+                newSize,
+              );
+              ref.invalidate(currentLayoutProvider);
+              ref.read(selectedMachineProvider.notifier).state = machine.copyWith(size: newSize);
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            child: const Text('บันทึกขนาด'),
+          ),
         ],
       ),
     );
@@ -924,6 +1163,20 @@ class _LayoutControlBanner extends ConsumerWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Direct Add Machine Button
+              if (user?.isEngineerOrAbove ?? false) ...[
+                FilledButton.icon(
+                  onPressed: onAddMachine != null ? () => onAddMachine!(currentLayout) : null,
+                  icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                  label: const Text('วางเครื่องจักร', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: FilledButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
+                ),
+                const VerticalDivider(width: 20, indent: 8, endIndent: 8),
+              ],
+
               // Zoom Group
               IconButton(
                 icon: const Icon(Icons.zoom_out_rounded, size: 20),

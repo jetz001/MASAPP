@@ -191,81 +191,133 @@ class FactoryLayoutPainter extends CustomPainter {
     for (final machine in layout.machines) {
       final isSelected = selectedMachine?.machineId == machine.machineId;
       final statusColor = machine.status.color;
+      final rect = machine.bounds;
       final center = machine.position;
 
-      // 1. Draw Dot Marker
-      final dotRadius = isSelected ? 10.0 : 7.0;
-      
-      // Shadow/Glow for the dot
+      // 1. Draw Machine Footprint Box (2D Equipment Box)
       if (isSelected) {
+        // Selection Glow
         final glowPaint = Paint()
-          ..color = statusColor.withValues(alpha: 0.5)
+          ..color = statusColor.withValues(alpha: 0.45)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
-        canvas.drawCircle(center, dotRadius + 4, glowPaint);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect.inflate(4), const Radius.circular(8)),
+          glowPaint,
+        );
       }
 
-      // Outer Ring
-      final ringPaint = Paint()
-        ..color = isSelected ? Colors.white : Colors.white.withAlpha(180)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = isSelected ? 3 : 2;
-      canvas.drawCircle(center, dotRadius, ringPaint);
+      // Box Background
+      final boxPaint = Paint()
+        ..color = Colors.white.withValues(alpha: 0.92)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+        boxPaint,
+      );
 
-      // Core Dot
-      final dotPaint = Paint()
+      // Status Tint Overlay
+      final tintPaint = Paint()
+        ..color = statusColor.withValues(alpha: 0.15)
+        ..style = PaintingStyle.fill;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+        tintPaint,
+      );
+
+      // Box Border
+      final borderPaint = Paint()
+        ..color = isSelected ? Colors.blue.shade700 : statusColor
+        ..strokeWidth = isSelected ? 3.0 : 1.8
+        ..style = PaintingStyle.stroke;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+        borderPaint,
+      );
+
+      // 2. Machine Number / Code Header (Bold)
+      final titlePainter = TextPainter(
+        text: TextSpan(
+          text: machine.machineNo,
+          style: TextStyle(
+            color: Colors.black87,
+            fontSize: (rect.height * 0.24).clamp(10.0, 14.0),
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+        ellipsis: '...',
+      );
+      titlePainter.layout(maxWidth: rect.width - 16);
+
+      // Approximate dimensions text (e.g. 3.0m x 2.0m)
+      final double widthM = machine.size.width / 50.0;
+      final double heightM = machine.size.height / 50.0;
+      final dimText = '${widthM.toStringAsFixed(1)}m × ${heightM.toStringAsFixed(1)}m';
+
+      final dimPainter = TextPainter(
+        text: TextSpan(
+          text: dimText,
+          style: TextStyle(
+            color: Colors.grey.shade700,
+            fontSize: (rect.height * 0.18).clamp(8.5, 11.0),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: 1,
+      );
+      dimPainter.layout(maxWidth: rect.width - 8);
+
+      // Center text inside box
+      final totalTextHeight = titlePainter.height + (rect.height > 35 ? dimPainter.height + 2 : 0);
+      final textStartY = center.dy - totalTextHeight / 2;
+
+      titlePainter.paint(
+        canvas,
+        Offset(center.dx - titlePainter.width / 2, textStartY),
+      );
+
+      if (rect.height > 35) {
+        dimPainter.paint(
+          canvas,
+          Offset(center.dx - dimPainter.width / 2, textStartY + titlePainter.height + 2),
+        );
+      }
+
+      // 3. Status Badge Dot (Top-Right corner)
+      final badgeCenter = Offset(rect.right - 8, rect.top + 8);
+      final badgePaint = Paint()
         ..color = statusColor
         ..style = PaintingStyle.fill;
-      canvas.drawCircle(center, dotRadius, dotPaint);
+      canvas.drawCircle(badgeCenter, 4.5, badgePaint);
 
-      // 2. Draw Floating Label (Tooltip) - Only if selected
+      final badgeBorder = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5;
+      canvas.drawCircle(badgeCenter, 4.5, badgeBorder);
+
+      // 4. Corner Handles if Selected (indicates scalable / movable)
       if (isSelected) {
-        final labelText = machine.machineNo;
-        final textPainter = TextPainter(
-          text: TextSpan(
-            text: labelText,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          textDirection: TextDirection.ltr,
-        );
-        textPainter.layout();
-
-        final labelPadding = const EdgeInsets.symmetric(horizontal: 8, vertical: 4);
-        final labelWidth = textPainter.width + labelPadding.horizontal;
-        final labelHeight = textPainter.height + labelPadding.vertical;
-        
-        // Position label above the dot
-        final labelRect = Rect.fromCenter(
-          center: center - Offset(0, dotRadius + labelHeight / 2 + 12),
-          width: labelWidth,
-          height: labelHeight,
-        );
-
-        // Draw bubble background
-        final bubblePaint = Paint()
-          ..color = Colors.black.withValues(alpha: 0.8)
+        final handlePaint = Paint()
+          ..color = Colors.blue.shade700
           ..style = PaintingStyle.fill;
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(labelRect, const Radius.circular(6)),
-          bubblePaint,
-        );
+        final handleBorder = Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0;
 
-        // Draw small arrow pointing to the dot
-        final path = Path();
-        path.moveTo(center.dx - 6, labelRect.bottom);
-        path.lineTo(center.dx + 6, labelRect.bottom);
-        path.lineTo(center.dx, labelRect.bottom + 6);
-        path.close();
-        canvas.drawPath(path, bubblePaint);
-
-        // Draw text
-        textPainter.paint(
-          canvas,
-          Offset(labelRect.left + labelPadding.left, labelRect.top + labelPadding.top),
-        );
+        for (final corner in [
+          rect.topLeft,
+          rect.topRight,
+          rect.bottomLeft,
+          rect.bottomRight,
+        ]) {
+          canvas.drawCircle(corner, 3.5, handlePaint);
+          canvas.drawCircle(corner, 3.5, handleBorder);
+        }
       }
     }
   }

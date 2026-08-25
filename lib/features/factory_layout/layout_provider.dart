@@ -165,6 +165,25 @@ class LayoutRepository {
     );
   }
 
+  /// Save machine size (width, height)
+  Future<void> updateMachineSize(
+    String layoutId,
+    String machineId,
+    Size size,
+  ) async {
+    await DbHelper.execute(
+      '''UPDATE machine_positions
+         SET width = @w, height = @h, updated_at = CURRENT_TIMESTAMP
+         WHERE layout_id = @layout_id AND machine_id = @machine_id''',
+      params: {
+        'layout_id': layoutId,
+        'machine_id': machineId,
+        'w': size.width,
+        'h': size.height,
+      },
+    );
+  }
+
   /// Delete a machine position
   Future<void> deleteMachinePosition(String layoutId, String positionId) async {
     await DbHelper.execute(
