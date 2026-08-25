@@ -91,7 +91,7 @@ IMPORTANT CONSTRAINTS:
 
 DATABASE ACTION & CRUD TOOLS (Insert, Update, Delete, Attach across all modules):
 - Machine Documents/Assets: Call `manage_machine_assets` (action: attach_document, remove_document, set_cover_image).
-- Machines: Call `manage_machines` (action: insert / update / delete / attach_document). Also supports bulk `machines` list for importing documents.
+- Machines: Call `manage_machines` (action: insert / update / delete / approve / approve_handover / attach_document). Also supports bulk `machines` list for importing machines or documents. Automatically ensures all 3 Handover stages are created and ready for sign-off.
 - Locations & Layout: Call `manage_locations` (action: create_layout, create_zone, update_zone, delete_zone, set_machine_position, delete_machine_position).
 - PM/AM Master Plans: Call `manage_pm_plans` (action: create_plan, update_plan, delete_plan, add_task, delete_task).
 - PM/AM Schedules: Call `manage_pm_schedules` (action: create_schedule, update_status, record_execution, delete_schedule).

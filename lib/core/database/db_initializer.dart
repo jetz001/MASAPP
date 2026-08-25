@@ -881,6 +881,30 @@ class DbInitializer {
             );
           }
         }
+
+        // 19. Ensure all machines have handover stage1, stage2, stage3 rows
+        final missingHandoverMachines = await db.rawQuery('''
+          SELECT m.machine_id FROM machines m
+          WHERE (SELECT COUNT(*) FROM machine_handover mh WHERE mh.machine_id = m.machine_id) < 3
+        ''');
+        if (missingHandoverMachines.isNotEmpty) {
+          _log.i('Migration: Generating missing machine_handover stages for ${missingHandoverMachines.length} machines...');
+          for (final row in missingHandoverMachines) {
+            final mid = row['machine_id'].toString();
+            for (final stage in ['stage1', 'stage2', 'stage3']) {
+              final exists = await db.rawQuery(
+                'SELECT 1 FROM machine_handover WHERE machine_id = ? AND stage = ? LIMIT 1',
+                [mid, stage],
+              );
+              if (exists.isEmpty) {
+                await db.rawInsert('''
+                  INSERT INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
+                  VALUES (?, ?, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', [const Uuid().v4(), mid, stage]);
+              }
+            }
+          }
+        }
       }
 
       await _ensureFileAssetsSchema(db);

@@ -472,6 +472,27 @@ class MachineRepository {
     String? notes,
     String? handoverConclusion,
   }) async {
+    // Ensure stage records exist for this machine
+    for (final s in ['stage1', 'stage2', 'stage3']) {
+      final exists = await DbHelper.query(
+        'SELECT 1 FROM machine_handover WHERE machine_id = @mid AND stage = @stage LIMIT 1',
+        params: {'mid': machineId, 'stage': s},
+      );
+      if (exists.isEmpty) {
+        await DbHelper.execute(
+          '''
+          INSERT INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
+          VALUES (@hid, @mid, @stage, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ''',
+          params: {
+            'hid': const Uuid().v4(),
+            'mid': machineId,
+            'stage': s,
+          },
+        );
+      }
+    }
+
     final isApproval = status == HandoverStatus.approved;
     final sql = isApproval
         ? '''

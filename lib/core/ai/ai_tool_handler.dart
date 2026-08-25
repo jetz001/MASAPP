@@ -545,6 +545,24 @@ class AiToolHandler {
               totalInserted++;
             }
 
+            // Ensure handover stages exist
+            for (final st in ['stage1', 'stage2', 'stage3']) {
+              final exists = await DbHelper.query(
+                'SELECT 1 FROM machine_handover WHERE machine_id = @mid AND stage = @stage LIMIT 1',
+                params: {'mid': machineId, 'stage': st},
+              );
+              if (exists.isEmpty) {
+                await DbHelper.execute('''
+                  INSERT INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
+                  VALUES (@hid, @mid, @stage, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', params: {
+                  'hid': const Uuid().v4(),
+                  'mid': machineId,
+                  'stage': st,
+                });
+              }
+            }
+
             final specs = SubagentBatchWorker.normalizeMachineSpecs(map);
             if (specs['has_specs'] == true) {
               final existingSpec = await DbHelper.query(
@@ -641,6 +659,59 @@ class AiToolHandler {
     }
 
     final identifier = (args['machine_identifier'] ?? args['machine_no'])?.toString().trim() ?? '';
+
+    if (action == 'approve' || action == 'approve_handover' || action == 'approve_machine') {
+      final machine = await _findMachine(identifier);
+      if (machine == null) {
+        return jsonEncode({'error': 'ไม่พบเครื่องจักร "$identifier" ในระบบ'});
+      }
+      final machineId = machine['machine_id'].toString();
+      final machineNo = machine['machine_no'].toString();
+      final uid = AuthService.currentUser?.userId ?? '00000000-0000-0000-0001-000000000001';
+
+      for (final st in ['stage1', 'stage2', 'stage3']) {
+        final exists = await DbHelper.query(
+          'SELECT 1 FROM machine_handover WHERE machine_id = @mid AND stage = @stage LIMIT 1',
+          params: {'mid': machineId, 'stage': st},
+        );
+        if (exists.isEmpty) {
+          await DbHelper.execute('''
+            INSERT INTO machine_handover (handover_id, machine_id, stage, status, approved_by, approved_at, created_at, updated_at)
+            VALUES (@hid, @mid, @stage, 'approved', @uid, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ''', params: {
+            'hid': const Uuid().v4(),
+            'mid': machineId,
+            'stage': st,
+            'uid': uid,
+          });
+        } else {
+          await DbHelper.execute('''
+            UPDATE machine_handover SET
+              status = 'approved',
+              approved_by = @uid,
+              approved_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE machine_id = @mid AND stage = @stage
+          ''', params: {'mid': machineId, 'stage': st, 'uid': uid});
+        }
+      }
+
+      await DbHelper.execute('''
+        UPDATE machines SET
+          handover_completed = 1,
+          status = 'normal',
+          updated_at = CURRENT_TIMESTAMP
+        WHERE machine_id = @mid
+      ''', params: {'mid': machineId});
+
+      return jsonEncode({
+        'status': 'success',
+        'action': 'approve',
+        'machine_id': machineId,
+        'machine_no': machineNo,
+        'message': 'อนุมัติการตรวจรับเครื่องจักร $machineNo (ครบทั้ง 3 Stage) สำเร็จ พร้อมใช้งานและจัดวางผังโรงงาน',
+      });
+    }
 
     if (action == 'delete') {
       final machine = await _findMachine(identifier);
@@ -1021,6 +1092,18 @@ class AiToolHandler {
       'status': args['status']?.toString().toLowerCase() ?? 'normal',
       'notes': args['notes'],
     });
+
+    // Ensure handover stages exist for newly created machine
+    for (final st in ['stage1', 'stage2', 'stage3']) {
+      await DbHelper.execute('''
+        INSERT OR IGNORE INTO machine_handover (handover_id, machine_id, stage, status, created_at, updated_at)
+        VALUES (@hid, @mid, @stage, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ''', params: {
+        'hid': const Uuid().v4(),
+        'mid': machineId,
+        'stage': st,
+      });
+    }
 
     final rawSpecs = (args['specs'] is Map)
         ? (args['specs'] as Map).cast<String, dynamic>()
