@@ -228,7 +228,7 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '✓ ดึงข้อมูลขั้นตอน SOP: $selectedMachineStepCount ขั้นตอน',
+                                'ดึงข้อมูลขั้นตอน SOP: $selectedMachineStepCount ขั้นตอน',
                                 style: const TextStyle(
                                   fontSize: 12.5,
                                   fontWeight: FontWeight.bold,

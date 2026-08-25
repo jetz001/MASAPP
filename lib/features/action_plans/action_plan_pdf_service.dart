@@ -378,7 +378,7 @@ class ActionPlanPdfService {
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(4),
                         child: pw.Text(
-                          isDone ? '✓ เสร็จแล้ว' : (step.status == 'in_progress' ? 'กำลังทำ' : 'รอดำเนินการ'),
+                          isDone ? 'เสร็จแล้ว' : (step.status == 'in_progress' ? 'กำลังทำ' : 'รอดำเนินการ'),
                           textAlign: pw.TextAlign.center,
                           style: pw.TextStyle(
                             font: boldFont,

@@ -3,7 +3,16 @@ import 'package:flutter/material.dart';
 class AppTextStyles {
   AppTextStyles._();
 
-  static TextStyle get _base => const TextStyle(fontFamily: 'Prompt');
+  static TextStyle get _base => const TextStyle(
+        fontFamily: 'Prompt',
+        fontFamilyFallback: [
+          'Segoe UI Emoji',
+          'Segoe UI Symbol',
+          'Segoe UI',
+          'Arial',
+          'sans-serif',
+        ],
+      );
 
   // Display
   static TextStyle get displayLarge => _base.copyWith(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.5);

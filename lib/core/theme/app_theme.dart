@@ -29,6 +29,13 @@ class AppTheme {
       useMaterial3: true,
       swapLegacyOnMaterial3: true,
       fontFamily: 'Prompt',
+      fontFamilyFallback: const [
+        'Segoe UI Emoji',
+        'Segoe UI Symbol',
+        'Segoe UI',
+        'Arial',
+        'sans-serif',
+      ],
     );
   }
 
@@ -64,6 +71,13 @@ class AppTheme {
       useMaterial3: true,
       swapLegacyOnMaterial3: true,
       fontFamily: 'Prompt',
+      fontFamilyFallback: const [
+        'Segoe UI Emoji',
+        'Segoe UI Symbol',
+        'Segoe UI',
+        'Arial',
+        'sans-serif',
+      ],
       scaffoldBackground: AppColors.bgBase,
     );
   }
