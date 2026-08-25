@@ -220,6 +220,43 @@ class VectorDbService {
       }
     }
 
+    // Hybrid Fallback: If no vector matches (due to dimension change or remote fallback), match keywords
+    if (scoredList.isEmpty && query.trim().isNotEmpty) {
+      final terms = query.toLowerCase().split(RegExp(r'\s+')).where((t) => t.length >= 2).toList();
+      for (final row in rows) {
+        final content = (row['content_chunk']?.toString() ?? '').toLowerCase();
+        final title = (row['title']?.toString() ?? '').toLowerCase();
+        int matchCount = 0;
+        for (final t in terms) {
+          if (content.contains(t) || title.contains(t)) {
+            matchCount++;
+          }
+        }
+        if (matchCount > 0) {
+          final keywordScore = (matchCount / (terms.isEmpty ? 1 : terms.length)).clamp(0.2, 0.95);
+          Map<String, dynamic> metadata = {};
+          final metaRaw = row['metadata_json']?.toString();
+          if (metaRaw != null && metaRaw.isNotEmpty) {
+            try {
+              metadata = jsonDecode(metaRaw) as Map<String, dynamic>;
+            } catch (_) {}
+          }
+          scoredList.add(
+            VectorSearchResult(
+              vectorId: row['vector_id'].toString(),
+              sourceType: row['source_type'].toString(),
+              sourceId: row['source_id']?.toString(),
+              title: row['title']?.toString() ?? '',
+              category: row['category']?.toString(),
+              contentChunk: row['content_chunk']?.toString() ?? '',
+              metadata: metadata,
+              score: keywordScore,
+            ),
+          );
+        }
+      }
+    }
+
     scoredList.sort((a, b) => b.score.compareTo(a.score));
     return scoredList.take(topK).toList();
   }

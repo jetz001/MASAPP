@@ -132,33 +132,43 @@ class EmbeddingService {
     List<String> texts,
     EmbeddingProviderConfig config,
   ) async {
-    final baseUrl = config.resolvedBaseUrl.replaceAll(RegExp(r'/+$'), '');
-    final uri = Uri.parse('$baseUrl/embeddings');
+    try {
+      final baseUrl = config.resolvedBaseUrl.replaceAll(RegExp(r'/+$'), '');
+      final uri = Uri.parse('$baseUrl/embeddings');
 
-    final response = await http
-        .post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config.apiKey}',
-          },
-          body: jsonEncode({
-            'model': config.model.isNotEmpty ? config.model : 'mistral-embed',
-            'input': texts,
-          }),
-        )
-        .timeout(_requestTimeout);
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${config.apiKey}',
+            },
+            body: jsonEncode({
+              'model': config.model.isNotEmpty ? config.model : 'mistral-embed',
+              'input': texts,
+            }),
+          )
+          .timeout(_requestTimeout);
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final items = data['data'] as List<dynamic>? ?? [];
-      return items.map((item) {
-        final emb = (item['embedding'] as List<dynamic>?) ?? [];
-        return emb.map((v) => (v as num).toDouble()).toList();
-      }).toList();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final items = data['data'] as List<dynamic>? ?? [];
+        return items.map((item) {
+          final emb = (item['embedding'] as List<dynamic>?) ?? [];
+          return emb.map((v) => (v as num).toDouble()).toList();
+        }).toList();
+      }
+
+      if (response.statusCode == 429) {
+        throw HttpException('Mistral API ติด Rate Limit (429) คำขอเกินขีดจำกัด กรุณาสลับใช้ Local AI หรือรอสักครู่');
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        throw HttpException('Mistral API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (HTTP ${response.statusCode})');
+      }
+
+      throw HttpException('Mistral API error (${response.statusCode}): ${response.body}');
+    } on SocketException {
+      throw HttpException('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ Mistral AI ได้ (ตรวจสอบอินเทอร์เน็ต)');
     }
-
-    throw HttpException('Mistral API error (${response.statusCode}): ${response.body}');
   }
 
   /// Ollama Embedding API (Supports local Host:Port and Ollama Cloud)
@@ -177,75 +187,96 @@ class EmbeddingService {
 
     final modelName = config.model.isNotEmpty ? config.model : 'nomic-embed-text';
 
-    // 1. Try Ollama /api/embed (Batch endpoint supported in modern Ollama)
     try {
-      final embedUri = Uri.parse('$baseUrl/api/embed');
-      final response = await http
-          .post(
-            embedUri,
-            headers: headers,
-            body: jsonEncode({
-              'model': modelName,
-              'input': texts,
-            }),
-          )
-          .timeout(_requestTimeout);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final embeddings = data['embeddings'] as List<dynamic>? ?? [];
-        if (embeddings.isNotEmpty) {
-          return embeddings.map((row) {
-            return (row as List<dynamic>).map((v) => (v as num).toDouble()).toList();
-          }).toList();
-        }
-      }
-    } catch (_) {}
-
-    // 2. Fallback to /api/embeddings or handle single input
-    final results = <List<double>>[];
-    final legacyUri = Uri.parse('$baseUrl/api/embeddings');
-    for (final text in texts) {
-      final response = await http
-          .post(
-            legacyUri,
-            headers: headers,
-            body: jsonEncode({
-              'model': modelName,
-              'prompt': text,
-            }),
-          )
-          .timeout(_requestTimeout);
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final emb = (data['embedding'] as List<dynamic>?) ?? [];
-        results.add(emb.map((v) => (v as num).toDouble()).toList());
-      } else {
-        // If 404 on legacy endpoint, try /api/embed for single item
-        final singleEmbedUri = Uri.parse('$baseUrl/api/embed');
-        final singleResp = await http
+      // 1. Try Ollama /api/embed (Batch endpoint supported in modern Ollama)
+      try {
+        final embedUri = Uri.parse('$baseUrl/api/embed');
+        final response = await http
             .post(
-              singleEmbedUri,
+              embedUri,
               headers: headers,
               body: jsonEncode({
                 'model': modelName,
-                'input': text,
+                'input': texts,
               }),
             )
             .timeout(_requestTimeout);
-        if (singleResp.statusCode == 200) {
-          final singleData = jsonDecode(utf8.decode(singleResp.bodyBytes)) as Map<String, dynamic>;
-          final embs = singleData['embeddings'] as List<dynamic>? ?? [];
-          if (embs.isNotEmpty) {
-            results.add((embs.first as List<dynamic>).map((v) => (v as num).toDouble()).toList());
-            continue;
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+          final embeddings = data['embeddings'] as List<dynamic>? ?? [];
+          if (embeddings.isNotEmpty) {
+            return embeddings.map((row) {
+              return (row as List<dynamic>).map((v) => (v as num).toDouble()).toList();
+            }).toList();
           }
+        } else if (response.statusCode == 404) {
+          final body = response.body.toLowerCase();
+          if (body.contains('not found')) {
+            throw HttpException("ไม่พบโมเดล '$modelName' ใน Ollama (กรุณารันคำสั่ง 'ollama run $modelName' เพื่อดาวน์โหลดโมเดล หรือสลับเป็น Local Embedded)");
+          }
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          throw HttpException('Ollama API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (HTTP ${response.statusCode})');
+        } else if (response.statusCode == 429) {
+          throw HttpException('Ollama Cloud ติด Rate Limit (429) กรุณาสลับใช้ Local Embedded หรือรอสักครู่');
         }
-        throw HttpException('Ollama error (${response.statusCode}): ${response.body}');
+      } on HttpException {
+        rethrow;
+      } catch (_) {}
+
+      // 2. Fallback to /api/embeddings or handle single input
+      final results = <List<double>>[];
+      final legacyUri = Uri.parse('$baseUrl/api/embeddings');
+      for (final text in texts) {
+        final response = await http
+            .post(
+              legacyUri,
+              headers: headers,
+              body: jsonEncode({
+                'model': modelName,
+                'prompt': text,
+              }),
+            )
+            .timeout(_requestTimeout);
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+          final emb = (data['embedding'] as List<dynamic>?) ?? [];
+          results.add(emb.map((v) => (v as num).toDouble()).toList());
+        } else if (response.statusCode == 404) {
+          // If 404 on legacy endpoint, try /api/embed for single item
+          final singleEmbedUri = Uri.parse('$baseUrl/api/embed');
+          final singleResp = await http
+              .post(
+                singleEmbedUri,
+                headers: headers,
+                body: jsonEncode({
+                  'model': modelName,
+                  'input': text,
+                }),
+              )
+              .timeout(_requestTimeout);
+          if (singleResp.statusCode == 200) {
+            final singleData = jsonDecode(utf8.decode(singleResp.bodyBytes)) as Map<String, dynamic>;
+            final embs = singleData['embeddings'] as List<dynamic>? ?? [];
+            if (embs.isNotEmpty) {
+              results.add((embs.first as List<dynamic>).map((v) => (v as num).toDouble()).toList());
+              continue;
+            }
+          }
+          throw HttpException("ไม่พบโมเดล '$modelName' ใน Ollama (กรุณารันคำสั่ง 'ollama run $modelName' เพื่อดาวน์โหลดโมเดล หรือสลับเป็น Local Embedded)");
+        } else if (response.statusCode == 401 || response.statusCode == 403) {
+          throw HttpException('Ollama API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (HTTP ${response.statusCode})');
+        } else if (response.statusCode == 429) {
+          throw HttpException('Ollama Cloud ติด Rate Limit (429) กรุณาสลับใช้ Local Embedded');
+        } else {
+          throw HttpException('Ollama error (${response.statusCode}): ${response.body}');
+        }
       }
+      return results;
+    } on SocketException {
+      throw HttpException('ไม่สามารถเชื่อมต่อ Ollama ที่ $baseUrl ได้ (กรุณาเปิด Service Ollama หรือสลับเป็น Local Embedded)');
     }
-    return results;
   }
 
   /// Google Gemini Embedding API (text-embedding-004)
@@ -253,38 +284,48 @@ class EmbeddingService {
     List<String> texts,
     EmbeddingProviderConfig config,
   ) async {
-    final modelName = config.model.isNotEmpty ? config.model : 'text-embedding-004';
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$modelName:batchEmbedContents?key=${config.apiKey}',
-    );
+    try {
+      final modelName = config.model.isNotEmpty ? config.model : 'text-embedding-004';
+      final uri = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$modelName:batchEmbedContents?key=${config.apiKey}',
+      );
 
-    final requests = texts.map((t) {
-      return {
-        'model': 'models/$modelName',
-        'content': {
-          'parts': [{'text': t}],
-        },
-      };
-    }).toList();
-
-    final response = await http
-        .post(
-          uri,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'requests': requests}),
-        )
-        .timeout(_requestTimeout);
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final list = data['embeddings'] as List<dynamic>? ?? [];
-      return list.map((item) {
-        final values = (item['values'] as List<dynamic>?) ?? [];
-        return values.map((v) => (v as num).toDouble()).toList();
+      final requests = texts.map((t) {
+        return {
+          'model': 'models/$modelName',
+          'content': {
+            'parts': [{'text': t}],
+          },
+        };
       }).toList();
-    }
 
-    throw HttpException('Gemini API error (${response.statusCode}): ${response.body}');
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'requests': requests}),
+          )
+          .timeout(_requestTimeout);
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final list = data['embeddings'] as List<dynamic>? ?? [];
+        return list.map((item) {
+          final values = (item['values'] as List<dynamic>?) ?? [];
+          return values.map((v) => (v as num).toDouble()).toList();
+        }).toList();
+      }
+
+      if (response.statusCode == 429 || response.body.contains('RESOURCE_EXHAUSTED')) {
+        throw HttpException('Gemini Embedding ติด Rate Limit / Quota Exceeded (429) กรุณาสลับใช้ Local Embedded หรือรอสักครู่');
+      } else if (response.statusCode == 400 || response.statusCode == 403 || response.statusCode == 401) {
+        throw HttpException('Gemini API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (HTTP ${response.statusCode})');
+      }
+
+      throw HttpException('Gemini API error (${response.statusCode}): ${response.body}');
+    } on SocketException {
+      throw HttpException('ไม่สามารถเชื่อมต่อ Google Gemini API ได้ (ตรวจสอบอินเทอร์เน็ต)');
+    }
   }
 
   /// OpenAI Embedding API (POST /v1/embeddings)
@@ -292,33 +333,43 @@ class EmbeddingService {
     List<String> texts,
     EmbeddingProviderConfig config,
   ) async {
-    final baseUrl = config.resolvedBaseUrl.replaceAll(RegExp(r'/+$'), '');
-    final uri = Uri.parse('$baseUrl/embeddings');
+    try {
+      final baseUrl = config.resolvedBaseUrl.replaceAll(RegExp(r'/+$'), '');
+      final uri = Uri.parse('$baseUrl/embeddings');
 
-    final response = await http
-        .post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${config.apiKey}',
-          },
-          body: jsonEncode({
-            'model': config.model.isNotEmpty ? config.model : 'text-embedding-3-small',
-            'input': texts,
-          }),
-        )
-        .timeout(_requestTimeout);
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${config.apiKey}',
+            },
+            body: jsonEncode({
+              'model': config.model.isNotEmpty ? config.model : 'text-embedding-3-small',
+              'input': texts,
+            }),
+          )
+          .timeout(_requestTimeout);
 
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final items = data['data'] as List<dynamic>? ?? [];
-      return items.map((item) {
-        final emb = (item['embedding'] as List<dynamic>?) ?? [];
-        return emb.map((v) => (v as num).toDouble()).toList();
-      }).toList();
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final items = data['data'] as List<dynamic>? ?? [];
+        return items.map((item) {
+          final emb = (item['embedding'] as List<dynamic>?) ?? [];
+          return emb.map((v) => (v as num).toDouble()).toList();
+        }).toList();
+      }
+
+      if (response.statusCode == 429 || response.body.contains('insufficient_quota')) {
+        throw HttpException('OpenAI API ติด Rate Limit หรือโควต้าหมด (429) กรุณาสลับใช้ Local Embedded');
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        throw HttpException('OpenAI API Key ไม่ถูกต้อง หรือไม่มีสิทธิ์เข้าถึง (HTTP ${response.statusCode})');
+      }
+
+      throw HttpException('OpenAI API error (${response.statusCode}): ${response.body}');
+    } on SocketException {
+      throw HttpException('ไม่สามารถเชื่อมต่อ OpenAI API ได้ (ตรวจสอบอินเทอร์เน็ต)');
     }
-
-    throw HttpException('OpenAI API error (${response.statusCode}): ${response.body}');
   }
 
   /// Zero-dependency deterministic N-Gram TF-IDF Vectorizer (256 dimensions)

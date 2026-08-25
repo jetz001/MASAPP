@@ -2027,31 +2027,82 @@ class _AiSettingsTabState extends ConsumerState<_AiSettingsTab> {
                           width: 1,
                         ),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            _embStatusSuccess
-                                ? Icons.check_circle
-                                : Icons.error_outline,
-                            size: 18,
-                            color: _embStatusSuccess ? Colors.teal : Colors.red,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                _embStatusSuccess
+                                    ? Icons.check_circle
+                                    : Icons.error_outline,
+                                size: 18,
+                                color: _embStatusSuccess ? Colors.teal : Colors.red,
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              Expanded(
+                                child: Text(
+                                  _embStatusMsg!,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: _embStatusSuccess
+                                        ? Colors.teal
+                                        : Colors.red,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: Text(
-                              _embStatusMsg!,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: _embStatusSuccess
-                                    ? Colors.teal
-                                    : Colors.red,
+                          if (!_embStatusSuccess && _selectedEmbeddingProvider != EmbeddingProviderKind.local) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.teal.shade800,
+                                  side: BorderSide(color: Colors.teal.shade700),
+                                ),
+                                onPressed: () async {
+                                  await _switchEmbeddingProvider(EmbeddingProviderKind.local);
+                                  await _testAndSaveEmbedding();
+                                },
+                                icon: const Icon(Icons.offline_bolt_outlined, size: 18),
+                                label: const Text('สลับไปใช้ Local Embedded ทันที (ฟรี 100% / ไม่กินแรม)'),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
                   ],
+
+                  const SizedBox(height: AppSpacing.md),
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.md),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
+                      border: Border.all(
+                        color: Colors.teal.withValues(alpha: 0.25),
+                        width: 1,
+                      ),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.shield_outlined, size: 20, color: Colors.teal),
+                        SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Text(
+                            '🛡️ ระบบ Auto-Fallback อัจฉริยะ:\n'
+                            'หาก API Key ของผู้ให้บริการ หรือเซิร์ฟเวอร์ Ollama ขัดข้อง/ติด Rate Limit (429) ระบบจะสลับไปใช้ Local AI (TF-IDF Vectorizer) ให้อัตโนมัติทันที เพื่อให้ระบบฐานข้อมูลความรู้และคำค้นหาทำงานได้ต่อเนื่อง 100%',
+                            style: TextStyle(fontSize: 12, height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   const SizedBox(height: AppSpacing.xl),
 
