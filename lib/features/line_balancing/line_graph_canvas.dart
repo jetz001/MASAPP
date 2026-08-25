@@ -153,8 +153,9 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              for (int i = 0; i < state.stations.length; i++) ...[
-                final station = state.stations[i];
+              ...state.stations.asMap().entries.expand((entry) {
+                final i = entry.key;
+                final station = entry.value;
                 final nextStation = i < state.stations.length - 1
                     ? state.stations[i + 1]
                     : null;
@@ -162,53 +163,59 @@ class _LineGraphCanvasState extends ConsumerState<LineGraphCanvas> {
                 final isLinkTarget =
                     _linkingFromId != null && _linkingFromId != station.id;
 
-                // 1. Station Card (Static / Solid)
-                GestureDetector(
-                  onTap: () {
-                    if (_linkingFromId != null &&
-                        _linkingFromId != station.id) {
-                      notifier.linkStations(
-                        _linkingFromId!,
-                        station.id,
-                        defaultColor: kWokwiColors[_selectedColorIndex]
-                            .toARGB32(),
+                final items = <Widget>[
+                  // 1. Station Card (Static / Solid)
+                  GestureDetector(
+                    onTap: () {
+                      if (_linkingFromId != null &&
+                          _linkingFromId != station.id) {
+                        notifier.linkStations(
+                          _linkingFromId!,
+                          station.id,
+                          defaultColor: kWokwiColors[_selectedColorIndex]
+                              .toARGB32(),
+                        );
+                        setState(() => _linkingFromId = null);
+                      }
+                    },
+                    onDoubleTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AddStationDialog(
+                          notifier: notifier,
+                          initialStation: station,
+                        ),
                       );
-                      setState(() => _linkingFromId = null);
-                    }
-                  },
-                  onDoubleTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (_) => AddStationDialog(
-                        notifier: notifier,
-                        initialStation: station,
-                      ),
-                    );
-                  },
-                  child: _buildStationCard(
-                    station,
-                    i,
-                    isLinking,
-                    isLinkTarget,
-                    state,
-                    notifier,
-                    theme,
-                    isDark,
+                    },
+                    child: _buildStationCard(
+                      station,
+                      i,
+                      isLinking,
+                      isLinkTarget,
+                      state,
+                      notifier,
+                      theme,
+                      isDark,
+                    ),
                   ),
-                ),
+                ];
 
                 // 2. Flow Connector & WIP Buffer between Station i and Station i+1
-                if (i < state.stations.length - 1 && nextStation != null) ...[
-                  _buildStaticFlowConnector(
-                    fromSt: station,
-                    toSt: nextStation,
-                    state: state,
-                    notifier: notifier,
-                    theme: theme,
-                    isDark: isDark,
-                  ),
-                ],
-              ],
+                if (i < state.stations.length - 1 && nextStation != null) {
+                  items.add(
+                    _buildStaticFlowConnector(
+                      fromSt: station,
+                      toSt: nextStation,
+                      state: state,
+                      notifier: notifier,
+                      theme: theme,
+                      isDark: isDark,
+                    ),
+                  );
+                }
+
+                return items;
+              }),
 
               // 3. Add Next Station Button at end of sequence
               const SizedBox(width: 24),
