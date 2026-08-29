@@ -471,17 +471,19 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Building Section Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: Colors.blueGrey.shade50,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
               border: const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
             ),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(Icons.apartment_rounded, size: 16, color: Colors.blueAccent),
                 const SizedBox(width: 6),

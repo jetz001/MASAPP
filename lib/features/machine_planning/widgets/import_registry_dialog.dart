@@ -174,43 +174,46 @@ class _ImportRegistryDialogState extends ConsumerState<ImportRegistryDialog> {
                               ? const Center(
                                   child: Text('ไม่พบเครื่องจักรที่ตรงกับเงื่อนไข', style: TextStyle(color: Colors.grey, fontSize: 12)),
                                 )
-                              : ListView.separated(
-                                  itemCount: filteredMachines.length,
-                                  separatorBuilder: (ctx, idx) => const Divider(height: 1),
-                                  itemBuilder: (ctx, i) {
-                                    final m = filteredMachines[i];
-                                    final mid = m.machineId ?? '';
-                                    final isSelected = _selectedMachineIds.contains(mid);
+                              : Material(
+                                  color: Colors.transparent,
+                                  child: ListView.separated(
+                                    itemCount: filteredMachines.length,
+                                    separatorBuilder: (ctx, idx) => const Divider(height: 1),
+                                    itemBuilder: (ctx, i) {
+                                      final m = filteredMachines[i];
+                                      final mid = m.machineId ?? '';
+                                      final isSelected = _selectedMachineIds.contains(mid);
 
-                                    return CheckboxListTile(
-                                      value: isSelected,
-                                      dense: true,
-                                      controlAffinity: ListTileControlAffinity.leading,
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-                                      title: Text(
-                                        '[${m.machineNo}] ${m.machineName ?? ''}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      return CheckboxListTile(
+                                        value: isSelected,
+                                        dense: true,
+                                        controlAffinity: ListTileControlAffinity.leading,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                                        title: Text(
+                                          '[${m.machineNo}] ${m.machineName ?? ''}',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        'แผนก: ${m.deptName ?? '-'} | สถานที่: ${m.location ?? '-'}',
-                                        style: const TextStyle(fontSize: 10.5, color: Colors.grey),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      onChanged: (val) {
-                                        setState(() {
-                                          if (val == true) {
-                                            _selectedMachineIds.add(mid);
-                                          } else {
-                                            _selectedMachineIds.remove(mid);
-                                          }
-                                        });
-                                      },
-                                    );
-                                  },
+                                        subtitle: Text(
+                                          'แผนก: ${m.deptName ?? '-'} | สถานที่: ${m.location ?? '-'}',
+                                          style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            if (val == true) {
+                                              _selectedMachineIds.add(mid);
+                                            } else {
+                                              _selectedMachineIds.remove(mid);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
                                 ),
                         ),
                       ),
