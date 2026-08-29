@@ -47,94 +47,108 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
       appBar: AppBar(
         titleSpacing: 16,
         title: const Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.calendar_month_outlined, color: Colors.blueAccent, size: 22),
             SizedBox(width: 8),
-            Text(
-              'แผนการเบิกใช้เครื่องจักรผลิต (Machine Planning)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            Flexible(
+              child: Text(
+                'แผนการใช้เครื่องจักร (Machine Planning)',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),
         actions: [
           // Button: Import from Line Balancing
-          FilledButton.tonalIcon(
-            icon: const Icon(Icons.account_tree_outlined, size: 16),
-            label: const Text('ดึงจาก Line Balancing', style: TextStyle(fontSize: 12.5)),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              backgroundColor: Colors.teal.shade50,
-              foregroundColor: Colors.teal.shade900,
+          Tooltip(
+            message: 'ดึงเครื่องจักรจาก Line Balancing',
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.account_tree_outlined, size: 15),
+              label: const Text('Line Balancing', style: TextStyle(fontSize: 12)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                backgroundColor: Colors.teal.shade50,
+                foregroundColor: Colors.teal.shade900,
+              ),
+              onPressed: () => ImportLineDialog.show(context),
             ),
-            onPressed: () => ImportLineDialog.show(context),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
           // Button: Import from Machine Registry
-          FilledButton.tonalIcon(
-            icon: const Icon(Icons.precision_manufacturing_outlined, size: 16),
-            label: const Text('ดึงจากทะเบียนเครื่องจักร', style: TextStyle(fontSize: 12.5)),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              backgroundColor: Colors.blue.shade50,
-              foregroundColor: Colors.blue.shade900,
+          Tooltip(
+            message: 'ดึงเครื่องจักรจากทะเบียนเครื่องจักร',
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.precision_manufacturing_outlined, size: 15),
+              label: const Text('ทะเบียนเครื่องจักร', style: TextStyle(fontSize: 12)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                backgroundColor: Colors.blue.shade50,
+                foregroundColor: Colors.blue.shade900,
+              ),
+              onPressed: () => ImportRegistryDialog.show(context),
             ),
-            onPressed: () => ImportRegistryDialog.show(context),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
           // Button: Export PDF
-          OutlinedButton.icon(
-            icon: const Icon(Icons.picture_as_pdf_outlined, size: 16, color: Colors.red),
-            label: const Text('ส่งออก PDF', style: TextStyle(fontSize: 12.5)),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            onPressed: state.plan.items.isEmpty
-                ? null
-                : () async {
-                    try {
-                      await MachinePlanPdfService.generateAndOpen(
-                        plan: state.plan,
-                        buildingFilter: state.selectedBuilding,
-                      );
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้าง PDF: $e')),
+          Tooltip(
+            message: 'ส่งออกรายงาน PDF',
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.picture_as_pdf_outlined, size: 15, color: Colors.red),
+              label: const Text('PDF', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              onPressed: state.plan.items.isEmpty
+                  ? null
+                  : () async {
+                      try {
+                        await MachinePlanPdfService.generateAndOpen(
+                          plan: state.plan,
+                          buildingFilter: state.selectedBuilding,
                         );
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้าง PDF: $e')),
+                          );
+                        }
                       }
-                    }
-                  },
+                    },
+            ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
           // Button: Export Excel
-          OutlinedButton.icon(
-            icon: const Icon(Icons.table_chart_outlined, size: 16, color: Colors.green),
-            label: const Text('ส่งออก Excel', style: TextStyle(fontSize: 12.5)),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            ),
-            onPressed: state.plan.items.isEmpty
-                ? null
-                : () async {
-                    try {
-                      await MachinePlanExcelService.generateAndOpen(
-                        plan: state.plan,
-                        buildingFilter: state.selectedBuilding,
-                      );
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้าง Excel: $e')),
+          Tooltip(
+            message: 'ส่งออกไฟล์ Excel (.xlsx)',
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.table_chart_outlined, size: 15, color: Colors.green),
+              label: const Text('Excel', style: TextStyle(fontSize: 12)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              ),
+              onPressed: state.plan.items.isEmpty
+                  ? null
+                  : () async {
+                      try {
+                        await MachinePlanExcelService.generateAndOpen(
+                          plan: state.plan,
+                          buildingFilter: state.selectedBuilding,
                         );
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('เกิดข้อผิดพลาดในการสร้าง Excel: $e')),
+                          );
+                        }
                       }
-                    }
-                  },
+                    },
+            ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
         ],
       ),
       body: Column(
