@@ -945,6 +945,132 @@ class VectorDbService {
     return count;
   }
 
+  /// Automatically sync a Machine Weekly Plan / Allocation Schedule to Vector DB
+  static Future<void> syncMachinePlan(String planId) async {
+    await ensureTable();
+    try {
+      final pRows = await DbHelper.query(
+        'SELECT * FROM machine_plans WHERE plan_id = @id LIMIT 1',
+        params: {'id': planId},
+      );
+      if (pRows.isEmpty) return;
+
+      final p = pRows.first;
+      final weekStart = p['week_start_date']?.toString() ?? '';
+      final weekEnd = p['week_end_date']?.toString() ?? '';
+      final weekNo = p['week_number']?.toString() ?? '';
+      final year = p['year']?.toString() ?? '';
+      final status = p['status']?.toString() ?? 'draft';
+      final notes = p['notes']?.toString() ?? '';
+
+      // Fetch items in this plan
+      final itemRows = await DbHelper.query(
+        'SELECT * FROM machine_plan_items WHERE plan_id = @id ORDER BY building, order_index',
+        params: {'id': planId},
+      );
+
+      final buffer = StringBuffer();
+      buffer.writeln('แผนการใช้เครื่องจักรและจัดสรรการผลิตรายสัปดาห์ (Weekly Machine Allocation Plan):');
+      buffer.writeln('สัปดาห์ที่: $weekNo/$year | ช่วงวันที่: $weekStart ถึง $weekEnd | สถานะ: $status');
+      if (notes.isNotEmpty) buffer.writeln('หมายเหตุแผนงาน: $notes');
+      buffer.writeln('รายการเครื่องจักรที่จัดสรรการผลิต (${itemRows.length} รายการ):');
+
+      for (final item in itemRows) {
+        final bld = item['building'] ?? 'ส่วนกลาง';
+        final room = item['room'] ?? '-';
+        final mCode = item['machine_code'] ?? '';
+        final mName = item['machine_name'] ?? '';
+        final line = item['line_name'] ?? '-';
+        final st = item['station_name'] ?? '-';
+        final remarks = item['remarks'] ?? '';
+
+        String getDayStr(dynamic rawJson) {
+          if (rawJson == null || rawJson.toString().isEmpty) return '-';
+          try {
+            final map = jsonDecode(rawJson.toString());
+            final time = map['time']?.toString();
+            final isOt = map['is_ot'] == true;
+            if (time == null || time.isEmpty) return '-';
+            return isOt ? '$time (OT)' : time;
+          } catch (_) {
+            return '-';
+          }
+        }
+
+        final mon = getDayStr(item['day_mon_json']);
+        final tue = getDayStr(item['day_tue_json']);
+        final wed = getDayStr(item['day_wed_json']);
+        final thu = getDayStr(item['day_thu_json']);
+        final fri = getDayStr(item['day_fri_json']);
+        final sat = getDayStr(item['day_sat_json']);
+        final sun = getDayStr(item['day_sun_json']);
+
+        buffer.writeln(
+          '- [$bld] $mName ($mCode) | ห้อง: $room | สายการผลิต: $line (สถานี: $st)\n'
+          '  ตารางเดินเครื่อง: จ: $mon | อ: $tue | พ: $wed | พฤ: $thu | ศ: $fri | ส: $sat | อา: $sun'
+          '${remarks.toString().isNotEmpty ? ' | หมายเหตุ: $remarks' : ''}',
+        );
+      }
+
+      final chunk = buffer.toString();
+      final title = 'แผนการใช้เครื่องจักร สัปดาห์ W$weekNo ($weekStart - $weekEnd)';
+
+      final emb = await EmbeddingService.getEmbedding(chunk);
+      if (emb.isNotEmpty) {
+        await upsertVector(
+          vectorId: 'vec_mplan_$planId',
+          sourceType: 'machine_plan',
+          sourceId: planId,
+          title: title,
+          category: 'machine_planning',
+          contentChunk: chunk,
+          embedding: emb,
+          metadata: {
+            'plan_id': planId,
+            'week_number': weekNo,
+            'year': year,
+            'week_start_date': weekStart,
+            'week_end_date': weekEnd,
+            'status': status,
+            'total_machines': itemRows.length,
+          },
+        );
+        _log.i('[VectorDB] Auto-synced Machine Weekly Plan $title to Vector DB');
+      }
+    } catch (e) {
+      _log.w('[VectorDB] Failed to auto-sync machine plan: $e');
+    }
+  }
+
+  /// Delete vector for a Machine Plan
+  static Future<void> deleteMachinePlanVector(String planId) async {
+    try {
+      await DbHelper.execute(
+        "DELETE FROM knowledge_vectors WHERE source_type = 'machine_plan' AND source_id = @id",
+        params: {'id': planId},
+      );
+    } catch (_) {}
+  }
+
+  /// Sync all machine plans to Vector DB
+  static Future<int> syncAllMachinePlans() async {
+    await ensureTable();
+    int count = 0;
+    try {
+      final rows = await DbHelper.query('SELECT plan_id FROM machine_plans');
+      for (final r in rows) {
+        final pId = r['plan_id']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          await syncMachinePlan(pId);
+          count++;
+        }
+      }
+    } catch (e) {
+      _log.e('Failed to sync all machine plans: $e');
+    }
+    return count;
+  }
+
   /// Index/Re-index historical Work Orders (RCA, Symptoms, Solutions), Machines, Spare Parts, Tools, and Lean Processes into Vector DB.
   static Future<int> indexHistoricalKnowledge() async {
     await ensureTable();
@@ -1141,6 +1267,16 @@ class VectorDbService {
         final uId = u['user_id']?.toString();
         if (uId != null && uId.isNotEmpty) {
           await syncTechnicianSkillAndPortfolio(uId);
+          count++;
+        }
+      }
+
+      // 10. Index Machine Weekly Allocation Plans
+      final planRows = await DbHelper.query('SELECT plan_id FROM machine_plans');
+      for (final p in planRows) {
+        final pId = p['plan_id']?.toString();
+        if (pId != null && pId.isNotEmpty) {
+          await syncMachinePlan(pId);
           count++;
         }
       }

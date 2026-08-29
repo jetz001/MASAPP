@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/database/db_helper.dart';
+import '../../../core/ai/vector_db_service.dart';
 import '../models/machine_plan_models.dart';
 
 DateTime getMonday(DateTime date) {
@@ -192,6 +193,9 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       }
 
       state = state.copyWith(plan: plan, isLoading: false);
+      if (plan.items.isNotEmpty) {
+        VectorDbService.syncMachinePlan(plan.planId);
+      }
     } catch (e) {
       state = state.copyWith(isLoading: false);
     }
@@ -310,6 +314,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       state = state.copyWith(
         plan: state.plan.copyWith(items: updatedList),
       );
+      VectorDbService.syncMachinePlan(state.plan.planId);
     } catch (_) {}
   }
 
@@ -369,6 +374,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       state = state.copyWith(
         plan: state.plan.copyWith(items: [...state.plan.items, ...newItems]),
       );
+      VectorDbService.syncMachinePlan(state.plan.planId);
     } catch (_) {}
   }
 
@@ -394,6 +400,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       'val': jsonEncode(slot.toJson()),
       'id': itemId,
     });
+    VectorDbService.syncMachinePlan(state.plan.planId);
   }
 
   Future<void> updateItemMachine(String itemId, String machineId) async {
@@ -430,6 +437,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       'mname': mcName,
       'id': itemId,
     });
+    VectorDbService.syncMachinePlan(state.plan.planId);
   }
 
   Future<void> updateItemDetails(
@@ -463,6 +471,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       'rmk': remarks,
       'id': itemId,
     });
+    VectorDbService.syncMachinePlan(state.plan.planId);
   }
 
   Future<void> removeItem(String itemId) async {
@@ -475,6 +484,7 @@ class MachinePlanningNotifier extends StateNotifier<MachinePlanningState> {
       'DELETE FROM machine_plan_items WHERE item_id = @id',
       params: {'id': itemId},
     );
+    VectorDbService.syncMachinePlan(state.plan.planId);
   }
 
   Future<void> _insertItemToDb(MachinePlanItem item) async {
