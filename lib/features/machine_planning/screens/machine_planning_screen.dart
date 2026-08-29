@@ -19,10 +19,14 @@ class MachinePlanningScreen extends ConsumerStatefulWidget {
 
 class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _horizontalScrollController = ScrollController();
+  final ScrollController _verticalScrollController = ScrollController();
 
   @override
   void dispose() {
     _searchController.dispose();
+    _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
     super.dispose();
   }
 
@@ -419,29 +423,38 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
       buildingGroups.putIfAbsent(bld, () => []).add(item);
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.vertical,
+    return Scrollbar(
+      controller: _verticalScrollController,
+      thumbVisibility: true,
       child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            minWidth: MediaQuery.of(context).size.width,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (final bldEntry in buildingGroups.entries) ...[
-                _buildBuildingSection(
-                  context,
-                  bldEntry.key,
-                  bldEntry.value,
-                  notifier,
-                  days,
-                  state.plan.weekStartDate,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ],
+        controller: _verticalScrollController,
+        scrollDirection: Axis.vertical,
+        child: Scrollbar(
+          controller: _horizontalScrollController,
+          thumbVisibility: true,
+          trackVisibility: true,
+          child: SingleChildScrollView(
+            controller: _horizontalScrollController,
+            scrollDirection: Axis.horizontal,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final bldEntry in buildingGroups.entries) ...[
+                    _buildBuildingSection(
+                      context,
+                      bldEntry.key,
+                      bldEntry.value,
+                      notifier,
+                      days,
+                      state.plan.weekStartDate,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -457,7 +470,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
     DateTime weekStartDate,
   ) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(8),
@@ -476,7 +489,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
         children: [
           // Building Section Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
             decoration: BoxDecoration(
               color: Colors.blueGrey.shade50,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
@@ -501,10 +514,10 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
           ),
           DataTable(
             headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
-            dataRowMinHeight: 48,
-            dataRowMaxHeight: 56,
-            columnSpacing: 10,
-            horizontalMargin: 8,
+            dataRowMinHeight: 46,
+            dataRowMaxHeight: 54,
+            columnSpacing: 8,
+            horizontalMargin: 6,
             border: const TableBorder(
               horizontalInside: BorderSide(color: Colors.black45, width: 0.6),
               verticalInside: BorderSide(color: Colors.black45, width: 0.6),
@@ -513,11 +526,11 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
               // ลำดับ
               const DataColumn(
                 label: SizedBox(
-                  width: 36,
+                  width: 32,
                   child: Center(
                     child: Text(
                       'ลำดับ',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                     ),
                   ),
                 ),
@@ -525,24 +538,24 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
               // อาคาร
               const DataColumn(
                 label: SizedBox(
-                  width: 85,
+                  width: 75,
                   child: Text(
                     'อาคาร',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                   ),
                 ),
               ),
               // เครื่องจักร
               const DataColumn(
                 label: SizedBox(
-                  width: 190,
+                  width: 165,
                   child: Text(
                     'เครื่องจักร',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                   ),
                 ),
               ),
-              // Days Mon - Sat
+              // Days Mon - Sun
               ...days.map((day) {
                 final dayOffset = days.indexOf(day);
                 final dayDate = weekStartDate.add(Duration(days: dayOffset));
@@ -551,9 +564,9 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
 
                 return DataColumn(
                   label: SizedBox(
-                    width: 95,
+                    width: 80,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1),
                       decoration: BoxDecoration(
                         color: day.headerColor,
                         borderRadius: BorderRadius.circular(4),
@@ -565,14 +578,14 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                             day.labelTh,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              fontSize: 11.5,
+                              fontSize: 11,
                               color: day.headerTextColor,
                             ),
                           ),
                           Text(
                             dateLabel,
                             style: TextStyle(
-                              fontSize: 9,
+                              fontSize: 8.5,
                               color: day.headerTextColor.withValues(alpha: 0.9),
                             ),
                           ),
@@ -585,31 +598,31 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
               // ห้อง
               const DataColumn(
                 label: SizedBox(
-                  width: 90,
+                  width: 80,
                   child: Text(
                     'ห้อง',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                   ),
                 ),
               ),
               // หมายเหตุ
               const DataColumn(
                 label: SizedBox(
-                  width: 150,
+                  width: 130,
                   child: Text(
                     'หมายเหตุ',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Colors.red),
                   ),
                 ),
               ),
               // Action
               const DataColumn(
                 label: SizedBox(
-                  width: 44,
+                  width: 38,
                   child: Center(
                     child: Text(
                       'จัดการ',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                     ),
                   ),
                 ),
@@ -624,11 +637,11 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   // No
                   DataCell(
                     SizedBox(
-                      width: 36,
+                      width: 32,
                       child: Center(
                         child: Text(
                           '$index',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
                         ),
                       ),
                     ),
@@ -636,7 +649,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   // Building Cell (Editable)
                   DataCell(
                     SizedBox(
-                      width: 85,
+                      width: 75,
                       child: InkWell(
                         onTap: () => _editBuildingDialog(context, item, notifier),
                         child: Padding(
@@ -646,7 +659,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                               Expanded(
                                 child: Text(
                                   item.building?.isNotEmpty == true ? item.building! : buildingName,
-                                  style: const TextStyle(fontSize: 11.5, color: Colors.black87),
+                                  style: const TextStyle(fontSize: 11, color: Colors.black87),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -660,16 +673,16 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   // Machine Code & Name with Backup switcher
                   DataCell(
                     SizedBox(
-                      width: 190,
+                      width: 165,
                       child: _buildMachineCell(context, item, notifier),
                     ),
                   ),
-                  // Mon - Sat cells
+                  // Mon - Sun cells
                   ...days.map((day) => _buildDayCell(context, item, day, notifier)),
                   // Room Cell
                   DataCell(
                     SizedBox(
-                      width: 90,
+                      width: 80,
                       child: InkWell(
                         onTap: () => _editRoomDialog(context, item, notifier),
                         child: Padding(
@@ -680,7 +693,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                                 child: Text(
                                   item.room?.isNotEmpty == true ? item.room! : 'ระบุห้อง...',
                                   style: TextStyle(
-                                    fontSize: 11.5,
+                                    fontSize: 11,
                                     color: item.room?.isNotEmpty == true
                                         ? Colors.black87
                                         : Colors.grey.shade400,
@@ -688,7 +701,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
+                              Icon(Icons.edit, size: 10, color: Colors.grey.shade400),
                             ],
                           ),
                         ),
@@ -698,7 +711,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   // Remarks Cell
                   DataCell(
                     SizedBox(
-                      width: 150,
+                      width: 130,
                       child: InkWell(
                         onTap: () => _editRemarksDialog(context, item, notifier),
                         child: Padding(
@@ -709,7 +722,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                                 child: Text(
                                   item.remarks.isNotEmpty ? item.remarks : 'เพิ่มหมายเหตุ...',
                                   style: TextStyle(
-                                    fontSize: 11.5,
+                                    fontSize: 11,
                                     fontWeight: item.remarks.contains('**')
                                         ? FontWeight.bold
                                         : FontWeight.normal,
@@ -723,7 +736,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
+                              Icon(Icons.edit, size: 10, color: Colors.grey.shade400),
                             ],
                           ),
                         ),
@@ -733,7 +746,7 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   // Action (Delete)
                   DataCell(
                     SizedBox(
-                      width: 44,
+                      width: 38,
                       child: Center(
                         child: IconButton(
                           icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
@@ -850,8 +863,8 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
           }
         },
         child: Container(
-          width: 95,
-          height: 44,
+          width: 80,
+          height: 42,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: slot.displayBgColor,
