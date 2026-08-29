@@ -919,6 +919,7 @@ class DbInitializer {
       await _ensureKnowledgeVectorsSchema(db);
       await _ensureAiChatHistorySchema(db);
       await _ensureWorkOrderRcaSchema(db);
+      await _ensureMachinePlanningSchema(db);
       await _backfillLegacyFileAssets(db);
       await _migrateLegacyFileAssetsToManagedStorage(db);
 
@@ -1890,6 +1891,79 @@ class DbInitializer {
       }
     } catch (e) {
       _log.e('Failed to ensure work_order_rca schema: $e');
+    }
+  }
+
+  static Future<void> _ensureMachinePlanningSchema(Database db) async {
+    try {
+      // 1. Create machine_plans table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS machine_plans (
+          plan_id             TEXT PRIMARY KEY,
+          week_start_date     TEXT NOT NULL,
+          week_end_date       TEXT NOT NULL,
+          title               TEXT NOT NULL,
+          note                TEXT,
+          created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+
+      // 2. Create machine_plan_items table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS machine_plan_items (
+          item_id             TEXT PRIMARY KEY,
+          plan_id             TEXT NOT NULL REFERENCES machine_plans(plan_id) ON DELETE CASCADE,
+          line_id             TEXT,
+          station_id          TEXT,
+          machine_id          TEXT NOT NULL,
+          machine_code        TEXT NOT NULL,
+          machine_name        TEXT NOT NULL,
+          building            TEXT,
+          room                TEXT,
+          day_mon             TEXT,
+          day_tue             TEXT,
+          day_wed             TEXT,
+          day_thu             TEXT,
+          day_fri             TEXT,
+          day_sat             TEXT,
+          day_sun             TEXT,
+          remarks             TEXT,
+          order_index         INTEGER NOT NULL DEFAULT 0,
+          created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      ''');
+
+      // 3. Ensure indexes
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_plan_week ON machine_plans(week_start_date)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_plan_items_plan ON machine_plan_items(plan_id)');
+      await db.execute('CREATE INDEX IF NOT EXISTS idx_plan_items_mc ON machine_plan_items(machine_id)');
+
+      // 4. Ensure extra columns on production_line_stations
+      final stationTable = await db.query(
+        'sqlite_master',
+        where: 'type = ? AND name = ?',
+        whereArgs: ['table', 'production_line_stations'],
+      );
+      if (stationTable.isNotEmpty) {
+        final cols = await db.rawQuery("PRAGMA table_info('production_line_stations');");
+        final colNames = cols.map((c) => c['name']?.toString()).toSet();
+        if (!colNames.contains('secondary_machine_ids')) {
+          _log.i('Migration: Adding secondary_machine_ids to production_line_stations...');
+          await db.execute('ALTER TABLE production_line_stations ADD COLUMN secondary_machine_ids TEXT;');
+        }
+        if (!colNames.contains('building')) {
+          _log.i('Migration: Adding building to production_line_stations...');
+          await db.execute('ALTER TABLE production_line_stations ADD COLUMN building TEXT;');
+        }
+        if (!colNames.contains('room')) {
+          _log.i('Migration: Adding room to production_line_stations...');
+          await db.execute('ALTER TABLE production_line_stations ADD COLUMN room TEXT;');
+        }
+      }
+    } catch (e) {
+      _log.e('Failed to ensure machine_planning schema: $e');
     }
   }
 }

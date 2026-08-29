@@ -187,6 +187,13 @@ const _navItems = [
     route: '/machine-registry',
   ),
   _NavItem(
+    label: 'แผนการใช้เครื่องจักร',
+    icon: HugeIcons.strokeRoundedCalendar01,
+    iconSelected: HugeIcons.strokeRoundedCalendar01,
+    route: '/machine-planning',
+    roles: ['engineer', 'executive', 'admin'],
+  ),
+  _NavItem(
     label: 'ทะเบียนพื้นที่โรงงาน',
     icon: HugeIcons.strokeRoundedLayers01,
     iconSelected: HugeIcons.strokeRoundedLayers01,
@@ -266,7 +273,7 @@ const _navItems = [
     roles: ['engineer', 'executive', 'admin'],
   ),
   _NavItem(
-    label: 'แผนปฏิบัติการ',
+    label: 'แผนการปรับปรุง',
     icon: HugeIcons.strokeRoundedTask02,
     iconSelected: HugeIcons.strokeRoundedTask02,
     route: '/action-plans',

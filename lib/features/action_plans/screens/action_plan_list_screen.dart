@@ -47,7 +47,7 @@ class _ActionPlanListScreenState extends ConsumerState<ActionPlanListScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            const Text('ทะเบียนแผนปฏิบัติการ (Action Plan Registry)'),
+            const Text('ทะเบียนแผนการปรับปรุง (Action Plan Registry)'),
           ],
         ),
         actions: [

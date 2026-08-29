@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'line_balancing_provider.dart';
 import 'add_station_dialog.dart';
 import 'line_graph_canvas.dart';
+import '../machine_planning/providers/machine_planning_provider.dart';
 
 class LineBalancingScreen extends ConsumerWidget {
   const LineBalancingScreen({super.key});
@@ -182,16 +184,43 @@ class LineBalancingScreen extends ConsumerWidget {
             const SizedBox(width: 8),
 
             // Button: เพิ่มสถานี
+            FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('เพิ่มสถานี'),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => AddStationDialog(notifier: notifier),
+                );
+              },
+            ),
+            const SizedBox(width: 8),
+
+            // Button: ส่งไปจัดแผนสัปดาห์
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
-              child: FilledButton.icon(
-                icon: const Icon(Icons.add),
-                label: const Text('เพิ่มสถานี'),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => AddStationDialog(notifier: notifier),
-                  );
+              child: FilledButton.tonalIcon(
+                icon: const Icon(Icons.calendar_month_rounded, size: 16),
+                label: const Text('จัดแผนสัปดาห์', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.teal.shade50,
+                  foregroundColor: Colors.teal.shade900,
+                ),
+                onPressed: () async {
+                  if (state.stations.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('กรุณาเพิ่มสถานีและเครื่องจักรในไลน์ก่อนจัดแผน')),
+                    );
+                    return;
+                  }
+                  await notifier.saveCurrentLine();
+                  await ref.read(machinePlanningProvider.notifier).importFromLineBalancing(
+                        state.lineId,
+                        overwrite: false,
+                      );
+                  if (context.mounted) {
+                    context.go('/machine-planning');
+                  }
                 },
               ),
             ),

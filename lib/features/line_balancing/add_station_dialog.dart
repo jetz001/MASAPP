@@ -29,6 +29,7 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
   String? selectedMachineId;
   String? selectedMachineName;
   String? selectedMachineNo;
+  List<String> secondaryMachineIds = [];
   int selectedMachineStepCount = 0;
   String? selectedSopTitle;
   bool isCalculating = false;
@@ -43,6 +44,8 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
   late final TextEditingController _cycleTimeController;
   late final TextEditingController _nameController;
   late final TextEditingController _workersController;
+  late final TextEditingController _buildingController;
+  late final TextEditingController _roomController;
   
   late final TextEditingController _laborCostController;
   late final TextEditingController _energyCostController;
@@ -59,6 +62,7 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
       workers = s.workers;
       selectedMachineId = s.machineId;
       selectedMachineName = s.machineName;
+      secondaryMachineIds = List.from(s.secondaryMachineIds);
       laborCost = s.laborCost;
       energyCost = s.energyCost;
       materialCost = s.materialCost;
@@ -69,6 +73,8 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
       _nameController = TextEditingController(text: s.name);
       _cycleTimeController = TextEditingController(text: s.cycleTime.toStringAsFixed(2));
       _workersController = TextEditingController(text: s.workers.toString());
+      _buildingController = TextEditingController(text: s.building ?? '');
+      _roomController = TextEditingController(text: s.room ?? '');
       _laborCostController = TextEditingController(text: s.laborCost.toStringAsFixed(2));
       _energyCostController = TextEditingController(text: s.energyCost.toStringAsFixed(2));
       _materialCostController = TextEditingController(text: s.materialCost.toStringAsFixed(2));
@@ -77,6 +83,8 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
       _nameController = TextEditingController(text: 'Station');
       _cycleTimeController = TextEditingController(text: '20.0');
       _workersController = TextEditingController(text: '1');
+      _buildingController = TextEditingController();
+      _roomController = TextEditingController();
       _laborCostController = TextEditingController(text: '300.0');
       _energyCostController = TextEditingController(text: '0.0');
       _materialCostController = TextEditingController(text: '0.0');
@@ -89,6 +97,8 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
     _cycleTimeController.dispose();
     _nameController.dispose();
     _workersController.dispose();
+    _buildingController.dispose();
+    _roomController.dispose();
     _laborCostController.dispose();
     _energyCostController.dispose();
     _materialCostController.dispose();
@@ -333,6 +343,103 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
                       ],
                     ),
                   ),
+
+                const SizedBox(height: 12),
+                // Building & Room
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _buildingController,
+                        decoration: const InputDecoration(
+                          labelText: 'อาคาร (Building)',
+                          hintText: 'เช่น อาคาร 1, อาคาร 2',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.apartment_rounded, size: 18),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _roomController,
+                        decoration: const InputDecoration(
+                          labelText: 'ห้อง (Room)',
+                          hintText: 'เช่น ห้องอัดแคปซูล 1',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.meeting_room_outlined, size: 18),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                // Secondary / Backup Machines Selector
+                machinesAsync.when(
+                  data: (machines) {
+                    final candidateBackups = machines.where((m) => m.machineId != selectedMachineId).toList();
+                    return Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.2)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.swap_horiz_rounded, size: 16, color: Colors.blueGrey),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'เครื่องจักรรอง / เครื่องสำรอง (Backup Machines)',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '${secondaryMachineIds.length} เครื่อง',
+                                style: const TextStyle(fontSize: 11, color: Colors.blueGrey),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          if (candidateBackups.isEmpty)
+                            const Text('ไม่มีเครื่องจักรอื่น', style: TextStyle(fontSize: 11, color: Colors.grey))
+                          else
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: candidateBackups.map((m) {
+                                final isSelected = secondaryMachineIds.contains(m.machineId);
+                                final label = m.machineNo.isNotEmpty ? '[${m.machineNo}] ${m.machineName ?? ''}' : (m.machineName ?? '');
+                                return FilterChip(
+                                  selected: isSelected,
+                                  label: Text(label, style: const TextStyle(fontSize: 11)),
+                                  onSelected: (selected) {
+                                    setState(() {
+                                      if (selected) {
+                                        if (m.machineId != null && !secondaryMachineIds.contains(m.machineId)) {
+                                          secondaryMachineIds.add(m.machineId!);
+                                        }
+                                      } else {
+                                        secondaryMachineIds.remove(m.machineId);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, _) => const SizedBox.shrink(),
+                ),
               ],
 
               if (isCalculating)
@@ -354,6 +461,8 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('ยกเลิก')),
         ElevatedButton(
           onPressed: selectedMachineId == null ? null : () {
+            final bld = _buildingController.text.trim().isEmpty ? null : _buildingController.text.trim();
+            final rm = _roomController.text.trim().isEmpty ? null : _roomController.text.trim();
             if (widget.initialStation != null) {
               widget.notifier.updateStation(
                 widget.initialStation!.id,
@@ -361,6 +470,9 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
                 cycleTime,
                 machineId: selectedMachineId,
                 machineName: selectedMachineName,
+                secondaryMachineIds: secondaryMachineIds,
+                building: bld,
+                room: rm,
                 workers: workers,
                 laborCost: laborCost,
                 energyCost: energyCost,
@@ -375,6 +487,9 @@ class _AddStationDialogState extends ConsumerState<AddStationDialog> {
                 cycleTime,
                 machineId: selectedMachineId,
                 machineName: selectedMachineName,
+                secondaryMachineIds: secondaryMachineIds,
+                building: bld,
+                room: rm,
                 workers: workers,
                 laborCost: laborCost,
                 energyCost: energyCost,

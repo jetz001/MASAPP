@@ -23,6 +23,9 @@ class WorkstationData {
   final double cycleTime; // in seconds
   final String? machineId;
   final String? machineName;
+  final List<String> secondaryMachineIds; // Backup/alternate machine IDs
+  final String? building; // e.g. 'อาคาร 1'
+  final String? room; // e.g. 'ห้องอัดแคปซูล 1'
   final int workers; // number of workers
 
   // Lean Classification
@@ -48,6 +51,9 @@ class WorkstationData {
     required this.cycleTime,
     this.machineId,
     this.machineName,
+    this.secondaryMachineIds = const [],
+    this.building,
+    this.room,
     this.workers = 1,
     this.eventType = 'operation',
     this.valueType = 'va',
@@ -70,6 +76,9 @@ class WorkstationData {
     double? cycleTime,
     String? machineId,
     String? machineName,
+    List<String>? secondaryMachineIds,
+    String? building,
+    String? room,
     int? workers,
     String? eventType,
     String? valueType,
@@ -89,6 +98,9 @@ class WorkstationData {
       cycleTime: cycleTime ?? this.cycleTime,
       machineId: machineId ?? this.machineId,
       machineName: machineName ?? this.machineName,
+      secondaryMachineIds: secondaryMachineIds ?? this.secondaryMachineIds,
+      building: building ?? this.building,
+      room: room ?? this.room,
       workers: workers ?? this.workers,
       eventType: eventType ?? this.eventType,
       valueType: valueType ?? this.valueType,
@@ -450,12 +462,23 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           rawY -= 2000.0;
         }
 
+        List<String> secMcs = [];
+        try {
+          if (s['secondary_machine_ids'] != null &&
+              s['secondary_machine_ids'].toString().isNotEmpty) {
+            secMcs = List<String>.from(jsonDecode(s['secondary_machine_ids']));
+          }
+        } catch (_) {}
+
         return WorkstationData(
           id: s['station_id'].toString(),
           name: s['station_name'] ?? 'สถานีงาน',
           cycleTime: (s['cycle_time_sec'] as num?)?.toDouble() ?? 0.0,
           machineId: s['machine_id']?.toString(),
           machineName: s['machine_name']?.toString(),
+          secondaryMachineIds: secMcs,
+          building: s['building']?.toString(),
+          room: s['room']?.toString(),
           workers: (s['workers'] as num?)?.toInt() ?? 1,
           eventType: s['event_type'] ?? 'operation',
           valueType: s['value_type'] ?? 'va',
@@ -542,11 +565,13 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
         await DbHelper.execute('''
           INSERT INTO production_line_stations (
             station_id, line_id, station_no, station_name, machine_id, machine_name,
+            secondary_machine_ids, building, room,
             cycle_time_sec, workers, labor_cost, energy_cost, material_cost, other_cost,
             event_type, value_type, waiting_time_sec, buffer_quantity,
             pos_x, pos_y, prev_station_ids, next_station_ids
           ) VALUES (
             @id, @lineId, @no, @name, @mcId, @mcName,
+            @secMcs, @bld, @rm,
             @ct, @wk, @labor, @energy, @mat, @other,
             @evt, @val, @wait, @buf,
             @x, @y, @prev, @next
@@ -558,6 +583,9 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           'name': s.name,
           'mcId': s.machineId,
           'mcName': s.machineName,
+          'secMcs': jsonEncode(s.secondaryMachineIds),
+          'bld': s.building,
+          'rm': s.room,
           'ct': s.cycleTime,
           'wk': s.workers,
           'labor': s.laborCost,
@@ -602,6 +630,9 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
     double cycleTime, {
     String? machineId,
     String? machineName,
+    List<String> secondaryMachineIds = const [],
+    String? building,
+    String? room,
     int workers = 1,
     String eventType = 'operation',
     String valueType = 'va',
@@ -621,6 +652,9 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
       cycleTime: cycleTime,
       machineId: machineId,
       machineName: machineName,
+      secondaryMachineIds: secondaryMachineIds,
+      building: building,
+      room: room,
       workers: workers,
       eventType: eventType,
       valueType: valueType,
@@ -652,6 +686,9 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
     double cycleTime, {
     String? machineId,
     String? machineName,
+    List<String>? secondaryMachineIds,
+    String? building,
+    String? room,
     int? workers,
     String? eventType,
     String? valueType,
@@ -669,6 +706,9 @@ class LineBalancingNotifier extends StateNotifier<LineBalancingState> {
           cycleTime: cycleTime,
           machineId: machineId,
           machineName: machineName,
+          secondaryMachineIds: secondaryMachineIds,
+          building: building,
+          room: room,
           workers: workers,
           eventType: eventType,
           valueType: valueType,

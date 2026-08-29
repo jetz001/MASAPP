@@ -36,6 +36,7 @@ import '../../features/problem_solving/screens/problem_solving_screen.dart';
 import '../../features/action_plans/screens/action_plan_list_screen.dart';
 import '../../features/action_plans/screens/action_plan_detail_screen.dart';
 import '../../features/action_plans/screens/action_plan_form_screen.dart';
+import '../../features/machine_planning/screens/machine_planning_screen.dart';
 import '../widgets/app_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -203,6 +204,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/line_balancing',
             builder: (context, state) => const LineBalancingScreen(),
+          ),
+          // Machine Planning (Weekly Machine Allocation)
+          GoRoute(
+            path: '/machine-planning',
+            builder: (context, state) => const MachinePlanningScreen(),
           ),
           // Work Processes & Flow Chart
           GoRoute(
