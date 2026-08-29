@@ -111,7 +111,30 @@ class MachinePlanPdfService {
           },
           build: (pw.Context context) {
             return [
-              // Building Banner Table
+              // Building Banner
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                margin: const pw.EdgeInsets.only(bottom: 4),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('F0F4F8'),
+                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+                  border: pw.Border.all(color: PdfColor.fromHex('90CAF9'), width: 0.6),
+                ),
+                child: pw.Row(
+                  children: [
+                    pw.Text(
+                      'อาคาร: $buildingName',
+                      style: pw.TextStyle(font: boldFont, fontSize: 11, color: PdfColor.fromHex('0D47A1')),
+                    ),
+                    pw.SizedBox(width: 8),
+                    pw.Text(
+                      '(${items.length} รายการ)',
+                      style: pw.TextStyle(font: regularFont, fontSize: 9, color: PdfColors.grey700),
+                    ),
+                  ],
+                ),
+              ),
+              // Building Table
               pw.Table(
                 border: pw.TableBorder.all(color: PdfColors.black, width: 0.8),
                 columnWidths: {
@@ -128,7 +151,7 @@ class MachinePlanPdfService {
                   10: const pw.FixedColumnWidth(110), // หมายเหตุ
                 },
                 children: [
-                  // Row 1: Building Header row
+                  // Row 1: Header row
                   pw.TableRow(
                     children: [
                       pw.Container(
@@ -142,8 +165,8 @@ class MachinePlanPdfService {
                         padding: const pw.EdgeInsets.symmetric(vertical: 4),
                         color: PdfColor.fromHex('E0E0E0'),
                         child: pw.Text(
-                          buildingName,
-                          style: pw.TextStyle(font: boldFont, fontSize: 13, color: PdfColors.black),
+                          'เครื่องจักร',
+                          style: pw.TextStyle(font: boldFont, fontSize: 10, color: PdfColors.black),
                         ),
                       ),
                       ...days.map((d) {

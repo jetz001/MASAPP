@@ -470,234 +470,284 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
           ),
         ],
       ),
-      child: DataTable(
-        headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
-        dataRowMinHeight: 48,
-        dataRowMaxHeight: 56,
-        columnSpacing: 10,
-        horizontalMargin: 8,
-        border: const TableBorder(
-          horizontalInside: BorderSide(color: Colors.black45, width: 0.6),
-          verticalInside: BorderSide(color: Colors.black45, width: 0.6),
-        ),
-        columns: [
-          // ลำดับ
-          const DataColumn(
-            label: SizedBox(
-              width: 36,
-              child: Center(
-                child: Text(
-                  'ลำดับ',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Building Section Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.shade50,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+              border: const Border(bottom: BorderSide(color: Colors.black26, width: 1)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.apartment_rounded, size: 16, color: Colors.blueAccent),
+                const SizedBox(width: 6),
+                Text(
+                  buildingName,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueAccent),
                 ),
-              ),
-            ),
-          ),
-          // อาคาร / เครื่องจักร
-          DataColumn(
-            label: SizedBox(
-              width: 190,
-              child: Row(
-                children: [
-                  const Icon(Icons.apartment_rounded, size: 16, color: Colors.blueAccent),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      buildingName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Colors.blueAccent,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Days Mon - Sat
-          ...days.map((day) {
-            final dayOffset = days.indexOf(day);
-            final dayDate = weekStartDate.add(Duration(days: dayOffset));
-            final beYear = ((dayDate.year + 543) % 100).toString().padLeft(2, '0');
-            final dateLabel = '${DateFormat('dd/MM').format(dayDate)}/$beYear';
-
-            return DataColumn(
-              label: SizedBox(
-                width: 95,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                  decoration: BoxDecoration(
-                    color: day.headerColor,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        day.labelTh,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 11.5,
-                          color: day.headerTextColor,
-                        ),
-                      ),
-                      Text(
-                        dateLabel,
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: day.headerTextColor.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ],
-                  ),
+                const SizedBox(width: 8),
+                Text(
+                  '(${items.length} รายการ)',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
-              ),
-            );
-          }),
-          // ห้อง
-          const DataColumn(
-            label: SizedBox(
-              width: 100,
-              child: Text(
-                'ห้อง',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-              ),
+              ],
             ),
           ),
-          // หมายเหตุ
-          const DataColumn(
-            label: SizedBox(
-              width: 160,
-              child: Text(
-                'หมายเหตุ',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red),
-              ),
+          DataTable(
+            headingRowColor: WidgetStateProperty.all(Colors.grey.shade200),
+            dataRowMinHeight: 48,
+            dataRowMaxHeight: 56,
+            columnSpacing: 10,
+            horizontalMargin: 8,
+            border: const TableBorder(
+              horizontalInside: BorderSide(color: Colors.black45, width: 0.6),
+              verticalInside: BorderSide(color: Colors.black45, width: 0.6),
             ),
-          ),
-          // Action
-          const DataColumn(
-            label: SizedBox(
-              width: 44,
-              child: Center(
-                child: Text(
-                  'จัดการ',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                ),
-              ),
-            ),
-          ),
-        ],
-        rows: items.asMap().entries.map((entry) {
-          final index = entry.key + 1;
-          final item = entry.value;
-
-          return DataRow(
-            cells: [
-              // No
-              DataCell(
-                SizedBox(
+            columns: [
+              // ลำดับ
+              const DataColumn(
+                label: SizedBox(
                   width: 36,
                   child: Center(
                     child: Text(
-                      '$index',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                      'ลำดับ',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ),
                 ),
               ),
-              // Machine Code & Name with Backup switcher
-              DataCell(
-                SizedBox(
+              // อาคาร
+              const DataColumn(
+                label: SizedBox(
+                  width: 85,
+                  child: Text(
+                    'อาคาร',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ),
+              // เครื่องจักร
+              const DataColumn(
+                label: SizedBox(
                   width: 190,
-                  child: _buildMachineCell(context, item, notifier),
+                  child: Text(
+                    'เครื่องจักร',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
                 ),
               ),
-              // Mon - Sat cells
-              ...days.map((day) => _buildDayCell(context, item, day, notifier)),
-              // Room Cell
-              DataCell(
-                SizedBox(
-                  width: 100,
-                  child: InkWell(
-                    onTap: () => _editRoomDialog(context, item, notifier),
-                    child: Padding(
+              // Days Mon - Sat
+              ...days.map((day) {
+                final dayOffset = days.indexOf(day);
+                final dayDate = weekStartDate.add(Duration(days: dayOffset));
+                final beYear = ((dayDate.year + 543) % 100).toString().padLeft(2, '0');
+                final dateLabel = '${DateFormat('dd/MM').format(dayDate)}/$beYear';
+
+                return DataColumn(
+                  label: SizedBox(
+                    width: 95,
+                    child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                      child: Row(
+                      decoration: BoxDecoration(
+                        color: day.headerColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Expanded(
-                            child: Text(
-                              item.room?.isNotEmpty == true ? item.room! : 'ระบุห้อง...',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: item.room?.isNotEmpty == true
-                                    ? Colors.black87
-                                    : Colors.grey.shade400,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                          Text(
+                            day.labelTh,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11.5,
+                              color: day.headerTextColor,
                             ),
                           ),
-                          Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
+                          Text(
+                            dateLabel,
+                            style: TextStyle(
+                              fontSize: 9,
+                              color: day.headerTextColor.withValues(alpha: 0.9),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                ),
-              ),
-              // Remarks Cell
-              DataCell(
-                SizedBox(
-                  width: 160,
-                  child: InkWell(
-                    onTap: () => _editRemarksDialog(context, item, notifier),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item.remarks.isNotEmpty ? item.remarks : 'เพิ่มหมายเหตุ...',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: item.remarks.contains('**')
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color: item.remarks.contains('**')
-                                    ? Colors.red.shade800
-                                    : (item.remarks.isNotEmpty
-                                        ? Colors.black87
-                                        : Colors.grey.shade400),
-                              ),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
-                        ],
-                      ),
-                    ),
+                );
+              }),
+              // ห้อง
+              const DataColumn(
+                label: SizedBox(
+                  width: 90,
+                  child: Text(
+                    'ห้อง',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
               ),
-              // Action (Delete)
-              DataCell(
-                SizedBox(
+              // หมายเหตุ
+              const DataColumn(
+                label: SizedBox(
+                  width: 150,
+                  child: Text(
+                    'หมายเหตุ',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.red),
+                  ),
+                ),
+              ),
+              // Action
+              const DataColumn(
+                label: SizedBox(
                   width: 44,
                   child: Center(
-                    child: IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
-                      tooltip: 'ลบออกจากตารางสัปดาห์นี้',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => _confirmDeleteItem(context, item, notifier),
+                    child: Text(
+                      'จัดการ',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ),
                 ),
               ),
             ],
-          );
-        }).toList(),
+            rows: items.asMap().entries.map((entry) {
+              final index = entry.key + 1;
+              final item = entry.value;
+
+              return DataRow(
+                cells: [
+                  // No
+                  DataCell(
+                    SizedBox(
+                      width: 36,
+                      child: Center(
+                        child: Text(
+                          '$index',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Building Cell (Editable)
+                  DataCell(
+                    SizedBox(
+                      width: 85,
+                      child: InkWell(
+                        onTap: () => _editBuildingDialog(context, item, notifier),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.building?.isNotEmpty == true ? item.building! : buildingName,
+                                  style: const TextStyle(fontSize: 11.5, color: Colors.black87),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(Icons.edit, size: 10, color: Colors.grey.shade400),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Machine Code & Name with Backup switcher
+                  DataCell(
+                    SizedBox(
+                      width: 190,
+                      child: _buildMachineCell(context, item, notifier),
+                    ),
+                  ),
+                  // Mon - Sat cells
+                  ...days.map((day) => _buildDayCell(context, item, day, notifier)),
+                  // Room Cell
+                  DataCell(
+                    SizedBox(
+                      width: 90,
+                      child: InkWell(
+                        onTap: () => _editRoomDialog(context, item, notifier),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.room?.isNotEmpty == true ? item.room! : 'ระบุห้อง...',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    color: item.room?.isNotEmpty == true
+                                        ? Colors.black87
+                                        : Colors.grey.shade400,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Remarks Cell
+                  DataCell(
+                    SizedBox(
+                      width: 150,
+                      child: InkWell(
+                        onTap: () => _editRemarksDialog(context, item, notifier),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  item.remarks.isNotEmpty ? item.remarks : 'เพิ่มหมายเหตุ...',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: item.remarks.contains('**')
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                    color: item.remarks.contains('**')
+                                        ? Colors.red.shade800
+                                        : (item.remarks.isNotEmpty
+                                            ? Colors.black87
+                                            : Colors.grey.shade400),
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(Icons.edit, size: 11, color: Colors.grey.shade400),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Action (Delete)
+                  DataCell(
+                    SizedBox(
+                      width: 44,
+                      child: Center(
+                        child: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                          tooltip: 'ลบออกจากตารางสัปดาห์นี้',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () => _confirmDeleteItem(context, item, notifier),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -838,6 +888,79 @@ class _MachinePlanningScreenState extends ConsumerState<MachinePlanningScreen> {
                   ],
                 ),
         ),
+      ),
+    );
+  }
+
+  void _editBuildingDialog(
+    BuildContext context,
+    MachinePlanItem item,
+    MachinePlanningNotifier notifier,
+  ) {
+    final controller = TextEditingController(text: item.building ?? '');
+    final presets = ['อาคาร 1', 'อาคาร 2', 'อาคาร 4', 'อาคาร 5', 'อาคาร 6'];
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.apartment_rounded, color: Colors.blueAccent),
+                SizedBox(width: 8),
+                Text('แก้ไขอาคาร (Building)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('เลือกอาคารด่วน:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: presets.map((p) {
+                      final isSel = controller.text.trim() == p;
+                      return ChoiceChip(
+                        label: Text(p, style: const TextStyle(fontSize: 11)),
+                        selected: isSel,
+                        onSelected: (selected) {
+                          if (selected) {
+                            setState(() => controller.text = p);
+                          }
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      labelText: 'ระบุชื่ออาคาร',
+                      hintText: 'เช่น อาคาร 1, อาคาร 2',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('ยกเลิก')),
+              FilledButton(
+                onPressed: () {
+                  notifier.updateItemDetails(item.itemId, building: controller.text.trim());
+                  Navigator.pop(ctx);
+                },
+                child: const Text('บันทึก'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
