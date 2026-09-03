@@ -79,7 +79,7 @@ final workforceProvider =
                 d.dept_name
          FROM users u
          LEFT JOIN departments d ON d.dept_id = u.dept_id
-         WHERE (u.role != 'viewer' OR u.role IS NULL)$extraWhere
+         WHERE (u.role != 'viewer' OR u.role IS NULL) AND u.is_active = 1$extraWhere
          ORDER BY u.role, u.full_name''',
       params: params,
     );

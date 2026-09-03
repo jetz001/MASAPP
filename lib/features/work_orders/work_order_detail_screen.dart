@@ -1767,8 +1767,14 @@ class WorkOrderDetailScreen extends ConsumerWidget {
     WidgetRef ref,
     WorkOrder wo,
   ) async {
-    // Load users from DB for dropdown selection
-    final users = await DbHelper.query('SELECT user_id, full_name, username, role FROM users ORDER BY full_name');
+    // Load users from DB for dropdown selection (active only, plus current assignee if any)
+    final users = await DbHelper.query(
+      '''SELECT user_id, full_name, username, role, is_active 
+         FROM users 
+         WHERE is_active = 1 OR user_id = @currentUid 
+         ORDER BY full_name''',
+      params: {'currentUid': wo.assignedTo ?? ''},
+    );
     String? selectedAssignedTo = wo.assignedTo;
     DateTime selectedDate = wo.createdAt;
     TimeOfDay selectedTime = TimeOfDay.fromDateTime(wo.createdAt);
