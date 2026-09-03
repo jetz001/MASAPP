@@ -1,14 +1,11 @@
-import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
-
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 
 import '../../core/database/db_helper.dart';
 import 'work_order_models.dart';
@@ -80,12 +77,6 @@ class WorkOrderPdfService {
     final outsourceDate = outsourceRow?['created_at'] != null 
         ? DateTime.tryParse(outsourceRow!['created_at'].toString()) 
         : null;
-        
-    final o1ActualReturn = outsource1?['actual_return_date'] != null ? DateTime.tryParse(outsource1!['actual_return_date'].toString()) : null;
-    final o1Passed = outsource1?['is_passed_inspection'] == 1;
-
-    final o2ActualReturn = outsource2?['actual_return_date'] != null ? DateTime.tryParse(outsource2!['actual_return_date'].toString()) : null;
-    final o2Passed = outsource2?['is_passed_inspection'] == 1;
 
     // Use latest return for the signature block
     final actualReturnDate = outsourceRow?['actual_return_date'] != null

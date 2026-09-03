@@ -216,7 +216,7 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
         return ListView.separated(
           padding: const EdgeInsets.all(AppSpacing.xl),
           itemCount: activeTasks.length,
-          separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+          separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.md),
           itemBuilder: (context, index) {
             final t = activeTasks[index];
             return _TaskTile(task: t);
@@ -238,7 +238,7 @@ class _TechnicianProfileScreenState extends ConsumerState<TechnicianProfileScree
         return ListView.separated(
           padding: const EdgeInsets.all(AppSpacing.xl),
           itemCount: historyTasks.length,
-          separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.md),
+          separatorBuilder: (context, index) => const SizedBox(height: AppSpacing.md),
           itemBuilder: (context, index) {
             final t = historyTasks[index];
             return _TaskTile(task: t);
