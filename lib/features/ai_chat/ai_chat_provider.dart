@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
+import '../../core/ai/ai_rate_limiter.dart';
 import '../../core/ai/ai_service.dart';
 import '../../core/database/db_helper.dart';
 
@@ -110,6 +111,29 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
     final displayed = (displayText != null && displayText.trim().isNotEmpty)
         ? displayText.trim()
         : userText.trim();
+
+    if (!AiRateLimiter.instance.acquireLock()) {
+      final waitSec = AiRateLimiter.instance.remainingCooldownSeconds;
+      final notice = waitSec > 0
+          ? 'คุณส่งคำถามถี่เกินไป กรุณารอสักครู่ (ประมาณ $waitSec วินาที) แล้วลองใหม่อีกครั้งครับ'
+          : 'ระบบกำลังประมวลผลคำขอก่อนหน้าอยู่ กรุณารอให้ระบบประมวลผลเสร็จสิ้นก่อนครับ';
+
+      final userMsg = ChatMessage(
+        id: const Uuid().v4(),
+        role: ChatRole.user,
+        content: displayed,
+        createdAt: DateTime.now(),
+      );
+      final warningMsg = ChatMessage(
+        id: const Uuid().v4(),
+        role: ChatRole.assistant,
+        content: notice,
+        createdAt: DateTime.now(),
+        isError: true,
+      );
+      state = state.copyWith(messages: [...state.messages, userMsg, warningMsg]);
+      return;
+    }
 
     final userMsg = ChatMessage(
       id: const Uuid().v4(),
@@ -229,6 +253,8 @@ class AiChatNotifier extends StateNotifier<AiChatState> {
         return m;
       }).toList();
       state = state.copyWith(messages: updatedMessages);
+    } finally {
+      AiRateLimiter.instance.releaseLock();
     }
   }
 

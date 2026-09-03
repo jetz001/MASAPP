@@ -3651,11 +3651,14 @@ class AiToolHandler {
     }
 
     final tables = _extractTables(sql);
-    final readableTables = await _getReadableTables();
     for (final t in tables) {
       if (_blockedTables.contains(t)) {
         return '{"error": "Access to table \'$t\' is restricted."}';
       }
+    }
+
+    final readableTables = await _getReadableTables();
+    for (final t in tables) {
       if (!readableTables.contains(t)) {
         return '{"error": "Table \'$t\' is not available in this database."}';
       }

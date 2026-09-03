@@ -200,15 +200,17 @@ class AttachmentStorageService {
     final resolvedDbPath = storageRootPath?.trim().isNotEmpty == true
         ? storageRootPath!.trim()
         : DbHelper.dbPath;
+    final safeModuleType = moduleType.replaceAll(RegExp(r'[\\/:*?"<>|.]'), '_').trim();
+    final safeEntityId = entityId.replaceAll(RegExp(r'[\\/:*?"<>|.]'), '_').trim();
     final baseName =
-        '${moduleType}_${entityId}_${DateTime.now().millisecondsSinceEpoch}_${assetId.substring(0, 8)}';
+        '${safeModuleType}_${safeEntityId}_${DateTime.now().millisecondsSinceEpoch}_${assetId.substring(0, 8)}';
     final rootDir = await _ensureDirectory(
       Directory(
         p.join(
           File(resolvedDbPath).parent.path,
           'storage',
-          moduleType,
-          entityId,
+          safeModuleType,
+          safeEntityId,
         ),
       ),
     );
